@@ -1,0 +1,818 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { useRouter, useParams } from 'next/navigation';
+import {
+  ArrowLeft,
+  Edit3,
+  Check,
+  X,
+  Download,
+  Info,
+  Truck,
+  FileText,
+  AlertTriangle,
+  ExternalLink,
+  RefreshCw
+} from 'lucide-react';
+import { getApiClient } from '../../../../store/auth';
+
+interface SupplierData {
+  id?: number;
+  name?: string;
+  legal_name?: string;
+  vat_id?: string;
+  address?: string;
+}
+
+interface InvoiceLineData {
+  id: number;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  product_name?: string;
+  unit?: string;
+  iva_pct?: number;
+  base?: number;
+  provider_code?: string;
+}
+
+interface TaxBracketData {
+  id: number;
+  rate_pct: number;
+  base: number;
+  iva_amount: number;
+  row_total: number;
+  equivalence_surcharge_rate?: number;
+  equivalence_surcharge?: number;
+}
+
+interface InvoiceDetail {
+  id: number;
+  invoice_number?: string;
+  document_number?: string;
+  issue_date?: string;
+  total_amount: number;
+  status: string;
+  supplier?: SupplierData;
+  lines: InvoiceLineData[];
+  tax_brackets: TaxBracketData[];
+  payment_status?: string;
+  reconciliation_status?: string;
+  needs_review: boolean;
+  ocr_confidence?: number;
+  extraction_method?: string;
+  supplier_contact_count?: number;
+  green_point?: number;
+  ibee?: number;
+  attributable_cost?: number;
+  tax_free_costs?: number;
+  source_file?: string;
+}
+
+export default function DocumentDetailPage() {
+  const router = useRouter();
+  const params = useParams();
+  const id = params.id as string;
+
+  const [loading, setLoading] = useState(true);
+  const [invoice, setInvoice] = useState<InvoiceDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Editing States
+  const [editSupplier, setEditSupplier] = useState(false);
+  const [supplierName, setSupplierName] = useState('');
+  const [supplierLegalName, setSupplierLegalName] = useState('');
+  const [supplierVatId, setSupplierVatId] = useState('');
+
+  const [editGeneral, setEditGeneral] = useState(false);
+  const [docType, setDocType] = useState('Invoice');
+  const [docNum, setDocNum] = useState('');
+  const [docDate, setDocDate] = useState('');
+  const [docCategory] = useState('Marketing and communication');
+
+  const [editTotals, setEditTotals] = useState(false);
+  const [baseAmount, setBaseAmount] = useState(0);
+  const [vatAmount, setVatAmount] = useState(0);
+  const [discount, setDiscount] = useState(0);
+  const [paye, setPaye] = useState(0);
+  const [greenPoint, setGreenPoint] = useState(0);
+  const [ibee, setIbee] = useState(0);
+  const [attributableCost, setAttributableCost] = useState(0);
+  const [taxFreeCosts, setTaxFreeCosts] = useState(0);
+
+  // Load Invoice Details from Backend
+  useEffect(() => {
+    if (!id) return;
+
+    const fetchDetails = async () => {
+      setLoading(true);
+      try {
+        const client = getApiClient();
+        const data = await client.getInvoiceDetails(Number(id));
+        setInvoice(data);
+
+        // Initialize editing inputs
+        if (data) {
+          setSupplierName(data.supplier?.name || data.supplier_display_name || '');
+          setSupplierLegalName(data.supplier?.legal_name || data.supplier_legal_name || '');
+          setSupplierVatId(data.supplier?.vat_id || data.supplier_tax_id || '');
+
+          setDocNum(data.document_number || data.invoice_number || '');
+          setDocDate(data.issue_date ? new Date(data.issue_date).toISOString().split('T')[0] : '');
+
+          setBaseAmount(data.base_amount || data.total_amount || 0);
+          setVatAmount(data.iva_amount || 0);
+          setDiscount(data.discount || 0);
+          setPaye(data.paye || 0);
+          setGreenPoint(data.green_point || 0);
+          setIbee(data.ibee || 0);
+          setAttributableCost(data.attributable_cost || 0);
+          setTaxFreeCosts(data.tax_free_costs || 0);
+        }
+      } catch (err: any) {
+        console.error('Error loading invoice details:', err);
+        setError('Failed to load document details. Please ensure the backend is running.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDetails();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-80px)] gap-3">
+        <RefreshCw size={36} className="text-primary animate-spin" />
+        <p className="text-sm text-muted-foreground">Loading document details...</p>
+      </div>
+    );
+  }
+
+  if (error || !invoice) {
+    return (
+      <div className="p-6 max-w-xl mx-auto text-center space-y-4">
+        <AlertTriangle size={48} className="text-red-500 mx-auto" />
+        <h2 className="text-xl font-bold text-foreground">Error Loading Document</h2>
+        <p className="text-sm text-muted-foreground">{error || 'Document not found.'}</p>
+        <button
+          onClick={() => router.push('/dashboard/documents')}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+        >
+          Back to Documents
+        </button>
+      </div>
+    );
+  }
+
+  // Format currency helper
+  const formatCurrency = (val: number | undefined) => {
+    if (val === undefined || isNaN(val)) return '€0.00';
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'EUR'
+    }).format(val);
+  };
+
+  // MinIO preview URL
+  const fileExtension =
+    (invoice.source_file ? invoice.source_file.split('.').pop()?.toLowerCase() : 'pdf') || 'pdf';
+  const objectName = `invoice_${invoice.id}.${fileExtension}`;
+  const fileUrl = `http://localhost:9010/invoices/${objectName}?cb=${invoice.id}`;
+
+  // Formatted display values
+  const standardVatRates = [0, 2, 4, 5, 7.5, 10, 12, 21];
+
+  const handleSaveSupplier = () => {
+    if (invoice) {
+      setInvoice({
+        ...invoice,
+        supplier: {
+          ...invoice.supplier,
+          name: supplierName,
+          legal_name: supplierLegalName,
+          vat_id: supplierVatId
+        }
+      });
+    }
+    setEditSupplier(false);
+  };
+
+  const handleSaveGeneral = () => {
+    if (invoice) {
+      setInvoice({
+        ...invoice,
+        document_number: docNum,
+        invoice_number: docNum,
+        issue_date: docDate
+      });
+    }
+    setEditGeneral(false);
+  };
+
+  const handleSaveTotals = () => {
+    if (invoice) {
+      setInvoice({
+        ...invoice,
+        total_amount:
+          baseAmount + vatAmount + greenPoint + ibee + attributableCost + taxFreeCosts - discount,
+        green_point: greenPoint,
+        ibee: ibee,
+        attributable_cost: attributableCost,
+        tax_free_costs: taxFreeCosts
+      });
+    }
+    setEditTotals(false);
+  };
+
+  return (
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1440px] mx-auto font-sans flex flex-col gap-6">
+      {/* Back Header */}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => router.push('/dashboard/documents')}
+          className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors group"
+        >
+          <ArrowLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
+          <span>Documents</span>
+        </button>
+        <div className="flex items-center gap-2">
+          {invoice.needs_review && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#fbf1dd] text-[#b07a1a] text-xs font-semibold">
+              <AlertTriangle size={14} />
+              Review required
+            </span>
+          )}
+          <span className="inline-flex items-center px-3 py-1 rounded-full bg-[#e6f4ec] text-[#1f8f5c] text-xs font-semibold capitalize">
+            {invoice.status.toLowerCase()}
+          </span>
+        </div>
+      </div>
+
+      {/* Needs Review Alert Panel */}
+      {invoice.needs_review && (
+        <div className="bg-[#fbf1dd]/40 border border-[#fbf1dd] rounded-xl p-4 flex gap-3 shadow-xs">
+          <AlertTriangle size={18} className="text-[#b07a1a] shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <h3 className="font-semibold text-foreground text-sm">Extraction Review Needed</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Gemini flagged this document because some fields require human validation. Common
+              reasons include missing supplier matching or low confidence scores.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Main Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Column: Document File Preview (4 cols) */}
+        <div className="lg:col-span-4 bg-card border border-border rounded-xl p-4 flex flex-col gap-4 shadow-sm min-h-[500px]">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <FileText size={15} />
+              Document Source
+            </h2>
+            <div className="flex items-center gap-1">
+              <a
+                href={fileUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg transition-colors"
+                title="Open original file"
+              >
+                <ExternalLink size={15} />
+              </a>
+              <a
+                href={fileUrl}
+                download
+                className="p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg transition-colors"
+                title="Download original file"
+              >
+                <Download size={15} />
+              </a>
+            </div>
+          </div>
+
+          <div className="relative flex-1 bg-muted/30 rounded-lg flex items-center justify-center border border-dashed border-border p-2 overflow-hidden min-h-[400px]">
+            {fileExtension === 'pdf' ? (
+              <embed src={fileUrl} type="application/pdf" className="w-full h-[500px] rounded-md" />
+            ) : ['png', 'jpg', 'jpeg', 'webp'].includes(fileExtension) ? (
+              <img
+                src={fileUrl}
+                alt="Document preview"
+                className="max-w-full max-h-[500px] object-contain rounded-md"
+              />
+            ) : (
+              <div className="text-center space-y-2 p-8">
+                <FileText size={48} className="text-muted-foreground/40 mx-auto" />
+                <p className="text-xs text-muted-foreground">
+                  Preview not available for .{fileExtension} files
+                </p>
+                <a
+                  href={fileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex text-xs font-semibold text-primary hover:underline"
+                >
+                  Open directly
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Column: Cards (8 cols) */}
+        <div className="lg:col-span-8 flex flex-col gap-6">
+          {/* Supplier & General Information Grids */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Supplier Card */}
+            <div className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm relative">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                  <Truck size={16} />
+                  Supplier
+                </h2>
+                {!editSupplier ? (
+                  <button
+                    onClick={() => setEditSupplier(true)}
+                    className="text-xs font-semibold border border-border hover:bg-muted px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    Edit
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={handleSaveSupplier}
+                      className="p-1 hover:bg-[#e6f4ec] text-[#1f8f5c] rounded-lg transition-colors"
+                    >
+                      <Check size={16} />
+                    </button>
+                    <button
+                      onClick={() => setEditSupplier(false)}
+                      className="p-1 hover:bg-[#fceaea] text-[#b23a3a] rounded-lg transition-colors"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {!editSupplier ? (
+                <div className="space-y-3 pt-1">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-[#e6eef8] border border-[#e2e1dd] text-[#2f6bb0] flex items-center justify-center text-sm font-bold shadow-2xs">
+                      {supplierName.slice(0, 1).toUpperCase() || 'M'}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-foreground text-sm">
+                        {supplierName || 'Unknown Supplier'}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{supplierVatId || '—'}</p>
+                    </div>
+                  </div>
+                  {supplierLegalName && (
+                    <div className="pt-1 text-xs text-muted-foreground border-t border-border/60">
+                      <span className="font-medium text-foreground block">Legal Name</span>
+                      {supplierLegalName}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2.5 pt-1">
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                      Supplier Name
+                    </label>
+                    <input
+                      type="text"
+                      value={supplierName}
+                      onChange={(e) => setSupplierName(e.target.value)}
+                      className="w-full mt-1 p-2 bg-muted/40 border border-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                      Legal Name
+                    </label>
+                    <input
+                      type="text"
+                      value={supplierLegalName}
+                      onChange={(e) => setSupplierLegalName(e.target.value)}
+                      className="w-full mt-1 p-2 bg-muted/40 border border-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                      VAT ID / Tax ID
+                    </label>
+                    <input
+                      type="text"
+                      value={supplierVatId}
+                      onChange={(e) => setSupplierVatId(e.target.value)}
+                      className="w-full mt-1 p-2 bg-muted/40 border border-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* General Information Card */}
+            <div className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+                  <Info size={16} />
+                  General information
+                </h2>
+                {!editGeneral ? (
+                  <button
+                    onClick={() => setEditGeneral(true)}
+                    className="text-xs font-semibold border border-border hover:bg-muted px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    Edit
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={handleSaveGeneral}
+                      className="p-1 hover:bg-[#e6f4ec] text-[#1f8f5c] rounded-lg transition-colors"
+                    >
+                      <Check size={16} />
+                    </button>
+                    <button
+                      onClick={() => setEditGeneral(false)}
+                      className="p-1 hover:bg-[#fceaea] text-[#b23a3a] rounded-lg transition-colors"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {!editGeneral ? (
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between items-center py-0.5 border-b border-border/40">
+                    <span className="text-muted-foreground text-xs">Document type</span>
+                    <span className="font-medium text-foreground">{docType}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-0.5 border-b border-border/40">
+                    <span className="text-muted-foreground text-xs">Document number</span>
+                    <span className="font-mono text-foreground font-semibold">{docNum || '—'}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-0.5 border-b border-border/40">
+                    <span className="text-muted-foreground text-xs">Date</span>
+                    <span className="font-medium text-foreground">
+                      {docDate ? new Date(docDate).toLocaleDateString('en-US') : '—'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-0.5">
+                    <span className="text-muted-foreground text-xs">Category</span>
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-[#e6eef8] text-[#2f6bb0] text-xs font-medium">
+                      {docCategory}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2.5 pt-1">
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                      Document Type
+                    </label>
+                    <select
+                      value={docType}
+                      onChange={(e) => setDocType(e.target.value)}
+                      className="w-full mt-1 p-2 bg-muted/40 border border-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary/20"
+                    >
+                      <option>Invoice</option>
+                      <option>Credit note</option>
+                      <option>Receipt</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                      Document Number
+                    </label>
+                    <input
+                      type="text"
+                      value={docNum}
+                      onChange={(e) => setDocNum(e.target.value)}
+                      className="w-full mt-1 p-2 bg-muted/40 border border-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary/20 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                      Document Date
+                    </label>
+                    <input
+                      type="date"
+                      value={docDate}
+                      onChange={(e) => setDocDate(e.target.value)}
+                      className="w-full mt-1 p-2 bg-muted/40 border border-border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-primary/20"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Totals & VAT breakdown sections */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Total (with VAT) Card */}
+            <div className="bg-card border border-border rounded-xl p-5 space-y-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
+                    TOTAL (with VAT)
+                  </span>
+                  <span className="text-3xl font-extrabold text-foreground font-mono mt-1 block">
+                    {formatCurrency(invoice.total_amount)}
+                  </span>
+                </div>
+                {!editTotals ? (
+                  <button
+                    onClick={() => setEditTotals(true)}
+                    className="p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg transition-colors"
+                  >
+                    <Edit3 size={15} />
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={handleSaveTotals}
+                      className="p-1.5 hover:bg-[#e6f4ec] text-[#1f8f5c] rounded-lg transition-colors"
+                    >
+                      <Check size={16} />
+                    </button>
+                    <button
+                      onClick={() => setEditTotals(false)}
+                      className="p-1.5 hover:bg-[#fceaea] text-[#b23a3a] rounded-lg transition-colors"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {!editTotals ? (
+                <div className="grid grid-cols-2 gap-3 pt-2 text-sm border-t border-border/40">
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground block">Base amount</span>
+                    <span className="font-semibold text-foreground font-mono">
+                      {formatCurrency(invoice.total_amount - vatAmount)}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground block">VAT amount</span>
+                    <span className="font-semibold text-foreground font-mono">
+                      {formatCurrency(vatAmount)}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground block">Discount</span>
+                    <span className="font-semibold text-foreground font-mono">
+                      {formatCurrency(discount)}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground block">PAYE</span>
+                    <span className="font-semibold text-foreground font-mono">
+                      {formatCurrency(paye)}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground block">Green Point</span>
+                    <span className="font-semibold text-foreground font-mono">
+                      {formatCurrency(greenPoint)}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground block">IBEE</span>
+                    <span className="font-semibold text-foreground font-mono">
+                      {formatCurrency(ibee)}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground block">Attributable cost</span>
+                    <span className="font-semibold text-foreground font-mono">
+                      {formatCurrency(attributableCost)}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground block">Tax-free costs</span>
+                    <span className="font-semibold text-foreground font-mono">
+                      {formatCurrency(taxFreeCosts)}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 pt-1 border-t border-border/40 max-h-[300px] overflow-y-auto pr-1">
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                      Base amount
+                    </label>
+                    <input
+                      type="number"
+                      value={baseAmount}
+                      onChange={(e) => setBaseAmount(Number(e.target.value))}
+                      className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                      VAT amount
+                    </label>
+                    <input
+                      type="number"
+                      value={vatAmount}
+                      onChange={(e) => setVatAmount(Number(e.target.value))}
+                      className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                      Discount
+                    </label>
+                    <input
+                      type="number"
+                      value={discount}
+                      onChange={(e) => setDiscount(Number(e.target.value))}
+                      className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                      PAYE
+                    </label>
+                    <input
+                      type="number"
+                      value={paye}
+                      onChange={(e) => setPaye(Number(e.target.value))}
+                      className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                      Green Point
+                    </label>
+                    <input
+                      type="number"
+                      value={greenPoint}
+                      onChange={(e) => setGreenPoint(Number(e.target.value))}
+                      className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                      IBEE
+                    </label>
+                    <input
+                      type="number"
+                      value={ibee}
+                      onChange={(e) => setIbee(Number(e.target.value))}
+                      className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                      Attributable Cost
+                    </label>
+                    <input
+                      type="number"
+                      value={attributableCost}
+                      onChange={(e) => setAttributableCost(Number(e.target.value))}
+                      className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground uppercase">
+                      Tax-free Costs
+                    </label>
+                    <input
+                      type="number"
+                      value={taxFreeCosts}
+                      onChange={(e) => setTaxFreeCosts(Number(e.target.value))}
+                      className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* VAT breakdown Card */}
+            <div className="bg-card border border-border rounded-xl shadow-sm flex flex-col overflow-hidden">
+              <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+                <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">
+                  VAT breakdown
+                </h2>
+              </div>
+              <div className="flex-1 overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead>
+                    <tr className="bg-[#fafaf8] border-b border-border text-muted-foreground font-semibold">
+                      <th className="px-3 py-2 text-center">VAT</th>
+                      <th className="px-3 py-2 text-right">Base amount</th>
+                      <th className="px-3 py-2 text-right">VAT (€)</th>
+                      <th className="px-3 py-2 text-center">IS (%)</th>
+                      <th className="px-3 py-2 text-right">ES (€)</th>
+                      <th className="px-3 py-2 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {standardVatRates.map((rate) => {
+                      // Look up matching bracket
+                      const bracket = invoice.tax_brackets?.find(
+                        (b) => Math.round(b.rate_pct) === rate
+                      );
+
+                      return (
+                        <tr key={rate} className="border-b border-border/40 hover:bg-muted/10">
+                          <td className="px-3 py-2 text-center font-bold text-foreground bg-muted/10">
+                            {rate}%
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {bracket ? formatCurrency(bracket.base) : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {bracket ? formatCurrency(bracket.iva_amount) : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-center font-mono text-muted-foreground">
+                            {bracket?.equivalence_surcharge_rate !== undefined
+                              ? `${bracket.equivalence_surcharge_rate}%`
+                              : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono">
+                            {bracket?.equivalence_surcharge !== undefined
+                              ? formatCurrency(bracket.equivalence_surcharge)
+                              : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono font-bold text-foreground">
+                            {bracket ? formatCurrency(bracket.row_total) : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Invoice Line Items (Full Width Bottom) */}
+      <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden mt-2">
+        <div className="px-5 py-4 border-b border-border">
+          <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">
+            Line Items ({invoice.lines?.length || 0})
+          </h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead>
+              <tr className="bg-[#fafaf8] border-b border-border text-muted-foreground font-semibold">
+                <th className="px-5 py-3">Description</th>
+                <th className="px-5 py-3 text-right">Quantity</th>
+                <th className="px-5 py-3 text-right">Unit Price</th>
+                <th className="px-5 py-3 text-right">Total Base</th>
+                <th className="px-5 py-3 text-center">Tax %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoice.lines && invoice.lines.length > 0 ? (
+                invoice.lines.map((line) => (
+                  <tr
+                    key={line.id}
+                    className="border-b border-border/40 hover:bg-muted/20 transition-colors"
+                  >
+                    <td className="px-5 py-3 font-semibold text-foreground">{line.description}</td>
+                    <td className="px-5 py-3 text-right font-mono">
+                      {line.quantity} {line.unit || 'units'}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono text-muted-foreground">
+                      {formatCurrency(line.unit_price)}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono font-bold text-foreground">
+                      {formatCurrency(line.total_price)}
+                    </td>
+                    <td className="px-5 py-3 text-center font-mono text-muted-foreground">
+                      {line.iva_pct !== undefined && line.iva_pct !== null
+                        ? `${line.iva_pct}%`
+                        : '—'}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={7} className="px-5 py-8 text-center text-muted-foreground">
+                    No line items found for this document.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

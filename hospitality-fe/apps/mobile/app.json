@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Hospitality Mobile",
+    "slug": "hospitality-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "packageName": "com.hospitality.mobile"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}

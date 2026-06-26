@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # Relational Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: hospitality-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hospitality
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Vector Database for AI embeddings
+  qdrant:
+    image: qdrant/qdrant:v1.9.0
+    container_name: hospitality-qdrant
+    restart: always
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  # In-memory Caching
+  redis:
+    image: redis:7-alpine
+    container_name: hospitality-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # Object Storage
+  minio:
+    image: minio/minio
+    container_name: hospitality-minio
+    restart: always
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9010:9000"
+      - "9011:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  redis_data:
+  minio_data:

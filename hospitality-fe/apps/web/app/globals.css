@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #fafaf8;
+  --foreground: #151515;
+  --card: #ffffff;
+  --card-foreground: #151515;
+  --popover: #ffffff;
+  --popover-foreground: #151515;
+  --primary: #151515;
+  --primary-foreground: #ffffff;
+  --secondary: #f5f4f1;
+  --secondary-foreground: #151515;
+  --muted: #f1f0ec;
+  --muted-foreground: #8c8c89;
+  --accent: #1f8f5c;
+  --accent-foreground: #ffffff;
+  --destructive: #b23a3a;
+  --destructive-foreground: #ffffff;
+  --border: #e2e1dd;
+  --input: #ffffff;
+  --input-background: #fafaf8;
+  --ring: #151515;
+  --radius: 10px;
+}
+
+.dark {
+  --background: #14130f;
+  --foreground: #efede7;
+  --card: #22211c;
+  --card-foreground: #efede7;
+  --popover: #1b1a16;
+  --popover-foreground: #efede7;
+  --primary: #efede7;
+  --primary-foreground: #14130f;
+  --secondary: #1b1a16;
+  --secondary-foreground: #b5b0a6;
+  --muted: #2e2c26;
+  --muted-foreground: #807a73;
+  --accent: #4edea3;
+  --accent-foreground: #002113;
+  --destructive: #b23a3a;
+  --destructive-foreground: #ffffff;
+  --border: #2e2c26;
+  --input: #1b1a16;
+  --input-background: #14130f;
+  --ring: #efede7;
+}
+
+@layer base {
+  body {
+    color: var(--foreground);
+    background-color: var(--background);
+    font-family: 'Sora', sans-serif;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+/* Animations */
+@keyframes waveBar {
+  0%, 100% { transform: scaleY(0.18); }
+  50% { transform: scaleY(1); }
+}
+
+@keyframes micGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(31, 143, 92, 0.6); }
+  50% { box-shadow: 0 0 0 18px rgba(31, 143, 92, 0); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.animate-wave-bar {
+  animation: waveBar 0.55s ease-in-out infinite;
+}
+
+.animate-mic-glow {
+  animation: micGlow 1.4s ease-in-out infinite;
+}
+
+.animate-blink {
+  animation: blink 1s ease-in-out infinite;
+}
+
+/* Custom Utilities */
+.font-mono {
+  font-family: 'DM Mono', monospace;
+}

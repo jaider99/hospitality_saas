@@ -1,0 +1,21 @@
+import logging
+from arq import create_pool
+from arq.connections import RedisSettings
+from app.core.setting import settings
+
+logger = logging.getLogger("queue")
+
+async def enqueue_invoice_processing(invoice_id: int, object_key: str, lang: str = "en"):
+    """
+    Enqueues a background job using ARQ to process the uploaded invoice.
+    """
+    try:
+        redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
+        redis_pool = await create_pool(redis_settings)
+        # Enqueue the job. 'process_invoice_task' must match the task name registered on the worker.
+        await redis_pool.enqueue_job("process_invoice_task", invoice_id, object_key, lang)
+        await redis_pool.aclose()
+        logger.info(f"Enqueued invoice processing job for invoice ID: {invoice_id} with key {object_key}")
+    except Exception as e:
+        logger.error(f"Failed to enqueue invoice processing job: {str(e)}")
+        raise e
