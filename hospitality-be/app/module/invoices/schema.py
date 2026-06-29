@@ -65,7 +65,7 @@ class InvoiceStatusResponse(BaseModel):
 class ProductBase(BaseModel):
     id: int
     name: str
-    sku: str
+    sku: Optional[str] = None
     current_price: float
     unit: str
 
@@ -159,7 +159,7 @@ class InvoiceLineUploadResponse(BaseModel):
     unit_price: float
     total_price: float
     product_id: int
-    sku: str
+    sku: Optional[str] = None
     price_increased: bool
     increase_pct: float
 

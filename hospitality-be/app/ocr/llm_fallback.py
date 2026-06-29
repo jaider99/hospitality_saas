@@ -96,6 +96,9 @@ SYSTEM_PROMPT = (
     "You are a precise invoice/delivery-note data-extraction engine. "
     "Documents are Spanish (albarán/factura/receipts). Map fields by MEANING, not label text.\n"
     "\n"
+    "=== META / FACEBOOK INVOICES ===\n"
+    "Meta/Facebook ad invoices often print the Campaign name on one line, and the Ad Set sub-name on the next line WITH THE EXACT SAME PRICE REPEATED. (e.g. 'Campaña... €16.60' followed immediately by 'Nuevo conjunto... €16.60').\n"
+    "DO NOT extract these as two separate items! The second line is just a sub-description. Only extract one line item for that €16.60 charge. The sum of the line items MUST equal the invoice subtotal.\n"
     "=== APPLE / LARGE BRAND B2C RETAIL RECEIPTS ===\n"
     "If the receipt is issued by a large consumer-electronics or retail store such as Apple, El Corte Inglés, MediaMarkt, Samsung, or similar:\n"
     "  • The store brand (e.g. 'Apple', 'Apple Passeig de Gràcia') IS the Supplier. Their legal entity and CIF (e.g. 'Apple Retail Spain, S.L.U.' / 'ESB65130643') are in the footer or header — extract them as supplier.name and supplier.vatID.\n"
@@ -277,8 +280,8 @@ def merge_llm_result_into_invoice(inv: Invoice, llm_dict: dict, force_fields=Non
     adj_fields = {"discount", "payeAmount", "greenPointAmount", "ibeeAmount", "taxableAdditionalCost", "netAdditionalCost"}
     
     for k in flat_fields:
-        # Always trust LLM for financial totals over regex, as regex often grabs incorrect stray numbers.
-        is_financial_total = k in ("subtotal", "tax", "total")
+        # Always trust LLM for financial totals, serial numbers, and dates over regex.
+        is_financial_total = k in ("subtotal", "tax", "total", "serialNumber", "date")
         if getattr(inv, k) in (None, "", 0.0, False) or k in force_fields or k in adj_fields or is_financial_total:
             if k in llm_dict and llm_dict[k] is not None:
                 setattr(inv, k, llm_dict[k])
@@ -325,6 +328,9 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
         "Do NOT hallucinate rows. Do NOT extract company logos or footers (like 'CONSERVAS ORTIZ') as line items if they have no valid quantity/price.\n"
         "IMPORTANT: Do NOT extract 'Adjustments', 'Credits', 'Regulatory Operating Costs', 'DST Fees' or other additional fees as line items in the table! Leave them as raw text or standard lists outside the table.\n"
         "PACKAGING/DEPOSITS EXCLUSION: If you see a section titled 'VALORACION ECONOMICA DE ENVASES' or similar containing lines like 'BOTELLA 1/3 LN RET' or 'PLASTICO VACIO' with negative/return quantities (e.g. '-21 CJ'), YOU MUST NOT extract them as products! Completely ignore these packaging deposit/return lines from the main Line Items table.\n"
+        "=== META / FACEBOOK INVOICES ===\n"
+        "Meta/Facebook ad invoices often print the Campaign name on one line, and the Ad Set sub-name on the next line WITH THE EXACT SAME PRICE REPEATED. (e.g. 'Campaña... €16.60' followed immediately by 'Nuevo conjunto... €16.60').\n"
+        "DO NOT extract these as two separate items! The second line is just a sub-description. Only extract one line item for that €16.60 charge. The sum of the line items MUST equal the invoice subtotal.\n"
         "=== APPLE / LARGE BRAND B2C RETAIL RECEIPTS ===\n"
         "If the receipt is issued by a large consumer-electronics or retail store such as Apple, El Corte Inglés, MediaMarkt, Samsung, or similar:\n"
         "  • The store brand (e.g. 'Apple', 'Apple Passeig de Gràcia') IS the Supplier. Their legal entity and CIF (e.g. 'Apple Retail Spain, S.L.U.' / 'ESB65130643') are in the footer or header — extract them as supplier.name and supplier.vatID.\n"
