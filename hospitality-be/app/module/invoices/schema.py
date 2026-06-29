@@ -138,6 +138,7 @@ class InvoiceDetailsResponse(BaseModel):
     attributable_cost: Optional[float] = None
     tax_free_costs: Optional[float] = None
     source_file: Optional[str] = None
+    review_reasons: Optional[str] = None
     
     # Missing totals
     discount: Optional[float] = None

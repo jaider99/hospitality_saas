@@ -112,7 +112,9 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
                     if "subtotal" not in missing: missing.append("subtotal")
                     if "total" not in missing: missing.append("total")
             
-            llm_result = extract_with_llm(ocr_text, missing_fields=missing)
+            # Provide the original raw text as well in case the structured_md stripped something (like marginal text)
+            full_llm_input = ocr_text + "\n\n=== RAW OCR TEXT ===\n" + page_result.raw_text
+            llm_result = extract_with_llm(full_llm_input, missing_fields=missing)
             logger.info(f"LLM returned dict: {llm_result}")
             inv = merge_llm_result_into_invoice(inv, llm_result, force_fields=missing)
             
@@ -338,7 +340,29 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
         except Exception as e:
             logger.error(f"Failed to save to DB: {e}")
 
+    # ── Human-readable summary ──────────────────────────────────────────────
+    status_icon = "⚠️  NEEDS REVIEW" if inv.needs_review else "✅ SUCCESS"
+    supplier_name = (inv.supplier.name if inv.supplier and inv.supplier.name else "❌ Unknown")
+    supplier_vat  = (inv.supplier.vatID if inv.supplier and inv.supplier.vatID else "❌ Unknown")
+    doc_number    = inv.serialNumber or "❌ Not found"
+    doc_date      = inv.date or "❌ Not found"
+    total_val     = f"€{inv.total:.2f}" if inv.total else "❌ Not found"
+    items_count   = len(inv.items) if inv.items else 0
+    review_str    = f"\n    ⚠  Reasons: {', '.join(inv.review_reasons)}" if inv.needs_review else ""
+    logger.info(
+        f"\n"
+        f"  ┌─── OCR RESULT ───────────────────────────────────────────┐\n"
+        f"  │  Status   : {status_icon}\n"
+        f"  │  Supplier : {supplier_name} (VAT: {supplier_vat})\n"
+        f"  │  Doc No.  : {doc_number}    Date: {doc_date}\n"
+        f"  │  Total    : {total_val}    Line Items: {items_count}\n"
+        f"  │  Confidence: {(inv.ocr_confidence or 0)*100:.0f}%{review_str}\n"
+        f"  └──────────────────────────────────────────────────────────┘"
+    )
+    # ────────────────────────────────────────────────────────────────────────
+
     return inv
+
 
 
 if __name__ == "__main__":

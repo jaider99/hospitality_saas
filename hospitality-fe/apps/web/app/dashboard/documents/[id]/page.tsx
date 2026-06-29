@@ -74,6 +74,7 @@ interface InvoiceDetail {
   attributable_cost?: number;
   tax_free_costs?: number;
   source_file?: string;
+  review_reasons?: string;
 }
 
 export default function DocumentDetailPage() {
@@ -137,8 +138,12 @@ export default function DocumentDetailPage() {
           setTaxFreeCosts(data.tax_free_costs || 0);
         }
       } catch (err: any) {
-        console.error('Error loading invoice details:', err);
-        setError('Failed to load document details. Please ensure the backend is running.');
+        if (err.response?.status === 404) {
+          setError('Document not found. It may have been deleted.');
+        } else {
+          console.warn('Error loading invoice details:', err);
+          setError('Failed to load document details. Please ensure the backend is running.');
+        }
       } finally {
         setLoading(false);
       }
@@ -262,10 +267,38 @@ export default function DocumentDetailPage() {
           <AlertTriangle size={18} className="text-[#b07a1a] shrink-0 mt-0.5" />
           <div className="space-y-1">
             <h3 className="font-semibold text-foreground text-sm">Extraction Review Needed</h3>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Gemini flagged this document because some fields require human validation. Common
-              reasons include missing supplier matching or low confidence scores.
-            </p>
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              {(() => {
+                let reasons: string[] = [];
+                try {
+                  if (invoice.review_reasons) {
+                    reasons = JSON.parse(invoice.review_reasons);
+                  }
+                } catch (e) {
+                  // Fallback if it's not JSON
+                  reasons = [invoice.review_reasons as string];
+                }
+                
+                if (reasons.length > 0) {
+                  return (
+                    <ul className="list-disc pl-4 space-y-1 mt-1">
+                      {reasons.map((reason, idx) => (
+                        <li key={idx} className={reason.includes('llm_fallback_error') ? 'text-red-500 font-medium' : ''}>
+                          {reason}
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                }
+                
+                return (
+                  <p>
+                    Gemini flagged this document because some fields require human validation. Common
+                    reasons include missing supplier matching or low confidence scores.
+                  </p>
+                );
+              })()}
+            </div>
           </div>
         </div>
       )}

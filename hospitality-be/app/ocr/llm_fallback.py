@@ -9,14 +9,16 @@ import json
 import os
 import logging
 from typing import Optional
+from dotenv import load_dotenv
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 from openai import OpenAI
 from app.ocr.schema import Invoice, LABELS, LINE_ITEM_HEADERS
 
-BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.groq.com/openai/v1")
-API_KEY = os.environ.get("LLM_API_KEY", "")
+BASE_URL = os.environ.get("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+API_KEY = os.environ.get("LLM_API_KEY", "").strip()
 MODEL_NAME = os.environ.get("LLM_MODEL", "openai/gpt-oss-120b")
 
 _client = OpenAI(base_url=BASE_URL, api_key=API_KEY)
@@ -94,26 +96,24 @@ SYSTEM_PROMPT = (
     "You are a precise invoice/delivery-note data-extraction engine. "
     "Documents are Spanish (albarán/factura/receipts). Map fields by MEANING, not label text.\n"
     "\n"
-    "=== SUPPLIER vs CUSTOMER ===\n"
-    "You must semantically deduce the Supplier vs the Customer. Do NOT rely solely on who appears at the top of the page.\n"
-    "The SUPPLIER is the vendor providing the goods or services (e.g., if the line items are 'Copies', the printing company is the Supplier). They issue the invoice. Their name is often printed prominently (like a logo).\n"
-    "The CUSTOMER is the client receiving and paying for the goods/services. They are often indicated by keywords like 'CLIENTE:', 'NOMBRE:', 'DIRECCIÓN:'.\n"
-    "--- SUPPLIER KEYWORDS (English/Spanish): Supplier, Proveedor, Vendor, Vendedor, Seller, Sold By, Vendido por, Issuer, Emisor, Emisor de la factura, Company, Empresa, Merchant, Comerciante, From, De, Billed By, Facturado por, Service Provider, Prestador del servicio, Exporter, Exportador, Manufacturer, Fabricante, Distributor, Distribuidor, Retailer, Minorista.\n"
-    "--- CUSTOMER KEYWORDS (English/Spanish): Customer, Cliente, Client, Buyer, Comprador, Bill To, Facturar a, Invoice To, Sold To, Vendido a, Ship To, Enviar a, Delivery Address, Dirección de envío, Recipient, Destinatario, Purchaser, Billed To, Facturado a, Account Holder, Titular, End Customer, Cliente final.\n"
-    "--- VAT/TAX ID TERMS: VAT, VAT ID, VAT No., Tax ID, TIN, GSTIN, EIN, IVA, NIF, CIF, NIE, NIF/CIF, CIF/NIF, NIF-IVA, Número de IVA, IVA Intracomunitario, Identificación Fiscal, C.I.F., N.I.F., etc.\n"
-    "CRITICAL: The 'supplier.vatID' MUST be the NIF/CIF of the Vendor. If the document contains MULTIPLE tax IDs, carefully associate each ID with its respective company. Never extract the Customer's tax ID into the Supplier section.\n"
-    "IMPORTANT HINT: The Supplier's NIF/CIF is sometimes printed in tiny text at the edge/margins of the document alongside their registry details (e.g., 'Registre Mercantil de Barcelona... C.I.F. - A 08064313'). If found there, it belongs to the Supplier.\n"
-    "IMPORTANT HINT: If a CIF/NIF is listed directly beneath or next to any CUSTOMER KEYWORDS (e.g. labeled 'D.N.I./C.I.F: B67019018' near 'CLIENTE:'), that is the CUSTOMER's tax ID, NOT the Supplier's. DO NOT put the Customer's ID in `supplier.vatID`.\n"
-    "\nTAX ID DISAMBIGUATION: An invoice has TWO tax IDs — the SUPPLIER's "
-    "(seller, usually in the letterhead/header near the company logo and "
-    "registry info, e.g. 'C.I.F. A12345678') and the CUSTOMER's (buyer, "
-    "usually labeled 'D.N.I./C.I.F.' near 'NOMBRE:'/'CLIENTE:'/'DIRECCIÓN:' "
-    "fields). NEVER assign the customer's tax ID to supplier.vatID. If you "
-    "can only find one tax ID and it's clearly next to customer/buyer "
-    "fields (NOMBRE, DIRECCIÓN, CIUDAD), leave supplier.vatID as null "
-    "rather than guessing it's the supplier's.\n"
-    "STRICT MISSING DATA RULE: If the Supplier's VAT ID is completely missing from the extracted text (e.g., the OCR failed to read it), you MUST output `null` for `supplier.vatID`. NEVER guess, and NEVER use the Customer's VAT ID as a substitute!\n"
-    "ABSOLUTE PROHIBITION: You must NEVER put the Customer's VAT ID into the `supplier.vatID` field. If `supplier.vatID` is identical to the Customer's VAT ID, you have failed the task.\n"
+    "=== APPLE / LARGE BRAND B2C RETAIL RECEIPTS ===\n"
+    "If the receipt is issued by a large consumer-electronics or retail store such as Apple, El Corte Inglés, MediaMarkt, Samsung, or similar:\n"
+    "  • The store brand (e.g. 'Apple', 'Apple Passeig de Gràcia') IS the Supplier. Their legal entity and CIF (e.g. 'Apple Retail Spain, S.L.U.' / 'ESB65130643') are in the footer or header — extract them as supplier.name and supplier.vatID.\n"
+    "  • The CUSTOMER is the buyer whose name/NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' in a dedicated customer block (e.g. 'Rec 67 Partners SL', NIF B67019018). Extract the customer name/NIF into the customer section ONLY — NEVER into supplier.vatID.\n"
+    "  • 'Canon por copia privada' is a Spanish regulatory levy (Royal Decree) attached to electronic devices. It appears as a separate line item with a small price. Extract it as a real line item (not as taxableAdditionalCost) because it is already included in the printed Grand Total.\n"
+    "  • All displayed item prices include IVA (B2C receipts). Use `grossPrice` for the tax-inclusive price and back-calculate `base = grossPrice / (1 + iva_pct/100)` so the sum of bases equals the invoice subtotal.\n"
+    "  • The 'Artículo:' field on each line is the Apple part number — use it as `providerCode`.\n"
+    "=== SUPPLIER vs CUSTOMER (READ THIS FIRST) ===\n"
+    "You MUST identify the Supplier (seller) and the Customer (buyer) before doing anything else.\n"
+    "For receipts from large retail brands (Apple, MediaMarkt, El Corte Inglés, Samsung, etc.):\n"
+    "  • The STORE BRAND (e.g. 'Apple', 'Apple Passeig de Gràcia') is the SUPPLIER. Their legal entity + CIF (e.g. 'Apple Retail Spain, S.L.U., CIF ESB65130643') appear in the receipt footer/header. Extract as Supplier Name and Supplier VAT ID/CIF.\n"
+    "  • The CUSTOMER is the person/company who BOUGHT: their name and NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' (e.g. 'Rec 67 Partners SL', NIF B67019018). Show as Customer Name. NEVER put the customer NIF in the Supplier VAT ID field.\n"
+    "  • 'Canon por copia privada' IS a real line item (regulatory levy). Include it in the line items table.\n"
+    "DO NOT redact the Supplier Name, Supplier VAT ID, or Customer Name — they MUST appear explicitly in the output.\n"
+    "PRODUCT NAME CORRECTION: If the OCR text for a product description contains obvious spelling errors or garbled characters (e.g. 'Canon por oa rivada' instead of 'obra privada', or missing letters), you MUST gently correct the spelling to make it readable in the Markdown output.\n"
+    "SUPPLIER NAME EXTRACTION: The supplier name is usually the largest text at the top, or explicitly labeled. DO NOT use abbreviations or truncate the name. Extract the FULL legal name.\n"
+    "INVOICE SUBTOTAL VALIDATION: The sum of the 'Amount' column for all Line Items MUST strictly equal the Invoice Subtotal (within a few cents). If your extracted line items sum to 4155.30 but the Subtotal is 1658.00, YOU HAVE FAILED. You MUST re-read the OCR text and find the correct quantities and prices such that their sum matches the Subtotal.\n"
+    "CUSTOMER VAT ID RULE: You must NEVER include the Customer's VAT ID in the Markdown output. Simply omit it if you see it. DO NOT redact or omit the Supplier's name, Supplier's VAT ID, or the Customer's name—they MUST be explicitly extracted and included in the output.\n"
     "=== GENERAL INFO ===\n"
     "DATE PARSING: Spanish/Catalan dates are DD/MM/YY or DD/MM/YYYY. "
     "The LAST number is always the year, the FIRST is always the day. "
@@ -325,25 +325,28 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
         "Do NOT hallucinate rows. Do NOT extract company logos or footers (like 'CONSERVAS ORTIZ') as line items if they have no valid quantity/price.\n"
         "IMPORTANT: Do NOT extract 'Adjustments', 'Credits', 'Regulatory Operating Costs', 'DST Fees' or other additional fees as line items in the table! Leave them as raw text or standard lists outside the table.\n"
         "PACKAGING/DEPOSITS EXCLUSION: If you see a section titled 'VALORACION ECONOMICA DE ENVASES' or similar containing lines like 'BOTELLA 1/3 LN RET' or 'PLASTICO VACIO' with negative/return quantities (e.g. '-21 CJ'), YOU MUST NOT extract them as products! Completely ignore these packaging deposit/return lines from the main Line Items table.\n"
-        "2. Identify the IVA/TAX BREAKDOWN section (which lists the tax rates, base amounts, and tax amounts). YOU MUST format this breakdown as a Markdown table (e.g. Rate, Base, IVA, Total). This is CRITICAL for data extraction downstream.\n"
+        "=== APPLE / LARGE BRAND B2C RETAIL RECEIPTS ===\n"
+        "If the receipt is issued by a large consumer-electronics or retail store such as Apple, El Corte Inglés, MediaMarkt, Samsung, or similar:\n"
+        "  • The store brand (e.g. 'Apple', 'Apple Passeig de Gràcia') IS the Supplier. Their legal entity and CIF (e.g. 'Apple Retail Spain, S.L.U.' / 'ESB65130643') are in the footer or header — extract them as supplier.name and supplier.vatID.\n"
+        "  • The CUSTOMER is the buyer whose name/NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' in a dedicated customer block (e.g. 'Rec 67 Partners SL', NIF B67019018). Extract the customer name/NIF into the customer section ONLY — NEVER into supplier.vatID.\n"
+        "  • 'Canon por copia privada' is a Spanish regulatory levy (Royal Decree) attached to electronic devices. It appears as a separate line item with a small price. Extract it as a real line item (not as taxableAdditionalCost) because it is already included in the printed Grand Total.\n"
+        "  • All displayed item prices include IVA (B2C receipts). Use `grossPrice` for the tax-inclusive price and back-calculate `base = grossPrice / (1 + iva_pct/100)` so the sum of bases equals the invoice subtotal.\n"
+        "  • The 'Artículo:' field on each line is the Apple part number — use it as `providerCode`.\n"
+        "=== SUPPLIER vs CUSTOMER (READ THIS FIRST) ===\n"
+        "You MUST identify the Supplier (seller) and the Customer (buyer) before doing anything else.\n"
+        "For receipts from large retail brands (Apple, MediaMarkt, El Corte Inglés, Samsung, etc.):\n"
+        "  • The STORE BRAND (e.g. 'Apple', 'Apple Passeig de Gràcia') is the SUPPLIER. Their legal entity + CIF (e.g. 'Apple Retail Spain, S.L.U., CIF ESB65130643') appear in the receipt footer/header. Extract as Supplier Name and Supplier VAT ID/CIF.\n"
+        "  • The CUSTOMER is the person/company who BOUGHT: their name and NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' (e.g. 'Rec 67 Partners SL', NIF B67019018). Show as Customer Name. NEVER put the customer NIF in the Supplier VAT ID field.\n"
+        "  • 'Canon por copia privada' IS a real line item (regulatory levy). Include it in the line items table.\n"
+        "DO NOT redact the Supplier Name, Supplier VAT ID, or Customer Name — they MUST appear explicitly in the output.\n"
+        "PRODUCT NAME CORRECTION: If the OCR text for a product description contains obvious spelling errors or garbled characters (e.g. 'Canon por oa rivada' instead of 'obra privada', or missing letters), you MUST gently correct the spelling to make it readable in the Markdown output.\n"
+        "SUPPLIER NAME EXTRACTION: The supplier name is usually the largest text at the top, or explicitly labeled. DO NOT use abbreviations or truncate the name. Extract the FULL legal name.\n"
+        "INVOICE SUBTOTAL VALIDATION: The sum of the 'Amount' column for all Line Items MUST strictly equal the Invoice Subtotal (within a few cents). If your extracted line items sum to 4155.30 but the Subtotal is 1658.00, YOU HAVE FAILED. You MUST re-read the OCR text and find the correct quantities and prices such that their sum matches the Subtotal.\n"
+        "2. Identify the IVA/TAX BREAKDOWN section (which lists the tax rates, base amounts, and tax amounts). YOU MUST format this breakdown as a Markdown table (e.g. Rate, Base, IVA, Total). Even if the text is messy, do your best to extract it. Common IVA rates in Spain are 4%, 10%, and 21%. This is CRITICAL for data extraction downstream.\n"
         "3. Keep all the other information intact and well-structured using Markdown headings and lists. Be sure to explicitly extract the Supplier name, Supplier VAT ID/CIF, Customer name, Document Number, Date, Subtotal (of products only), ALL Taxes (e.g. IVA amounts), all Adjustments/Fees, and the Grand Total.\n"
         "TOTAL: when multiple total-like labels exist (e.g. 'PROD+ENVASES' vs 'TOTAL ENTREGA'), the FINAL total after all discounts/fees/taxes is the correct value for 'total' — usually the LAST and LARGEST-context labeled total on the page, often called 'TOTAL ENTREGA', 'TOTAL A PAGAR', 'IMPORTE TOTAL'. A subtotal labeled 'PROD+ENVASES' or similar is a pre-discount intermediate figure, NOT the final total.\n"
-        "ABSOLUTE PROHIBITION: You must NEVER extract the Customer's VAT ID. If you see a VAT ID next to the Customer's name (e.g. 'D.N.I./C.I.F: B67019018' near 'CLIENTE:'), you MUST replace it with '[REDACTED]' in the Markdown output. Do NOT include the Customer's real VAT ID anywhere in the Markdown output!\n"
+        "CUSTOMER VAT ID RULE: You must NEVER include the Customer's VAT ID in the Markdown output. Simply omit it if you see it. DO NOT redact or omit the Supplier's name, Supplier's VAT ID, or the Customer's name—they MUST be explicitly extracted and included in the output.\n"
         "=== DATE PARSING ===\n"
-        "Spanish dates are DD/MM/YY. The LAST number is the year, the FIRST is the day. "
-        "E.g., if you see '19/05/26', it means day 19, month 05, year 2026. DO NOT write '26/05/2019'.\n"
-        "=== SUPPLIER vs CUSTOMER ===\n"
-        "You must semantically deduce the Supplier vs the Customer. Do NOT rely solely on who appears at the top of the page.\n"
-        "The SUPPLIER is the vendor providing the goods or services. Their name is often printed prominently (like a logo).\n"
-        "The CUSTOMER is the client receiving and paying for the goods/services, often indicated by 'CLIENTE:' or 'NOMBRE:'.\n"
-        "--- SUPPLIER KEYWORDS (English/Spanish): Supplier, Proveedor, Vendor, Vendedor, Seller, Sold By, Vendido por, Issuer, Emisor, Company, Empresa, Merchant, Comerciante, From, De, Billed By, Facturado por.\n"
-        "--- CUSTOMER KEYWORDS (English/Spanish): Customer, Cliente, Client, Buyer, Comprador, Bill To, Facturar a, Invoice To, Sold To, Vendido a, Ship To, Enviar a, Recipient, Destinatario, Purchaser.\n"
-        "--- VAT/TAX ID TERMS: VAT, VAT ID, Tax ID, TIN, IVA, NIF, CIF, NIE, NIF/CIF, CIF/NIF, NIF-IVA, Número de IVA, C.I.F., N.I.F.\n"
-        "CRITICAL: The Supplier's NIF/CIF MUST be the seller's tax ID. If the document contains MULTIPLE tax IDs, carefully associate each ID with its respective company. Never extract the Customer's tax ID into the Supplier section.\n"
-        "IMPORTANT HINT: The Supplier's NIF/CIF is sometimes printed in tiny text at the edge of the document alongside their registry details (e.g., 'Registre Mercantil... C.I.F. A-08064313'). If found there, it belongs to the Supplier.\n"
-        "IMPORTANT HINT: A CIF/NIF located near any CUSTOMER KEYWORDS (like 'CLIENTE' or 'NOMBRE') is the CUSTOMER'S tax ID. DO NOT mix them up.\n"
-        "STRICT MISSING DATA RULE: If the Supplier's VAT ID is completely missing from the extracted text (e.g., the OCR failed to read it), you MUST leave it blank. NEVER guess, and NEVER use the Customer's VAT ID as a substitute!\n"
-        "\n"
         "=== TWO-COLUMN LAYOUT RULE ===\n"
         "The raw text may contain a separator '--- DOCUMENT INFO COLUMN ---'. If present:\n"
         "  - Text BEFORE this separator = LEFT COLUMN (contains: Supplier logo/header AND the Customer delivery address block).\n"

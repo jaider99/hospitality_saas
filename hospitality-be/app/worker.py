@@ -110,8 +110,14 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
 
 
 class WorkerSettings:
-    """Settings class configured for arq worker execution."""
+    """Settings class configured for arq worker execution.
+    
+    max_jobs=1: PaddleOCR is CPU-bound and uses ~100% of CPU + ~2GB RAM per job.
+    Running two jobs in parallel freezes the machine. Serial processing ensures
+    each invoice completes in ~15-30s without starving other tasks.
+    """
     functions = [process_invoice_task]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
+    max_jobs = 1  # Process one invoice at a time — prevents PaddleOCR from double-loading and freezing

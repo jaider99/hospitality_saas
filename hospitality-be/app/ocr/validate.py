@@ -145,7 +145,7 @@ def sanity_check_discount(inv: Invoice) -> list:
 
 def validate(inv: Invoice, raw_text: str = "") -> Invoice:
     fix_wrapped_quantities(inv)
-    reasons = []
+    reasons = list(inv.review_reasons) if inv.review_reasons else []
     reasons += check_required_fields(inv)
     reasons += check_totals_arithmetic(inv)
     reasons += check_line_items_sum(inv)

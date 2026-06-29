@@ -31,8 +31,8 @@ async def async_save_ocr_invoice(
     """
     # --- Resolve / create Supplier ---
     supplier_name = (
-        ocr_invoice.supplier.name if ocr_invoice.supplier else "Unknown Supplier"
-    )
+        ocr_invoice.supplier.name if ocr_invoice.supplier else None
+    ) or "Unknown Supplier"  # Guard against None — ilike(None) crashes SQLAlchemy
     supplier_tax_id = ocr_invoice.supplier.vatID if ocr_invoice.supplier else None
 
     # Try to find by tax_id first (most accurate), then by name
@@ -42,7 +42,8 @@ async def async_save_ocr_invoice(
         result = await db.execute(stmt)
         supplier = result.scalars().first()
 
-    if not supplier:
+    if not supplier and supplier_name and supplier_name != "Unknown Supplier":
+        # Only do ilike lookup when we have a real name — not "Unknown Supplier"
         stmt = select(Supplier).where(Supplier.name.ilike(supplier_name))
         result = await db.execute(stmt)
         supplier = result.scalars().first()
@@ -158,6 +159,15 @@ async def async_save_ocr_invoice(
         else:
             if not sku:
                 sku = f"{supplier_name[:3].upper()}-{random.randint(1000, 9999)}"
+            else:
+                # Check if SKU is globally taken by another supplier
+                conflict_query = select(SuppliedProduct).where(SuppliedProduct.sku == sku)
+                conflict_res = await db.execute(conflict_query)
+                conflict_prod = conflict_res.scalars().first()
+                if conflict_prod and conflict_prod.supplier_id != supplier.id:
+                    # Append supplier ID to make it globally unique
+                    sku = f"{sku}-{supplier.id}"
+
             product = SuppliedProduct(
                 name=description,
                 sku=sku,
@@ -166,8 +176,17 @@ async def async_save_ocr_invoice(
                 unit=getattr(line, 'unit', "units") or "units",
             )
             db.add(product)
-            await db.commit()
-            await db.refresh(product)
+            try:
+                await db.commit()
+                await db.refresh(product)
+            except Exception as e:
+                import sqlalchemy.exc
+                if isinstance(e, sqlalchemy.exc.IntegrityError):
+                    await db.rollback()
+                    result = await db.execute(select(SuppliedProduct).where(SuppliedProduct.sku == sku))
+                    product = result.scalars().first()
+                else:
+                    raise e
 
         # Create InvoiceLine with full OCR detail
         invoice_line = InvoiceLine(
@@ -375,8 +394,17 @@ async def async_process_invoice_upload(
                 unit=unit
             )
             db.add(product)
-            await db.commit()
-            await db.refresh(product)
+            try:
+                await db.commit()
+                await db.refresh(product)
+            except Exception as e:
+                import sqlalchemy.exc
+                if isinstance(e, sqlalchemy.exc.IntegrityError):
+                    await db.rollback()
+                    result = await db.execute(select(SuppliedProduct).where(SuppliedProduct.sku == sku))
+                    product = result.scalars().first()
+                else:
+                    raise e
 
         # Create InvoiceLine
         invoice_line = InvoiceLine(

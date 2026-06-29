@@ -41,25 +41,41 @@ class PageResult:
 
 
 # Lazy singleton so we only load the model once per process.
+# A threading lock ensures that if two threads arrive simultaneously
+# (before the first has finished loading), only one loads the model.
+import threading
 _paddleocr_instance = None
+_paddleocr_lock = threading.Lock()
 
 
 def _get_paddleocr():
     global _paddleocr_instance
     if _paddleocr_instance is None:
-        from paddleocr import PaddleOCR
-        # Use standard PaddleOCR for lightweight text extraction (avoid OOM from PPStructure)
-        # We increase det_limit_side_len to 4096 so that the image isn't heavily downscaled,
-        # which prevents the OCR from completely missing tiny marginal text.
-        _paddleocr_instance = PaddleOCR(
-            use_angle_cls=False, 
-            use_doc_unwarping=False,
-            lang="es",
-            det_limit_side_len=4096,
-            det_db_thresh=0.2,
-            det_db_box_thresh=0.4,
-            det_db_unclip_ratio=2.0
-        )
+        with _paddleocr_lock:
+            # Double-checked locking: re-check inside the lock in case another
+            # thread already finished loading while we were waiting.
+            if _paddleocr_instance is None:
+                from paddleocr import PaddleOCR
+                import logging
+                logging.getLogger("invoice_pipeline").info(
+                    "Loading PaddleOCR model into memory (one-time startup)..."
+                )
+                # Use standard PaddleOCR for lightweight text extraction (avoid OOM from PPStructure)
+                # We increase det_limit_side_len to 4096 so that the image isn't heavily downscaled,
+                # which prevents the OCR from completely missing tiny marginal text.
+                _paddleocr_instance = PaddleOCR(
+                    use_angle_cls=False, 
+                    use_doc_unwarping=False,
+                    lang="es",
+                    det_limit_side_len=4096,
+                    det_limit_type="max",
+                    det_db_thresh=0.2,
+                    det_db_box_thresh=0.4,
+                    det_db_unclip_ratio=2.0
+                )
+                logging.getLogger("invoice_pipeline").info(
+                    "PaddleOCR model loaded successfully."
+                )
     return _paddleocr_instance
 
 
@@ -92,24 +108,50 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
         img_array = np.frombuffer(image_bytes, dtype=np.uint8)
         img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-    # Sharpen the image to make faint/small text bolder before OCR
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    sharpened = cv2.addWeighted(gray, 1.8, cv2.GaussianBlur(gray, (0,0), 3), -0.8, 0)
-    img = cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR)
+    # Calculate aspect ratio
+    h_init, w_init = img.shape[:2]
+    aspect_ratio = max(h_init, w_init) / float(min(h_init, w_init)) if min(h_init, w_init) > 0 else 1.0
 
-    # Helper to extract tiny text from the margins at full resolution
+    # Save the raw image BEFORE sharpening — the binary boost pass in
+    # get_marginal_texts needs un-processed pixel values to work correctly.
+    # Over-sharpening before binarization destroys thin letterforms (e.g. tiny CIF numbers).
+    img_raw = img.copy()
+
+    # Only apply aggressive sharpening to standard/A4 pages scanned at normal resolutions (<= 4500px).
+    # Extremely high-resolution documents (like Apple receipts which are 6250px) or 
+    # long thermal receipts (aspect_ratio > 2.5) do not need sharpening; sharpening creates halos.
+    if aspect_ratio <= 2.5 and max(h_init, w_init) <= 4500:
+        # Sharpen the image to make faint/small text bolder before OCR
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img
+        sharpened = cv2.addWeighted(gray, 1.8, cv2.GaussianBlur(gray, (0,0), 3), -0.8, 0)
+        img = cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR)
+    else:
+        # Convert to grayscale without sharpening
+        if len(img.shape) == 3:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+    # Helper to extract tiny text from the margins at full resolution.
+    # Runs TWO passes per crop:
+    #   Pass 1 (standard): normal image at 2x upscale
+    #   Pass 2 (binary boost): adaptive-binarized 2x upscale — reliably finds
+    #       tiny faint text like "C.I.F. - A - 08064313" in invoice headers
+    #       that the standard pass completely misses.
     def get_marginal_texts(image, ocr_engine):
         h, w = image.shape[:2]
-        # Top, Bottom, Left, and Right strips (15%) to catch all marginal print
-        margin_h = int(h * 0.15)
+        # Top 20% strip gets extra attention (supplier VAT/CIF is almost always there)
+        margin_h = int(h * 0.20)
         margin_w = int(w * 0.15)
         # Cap the overlap to a sensible amount (e.g. 2000px max) so we don't feed huge crops
-        overlap_w = min(int(w * 0.6), 2000)
+        overlap_w = min(int(w * 0.7), 2200)
         overlap_h = min(int(h * 0.6), 2000)
         if margin_h == 0 or margin_w == 0: return ""
         crops = [
-            image[0:margin_h, 0:overlap_w].copy(),         # Top Left
-            image[0:margin_h, w-overlap_w:w].copy(),       # Top Right
+            image[0:margin_h, 0:overlap_w].copy(),         # Top Left  ← most important (supplier header)
+            image[0:margin_h, w-overlap_w:w].copy(),       # Top Right ← important (CIF often right-aligned)
             image[h-margin_h:h, 0:overlap_w].copy(),       # Bottom Left
             image[h-margin_h:h, w-overlap_w:w].copy(),     # Bottom Right
             image[0:overlap_h, 0:margin_w].copy(),         # Left Top
@@ -118,30 +160,68 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
             image[h-overlap_h:h, w-margin_w:w].copy()      # Right Bottom
         ]
         marginal_texts = []
-        for crop in crops:
+        seen_texts = set()  # deduplicate across both passes
+
+        def _run_ocr_on_crop(crop_img):
+            """Run OCR and return list of text strings."""
+            result_texts = []
             try:
-                # Upscale by 2x ONLY if the original image is relatively small.
-                # If it's already a high-res scan (h > 4000), upscaling by 2x just forces PaddleOCR to painfully downscale it again.
-                if max(h, w) < 3000:
-                    processed_crop = cv2.resize(crop, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
-                else:
-                    processed_crop = crop
-                    
-                # print("MARGINAL CROP SHAPE:", processed_crop.shape)
-                res = ocr_engine.predict(processed_crop)
-                if not res or not res[0]: continue
+                res = ocr_engine.predict(crop_img)
+                if not res or not res[0]:
+                    return result_texts
                 res0 = res[0]
                 if hasattr(res0, 'get') and res0.get("rec_texts") is not None:
-                    texts = res0.get("rec_texts", [])
-                    marginal_texts.extend(texts)
+                    result_texts = res0.get("rec_texts", [])
                 else:
-                    for line in res0:
-                        marginal_texts.append(line[1][0])
+                    result_texts = [line[1][0] for line in res0]
             except Exception:
                 pass
+            return result_texts
+
+        for i, crop in enumerate(crops):
+            ch, cw = crop.shape[:2]
+            if ch == 0 or cw == 0:
+                continue
+
+            # ── Pass 1: standard (upscale 2x for small images) ──
+            if max(h, w) < 3000:
+                pass1_img = cv2.resize(crop, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+            else:
+                pass1_img = crop
+
+            for t in _run_ocr_on_crop(pass1_img):
+                if t and t not in seen_texts:
+                    seen_texts.add(t)
+                    marginal_texts.append(t)
+
+            # ── Pass 2: binary boost — finds tiny/faint text like CIF numbers ──
+            # Only run this expensive pass on the top 2 crops (supplier header/CIF area)
+            # Running this on all 8 crops for large invoices takes > 70 seconds.
+            if i < 2:
+                # Convert to grayscale → upscale 2x → adaptive threshold → run OCR
+                try:
+                    gray_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if len(crop.shape) == 3 else crop
+                    big = cv2.resize(gray_crop, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+                    # Sharpen before binarization to make thin letterforms crisp
+                    big_sharp = cv2.addWeighted(big, 2.5, cv2.GaussianBlur(big, (0, 0), 2), -1.5, 0)
+                    binary = cv2.adaptiveThreshold(
+                        big_sharp, 255,
+                        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY,
+                        15, 10
+                    )
+                    pass2_img = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+                    for t in _run_ocr_on_crop(pass2_img):
+                        if t and t not in seen_texts:
+                            seen_texts.add(t)
+                            marginal_texts.append(t)
+                except Exception:
+                    pass
+
         return " ".join(marginal_texts)
 
-    margin_text = get_marginal_texts(img, ocr)
+    # Pass the RAW (un-sharpened) image to marginal extraction so the binary
+    # boost pass inside get_marginal_texts gets clean pixel values.
+    margin_text = get_marginal_texts(img_raw, ocr)
 
     # If the image exceeds PaddleOCR's internal max_side_limit (4000px), PaddleOCR will brutally squash it.
     # We must slice it into chunks to preserve full resolution for the detection and recognition models.
@@ -434,12 +514,28 @@ def extract_text_pdf_native(pdf_path: str) -> PageResult:
 
 
 def _rasterize_pdf(pdf_path: str, dpi: int = 150) -> List["bytes"]:
-    """Render each PDF page to a PNG image (in-memory) for OCR input."""
+    """Render each PDF page to a PNG image (in-memory) for OCR input.
+
+    If a page has an embedded rotation transform (e.g. landscape Apple receipts
+    stored at 90°), we counter-rotate the rendering matrix so PaddleOCR always
+    receives an upright image.  For normal PDFs page.rotation == 0, so
+    Matrix(...).prerotate(0) is a complete no-op — zero change for working invoices.
+    """
     images = []
     doc = fitz.open(pdf_path)
     zoom = dpi / 72
-    matrix = fitz.Matrix(zoom, zoom)
     for page in doc:
+        # page.rotation is 0, 90, 180, or 270.  Counter-rotate so text is upright.
+        page_rotation = page.rotation  # degrees clockwise stored in the PDF
+
+        # Dynamically scale down zoom for massive PDFs (like long iPhone screenshots) to prevent timeout
+        # Cap at 3500px (equivalent to a massive ~300 DPI A4 page) so CPU processing finishes in <15s
+        max_pt = max(page.rect.width, page.rect.height)
+        page_zoom = zoom
+        if max_pt * page_zoom > 3500:
+            page_zoom = 3500.0 / max_pt
+
+        matrix = fitz.Matrix(page_zoom, page_zoom).prerotate(-page_rotation)
         pix = page.get_pixmap(matrix=matrix)
         images.append(pix.tobytes("png"))
     doc.close()
