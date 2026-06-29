@@ -231,7 +231,7 @@ export default function LoginPage() {
             <Text style={{ fontSize: 11, color: '#8c8c89', fontFamily: 'Sora' }}>
               Demo:{' '}
               <Text style={{ fontWeight: '600', color: '#151515' }}>
-                manager@venue.com / 123456
+                [EMAIL_ADDRESS] / 123456
               </Text>
             </Text>
             <TouchableOpacity>
