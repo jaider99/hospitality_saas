@@ -145,5 +145,4 @@ Thumbs.db
 # Application specific
 temp_uploads/
 
-
-md_outputs/
+ocr_results/

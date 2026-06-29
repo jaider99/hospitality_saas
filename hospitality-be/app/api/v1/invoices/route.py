@@ -52,6 +52,9 @@ async def upload_invoice(
             ext = file_ext.lstrip(".")
 
     object_key = f"invoice_{invoice.id}.{ext}"
+    invoice.source_file = object_key
+    db.add(invoice)
+    db.commit()
 
     # 2. Upload bytes to MinIO
     upload_to_minio(file_bytes, object_key)
@@ -188,3 +191,119 @@ def get_invoice_status(
         "extraction_method": invoice.extraction_method,
         "ocr_confidence": invoice.ocr_confidence,
     }
+
+from app.ocr.schema_ocr import Invoice as InvoiceDTO
+from app.ocr.storage import update_invoice, load_invoice
+
+@router.put("/{invoice_id}", response_model=Dict[str, Any])
+async def update_invoice_api(
+    invoice_id: int, 
+    update_data: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    try:
+        # Explicitly protect fileUrl from being overridden by user
+        if "document" in update_data and "fileUrl" in update_data["document"]:
+            del update_data["document"]["fileUrl"]
+            
+        inv = load_invoice(invoice_id, session=db)
+        if not inv:
+            raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
+        
+        existing_data = inv.to_dict()
+        
+        def update_dict(d, u):
+            for k, v in u.items():
+                if isinstance(v, dict):
+                    d[k] = update_dict(d.get(k, {}), v)
+                elif isinstance(v, list) and k == "items":
+                    existing_items = d.get("items", [])
+                    for incoming_item in v:
+                        matched = False
+                        for existing in existing_items:
+                            if incoming_item.get("id") and existing.get("id") == incoming_item["id"]:
+                                existing.update({k: v for k, v in incoming_item.items() if v is not None})
+                                matched = True
+                                break
+                            elif incoming_item.get("providerCode") and existing.get("providerCode") == incoming_item["providerCode"]:
+                                existing.update({k: v for k, v in incoming_item.items() if v is not None})
+                                matched = True
+                                break
+                            elif incoming_item.get("product") and existing.get("product") == incoming_item["product"]:
+                                existing.update({k: v for k, v in incoming_item.items() if v is not None})
+                                matched = True
+                                break
+                        if not matched:
+                            existing_items.append(incoming_item)
+                    d["items"] = existing_items
+                elif isinstance(v, list) and k == "taxBrackets":
+                    existing_tbs = d.get("taxBrackets", [])
+                    for incoming_tb in v:
+                        matched = False
+                        for existing in existing_tbs:
+                            if incoming_tb.get("id") and existing.get("id") == incoming_tb["id"]:
+                                existing.update({k2: v2 for k2, v2 in incoming_tb.items() if v2 is not None})
+                                matched = True
+                                break
+                        if not matched:
+                            existing_tbs.append(incoming_tb)
+                    d["taxBrackets"] = existing_tbs
+                else:
+                    d[k] = v
+            return d
+            
+        updated_dict = update_dict(existing_data, update_data)
+        
+        d = updated_dict
+        from app.ocr.schema_ocr import Supplier as SupplierDTO, PaymentInfo, DocumentMeta, LineItem, TaxBracket
+        new_inv = InvoiceDTO(
+            id=d.get("id"),
+            supplierID=d.get("supplierID"),
+            supplierName=d.get("supplierName"),
+            uploaderID=d.get("uploaderID"),
+            propertyID=d.get("propertyID"),
+            categoryID=d.get("categoryID"),
+            created=d.get("created"),
+            updated=d.get("updated"),
+            type=d.get("type", "invoice"),
+            ocrStatus=d.get("ocrStatus", "processed"),
+            documentID=d.get("documentID"),
+            isRefund=d.get("isRefund", False),
+            paidStatus=d.get("paidStatus", "unpaid"),
+            dueDate=d.get("dueDate"),
+            date=d.get("date"),
+            subtotal=d.get("subtotal", 0.0),
+            tax=d.get("tax", 0.0),
+            total=d.get("total", 0.0),
+            discount=d.get("discount", 0.0),
+            taxableAdditionalCost=d.get("taxableAdditionalCost", 0.0),
+            netAdditionalCost=d.get("netAdditionalCost", 0.0),
+            payeAmount=d.get("payeAmount", 0.0),
+            greenPointAmount=d.get("greenPointAmount", 0.0),
+            ibeeAmount=d.get("ibeeAmount", 0.0),
+            serialNumber=d.get("serialNumber"),
+            isReconciled=d.get("isReconciled", False),
+            documentInboxEmail=d.get("documentInboxEmail"),
+            observations=d.get("observations"),
+            supplier=SupplierDTO(**{k: v for k, v in d.get("supplier", {}).items() if k in SupplierDTO.__dataclass_fields__}),
+            payment=PaymentInfo(**{k: v for k, v in d.get("payment", {}).items() if k in PaymentInfo.__dataclass_fields__}),
+            document=DocumentMeta(**{k: v for k, v in d.get("document", {}).items() if k in DocumentMeta.__dataclass_fields__}),
+            items=[LineItem(**{k: v for k, v in li.items() if k in LineItem.__dataclass_fields__}) for li in d.get("items", [])],
+            taxBrackets=[TaxBracket(**{k: v for k, v in tb.items() if k in TaxBracket.__dataclass_fields__}) for tb in d.get("taxBrackets", [])]
+        )
+        
+        success = update_invoice(invoice_id, new_inv, session=db)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update invoice in database")
+            
+        return {
+            "status": "success",
+            "message": "Invoice updated successfully",
+            "data": new_inv.to_dict()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import logging
+        logging.getLogger("invoice_api").error(f"Error updating invoice {invoice_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

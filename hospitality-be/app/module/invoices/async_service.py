@@ -31,11 +31,9 @@ async def async_save_ocr_invoice(
     """
     # --- Resolve / create Supplier ---
     supplier_name = (
-        ocr_invoice.supplier.display_name
-        or ocr_invoice.supplier.legal_name
-        or "Unknown Supplier"
+        ocr_invoice.supplier.name if ocr_invoice.supplier else "Unknown Supplier"
     )
-    supplier_tax_id = ocr_invoice.supplier.tax_id
+    supplier_tax_id = ocr_invoice.supplier.vatID if ocr_invoice.supplier else None
 
     # Try to find by tax_id first (most accurate), then by name
     supplier = None
@@ -53,9 +51,6 @@ async def async_save_ocr_invoice(
         supplier = Supplier(
             name=supplier_name,
             vat_id=supplier_tax_id,
-            legal_name=ocr_invoice.supplier.legal_name,
-            address=ocr_invoice.supplier.address,
-            contacts=ocr_invoice.supplier.contact_count or 0,
         )
         db.add(supplier)
         await db.commit()
@@ -64,10 +59,6 @@ async def async_save_ocr_invoice(
         # Update existing supplier with new info if available
         if supplier_tax_id and not supplier.vat_id:
             supplier.vat_id = supplier_tax_id
-        if ocr_invoice.supplier.legal_name and not supplier.legal_name:
-            supplier.legal_name = ocr_invoice.supplier.legal_name
-        if ocr_invoice.supplier.address and not supplier.address:
-            supplier.address = ocr_invoice.supplier.address
         db.add(supplier)
         await db.commit()
         await db.refresh(supplier)
@@ -77,64 +68,45 @@ async def async_save_ocr_invoice(
     if not invoice:
         raise ValueError(f"Invoice {invoice_id} not found.")
 
-    gi = ocr_invoice.general_info
-    totals = ocr_invoice.totals
-    status_info = ocr_invoice.status
-    meta = ocr_invoice.meta
-
     # Parse document date
     issue_date = None
-    if gi.date:
+    if getattr(ocr_invoice, 'date', None):
         try:
             from datetime import date
-            issue_date = datetime.fromisoformat(gi.date)
+            issue_date = datetime.fromisoformat(ocr_invoice.date)
         except Exception:
             issue_date = None
 
     # Map OCR fields onto the Invoice model
-    invoice.invoice_number = gi.document_number
+    invoice.invoice_number = ocr_invoice.serialNumber
     invoice.supplier_id = supplier.id
     invoice.issue_date = issue_date
-    invoice.total_amount = totals.total_with_iva or 0.0
+    invoice.total_amount = ocr_invoice.total or 0.0
     invoice.status = "PROCESSED"
 
     # OCR general info
-    invoice.document_type = gi.document_type
-    invoice.document_number = gi.document_number
-    invoice.document_date = gi.date
-    invoice.category = gi.category
-    invoice.uploaded_by = gi.uploaded_by
+    invoice.document_type = ocr_invoice.type
+    invoice.document_number = ocr_invoice.serialNumber
+    invoice.document_date = ocr_invoice.date
 
     # OCR supplier info (denormalized)
-    invoice.supplier_display_name = ocr_invoice.supplier.display_name
-    invoice.supplier_legal_name = ocr_invoice.supplier.legal_name
+    invoice.supplier_display_name = supplier_name
     invoice.supplier_tax_id = supplier_tax_id
-    invoice.supplier_address = ocr_invoice.supplier.address
-    invoice.supplier_contact_count = ocr_invoice.supplier.contact_count
 
     # OCR totals
-    invoice.base_amount = totals.base_amount
-    invoice.iva_amount = totals.iva_amount
-    invoice.discount = totals.discount
-    invoice.paye = totals.paye
-    invoice.green_point = totals.green_point
-    invoice.ibee = totals.ibee
-    invoice.attributable_cost = totals.attributable_cost
-    invoice.tax_free_costs = totals.tax_free_costs
-    invoice.total_with_iva = totals.total_with_iva
-
-    # OCR status
-    invoice.reconciliation_status = status_info.reconciliation_status
-    invoice.payment_status = status_info.payment_status
-    invoice.currency = ocr_invoice.currency
+    invoice.base_amount = getattr(ocr_invoice, 'subtotal', 0.0)
+    invoice.iva_amount = getattr(ocr_invoice, 'tax', 0.0)
+    invoice.discount = getattr(ocr_invoice, 'discount', 0.0)
+    invoice.paye = getattr(ocr_invoice, 'payeAmount', 0.0)
+    invoice.green_point = getattr(ocr_invoice, 'greenPointAmount', 0.0)
+    invoice.ibee = getattr(ocr_invoice, 'ibeeAmount', 0.0)
+    invoice.attributable_cost = getattr(ocr_invoice, 'taxableAdditionalCost', 0.0)
+    invoice.tax_free_costs = getattr(ocr_invoice, 'netAdditionalCost', 0.0)
+    invoice.total_with_iva = getattr(ocr_invoice, 'total', 0.0)
 
     # OCR meta
-    invoice.source_file = meta.source_file
-    invoice.language_detected = meta.language_detected
-    invoice.extraction_method = meta.extraction_method
-    invoice.ocr_confidence = meta.ocr_confidence
-    invoice.needs_review = meta.needs_review
-    invoice.review_reasons = json.dumps(meta.review_reasons) if meta.review_reasons else None
+    invoice.needs_review = getattr(ocr_invoice, 'needs_review', False)
+    invoice.review_reasons = json.dumps(getattr(ocr_invoice, 'review_reasons', [])) if getattr(ocr_invoice, 'review_reasons', []) else None
     invoice.raw_ocr_json = ocr_invoice.to_json()
 
     db.add(invoice)
@@ -144,12 +116,12 @@ async def async_save_ocr_invoice(
     processed_lines = []
 
     # --- Process each line item ---
-    for line in ocr_invoice.line_items:
-        description = line.product or "Unknown Item"
-        quantity = line.quantity or 0.0
-        unit_price = line.gross_price or line.nominal_price or 0.0
-        total_price = line.base or 0.0
-        sku = line.provider_code
+    for line in getattr(ocr_invoice, 'items', []):
+        description = getattr(line, 'product', "Unknown Item")
+        quantity = getattr(line, 'quantity', 0.0)
+        unit_price = getattr(line, 'grossPrice', getattr(line, 'nominal_price', 0.0))
+        total_price = getattr(line, 'base', 0.0)
+        sku = getattr(line, 'providerCode', None)
 
         # Find or create SuppliedProduct
         product_query = select(SuppliedProduct).where(
@@ -191,7 +163,7 @@ async def async_save_ocr_invoice(
                 sku=sku,
                 supplier_id=supplier.id,
                 current_price=unit_price,
-                unit=line.unit or "units",
+                unit=getattr(line, 'unit', "units") or "units",
             )
             db.add(product)
             await db.commit()
@@ -206,16 +178,16 @@ async def async_save_ocr_invoice(
             total_price=total_price,
             product_id=product.id,
             # OCR-specific fields
-            provider_code=line.provider_code,
-            product=line.product,
-            unit=line.unit,
-            gross_price=line.gross_price,
-            discount_pct=line.discount_pct,
-            applied_discount=line.applied_discount,
-            other_fees=line.other_fees,
-            nominal_price=line.nominal_price,
-            iva_pct=line.iva_pct,
-            base=line.base,
+            provider_code=sku,
+            product=description,
+            unit=getattr(line, 'unit', None),
+            gross_price=getattr(line, 'grossPrice', None),
+            discount_pct=getattr(line, 'discountPct', None),
+            applied_discount=getattr(line, 'appliedDiscount', None),
+            other_fees=getattr(line, 'otherFees', None),
+            nominal_price=getattr(line, 'nominalPrice', None),
+            iva_pct=getattr(line, 'iva_pct', None),
+            base=total_price,
         )
         db.add(invoice_line)
         await db.commit()
@@ -245,7 +217,7 @@ async def async_save_ocr_invoice(
                 pct=increase_pct,
                 old=old_price,
                 new=unit_price,
-                invoice_number=gi.document_number,
+                invoice_number=invoice.invoice_number,
                 supplier_name=supplier_name,
             )
             incident = OperationalIncident(
@@ -260,28 +232,27 @@ async def async_save_ocr_invoice(
             await async_recalculate_dependent_recipes(db, product.id, product.name, lang=lang)
 
     # --- Persist IVA tax brackets ---
-    if ocr_invoice.totals.iva_breakdown:
-        for row in ocr_invoice.totals.iva_breakdown:
-            bracket = InvoiceTaxBracket(
-                invoice_id=invoice.id,
-                rate_pct=row.rate_pct,
-                base=row.base,
-                iva_amount=row.iva_amount,
-                row_total=row.row_total,
-            )
-            db.add(bracket)
-        await db.commit()
+    for row in getattr(ocr_invoice, 'taxBrackets', []):
+        bracket = InvoiceTaxBracket(
+            invoice_id=invoice.id,
+            rate_pct=getattr(row, 'taxRate', getattr(row, 'rate_pct', 0.0)),
+            base=getattr(row, 'subtotal', getattr(row, 'base', 0.0)),
+            iva_amount=getattr(row, 'tax', getattr(row, 'iva_amount', 0.0)),
+            row_total=getattr(row, 'total', getattr(row, 'row_total', 0.0)),
+        )
+        db.add(bracket)
+    await db.commit()
 
     return {
         "invoiceId": invoice.id,
-        "invoiceNumber": gi.document_number,
+        "invoiceNumber": invoice.invoice_number,
         "supplierName": supplier_name,
-        "totalAmount": totals.total_with_iva or 0.0,
+        "totalAmount": invoice.total_amount,
         "linesCount": len(processed_lines),
         "lines": processed_lines,
-        "needsReview": meta.needs_review,
-        "extractionMethod": meta.extraction_method,
-        "ocrConfidence": meta.ocr_confidence,
+        "needsReview": invoice.needs_review,
+        "extractionMethod": "ocr",
+        "ocrConfidence": getattr(ocr_invoice, 'ocr_confidence', 0.0),
     }
 
 

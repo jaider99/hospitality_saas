@@ -163,8 +163,8 @@ def _html_table_to_rows(html: str) -> List[List[str]]:
 # Column mapping: raw table rows -> List[LineItem]
 # ---------------------------------------------------------------------------
 
-NUMERIC_FIELDS = {"quantity", "gross_price", "discount_pct", "applied_discount",
-                   "other_fees", "nominal_price", "iva_pct", "base"}
+NUMERIC_FIELDS = {"quantity", "grossPrice", "discountPct", "appliedDiscount",
+                   "otherFees", "nominalPrice", "iva_pct", "base"}
 
 MONEY_RE = re.compile(r"(\d{1,3}(?:[.\s]\d{3})*[.,]\d{2}|\d+[.,]\d{2}|\d+)")
 
@@ -238,7 +238,7 @@ def rows_to_line_items(rows: List[List[str]]) -> List[LineItem]:
         # cell while the actual amount lives in its own unlabeled data
         # column): if no money field got mapped, grab the first column whose
         # value parses as money and wasn't already consumed by 'product'.
-        if not any(k in kwargs for k in ("base", "gross_price", "nominal_price")):
+        if not any(k in kwargs for k in ("base", "grossPrice", "nominalPrice")):
             for col_idx, raw_value in enumerate(data_row):
                 if raw_value is None or column_fields[col_idx] == "product":
                     continue
@@ -262,8 +262,8 @@ def rows_to_line_items(rows: List[List[str]]) -> List[LineItem]:
 
 
 HEADER_FIELD_SYNONYMS = {
-    "document_type":   ["documento", "document"],
-    "document_number": ["numero", "número", "no.", "nº", "n°", "invoice number", "factura n"],
+    "type":   ["documento", "document"],
+    "serialNumber": ["numero", "número", "no.", "nº", "n°", "invoice number", "factura n"],
     "date":            ["fecha", "date", "data"],
 }
 
@@ -302,7 +302,7 @@ def extract_header_table_native_pdf(pdf_path: str) -> dict:
                             if any(syn in label_norm for syn in synonyms):
                                 mapped[field_name] = value_part.strip()
                                 break
-                    if mapped.get("document_number"):
+                    if mapped.get("serialNumber"):
                         return mapped
                     continue
 
@@ -317,7 +317,7 @@ def extract_header_table_native_pdf(pdf_path: str) -> dict:
                         if any(syn in header_cell for syn in synonyms):
                             mapped[field_name] = value_row[col_idx].strip()
                             break
-                if mapped.get("document_number"):
+                if mapped.get("serialNumber"):
                     return mapped
     return {}
 

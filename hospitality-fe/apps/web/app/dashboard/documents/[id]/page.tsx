@@ -36,6 +36,11 @@ interface InvoiceLineData {
   iva_pct?: number;
   base?: number;
   provider_code?: string;
+  gross_price?: number;
+  discount_pct?: number;
+  applied_discount?: number;
+  other_fees?: number;
+  nominal_price?: number;
 }
 
 interface TaxBracketData {
@@ -180,7 +185,7 @@ export default function DocumentDetailPage() {
   const fileExtension =
     (invoice.source_file ? invoice.source_file.split('.').pop()?.toLowerCase() : 'pdf') || 'pdf';
   const objectName = `invoice_${invoice.id}.${fileExtension}`;
-  const fileUrl = `http://localhost:9010/invoices/${objectName}?cb=${invoice.id}`;
+  const fileUrl = `http://localhost:9012/invoices/${objectName}?cb=${invoice.id}`;
 
   // Formatted display values
   const standardVatRates = [0, 2, 4, 5, 7.5, 10, 12, 21];
@@ -463,7 +468,7 @@ export default function DocumentDetailPage() {
                   <div className="flex justify-between items-center py-0.5 border-b border-border/40">
                     <span className="text-muted-foreground text-xs">Date</span>
                     <span className="font-medium text-foreground">
-                      {docDate ? new Date(docDate).toLocaleDateString('en-US') : '—'}
+                      {docDate ? new Date(docDate).toLocaleDateString('en-GB') : '—'}
                     </span>
                   </div>
                   <div className="flex justify-between items-center py-0.5">
@@ -569,7 +574,13 @@ export default function DocumentDetailPage() {
                     </span>
                   </div>
                   <div className="space-y-1">
-                    <span className="text-xs text-muted-foreground block">Discount</span>
+                    <span className="text-xs text-muted-foreground block">Line Discounts</span>
+                    <span className="font-semibold text-foreground font-mono">
+                      {formatCurrency(invoice.lines?.reduce((sum, line) => sum + (line.applied_discount || 0), 0) || 0)}
+                    </span>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-xs text-muted-foreground block">Global Discount</span>
                     <span className="font-semibold text-foreground font-mono">
                       {formatCurrency(discount)}
                     </span>
@@ -771,11 +782,17 @@ export default function DocumentDetailPage() {
           <table className="w-full text-xs text-left">
             <thead>
               <tr className="bg-[#fafaf8] border-b border-border text-muted-foreground font-semibold">
-                <th className="px-5 py-3">Description</th>
-                <th className="px-5 py-3 text-right">Quantity</th>
-                <th className="px-5 py-3 text-right">Unit Price</th>
-                <th className="px-5 py-3 text-right">Total Base</th>
-                <th className="px-5 py-3 text-center">Tax %</th>
+                <th className="px-5 py-3 whitespace-nowrap">Provider Code</th>
+                <th className="px-5 py-3 whitespace-nowrap">Product</th>
+                <th className="px-5 py-3 whitespace-nowrap text-right">Quantity</th>
+                <th className="px-5 py-3 whitespace-nowrap text-center">Unit</th>
+                <th className="px-5 py-3 whitespace-nowrap text-right">Gross Price</th>
+                <th className="px-5 py-3 whitespace-nowrap text-center">Discounts</th>
+                <th className="px-5 py-3 whitespace-nowrap text-right">Applied Discount</th>
+                <th className="px-5 py-3 whitespace-nowrap text-right">Other Fees</th>
+                <th className="px-5 py-3 whitespace-nowrap text-right">Nominal Price</th>
+                <th className="px-5 py-3 whitespace-nowrap text-center">IVA</th>
+                <th className="px-5 py-3 whitespace-nowrap text-right">Base</th>
               </tr>
             </thead>
             <tbody>
@@ -785,20 +802,40 @@ export default function DocumentDetailPage() {
                     key={line.id}
                     className="border-b border-border/40 hover:bg-muted/20 transition-colors"
                   >
-                    <td className="px-5 py-3 font-semibold text-foreground">{line.description}</td>
-                    <td className="px-5 py-3 text-right font-mono">
-                      {line.quantity} {line.unit || 'units'}
+                    <td className="px-5 py-3 font-mono text-muted-foreground whitespace-nowrap">
+                      {line.provider_code || '—'}
                     </td>
-                    <td className="px-5 py-3 text-right font-mono text-muted-foreground">
-                      {formatCurrency(line.unit_price)}
+                    <td className="px-5 py-3 font-semibold text-foreground min-w-[200px]">
+                      {line.description}
                     </td>
-                    <td className="px-5 py-3 text-right font-mono font-bold text-foreground">
-                      {formatCurrency(line.total_price)}
+                    <td className="px-5 py-3 text-right font-mono whitespace-nowrap">
+                      {line.quantity}
                     </td>
-                    <td className="px-5 py-3 text-center font-mono text-muted-foreground">
+                    <td className="px-5 py-3 text-center font-mono text-muted-foreground whitespace-nowrap">
+                      {line.unit || '—'}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono text-muted-foreground whitespace-nowrap">
+                      {line.gross_price !== undefined && line.gross_price !== null ? formatCurrency(line.gross_price) : formatCurrency(line.unit_price)}
+                    </td>
+                    <td className="px-5 py-3 text-center font-mono text-muted-foreground whitespace-nowrap">
+                      {line.discount_pct !== undefined && line.discount_pct !== null ? `${line.discount_pct}%` : '—'}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono text-muted-foreground whitespace-nowrap">
+                      {line.applied_discount !== undefined && line.applied_discount !== null ? formatCurrency(line.applied_discount) : '—'}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono text-muted-foreground whitespace-nowrap">
+                      {line.other_fees !== undefined && line.other_fees !== null ? formatCurrency(line.other_fees) : '—'}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono text-muted-foreground whitespace-nowrap">
+                      {line.nominal_price !== undefined && line.nominal_price !== null ? formatCurrency(line.nominal_price) : '—'}
+                    </td>
+                    <td className="px-5 py-3 text-center font-mono text-muted-foreground whitespace-nowrap">
                       {line.iva_pct !== undefined && line.iva_pct !== null
                         ? `${line.iva_pct}%`
                         : '—'}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono font-bold text-foreground whitespace-nowrap">
+                      {line.base !== undefined && line.base !== null ? formatCurrency(line.base) : formatCurrency(line.total_price)}
                     </td>
                   </tr>
                 ))

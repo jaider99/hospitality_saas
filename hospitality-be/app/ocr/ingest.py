@@ -11,15 +11,8 @@ Decision tree:
   PDF without text layer (scanned)   -> rasterize pages -> PaddleOCR
   Image file (jpg/png/etc.)          -> PaddleOCR directly
 
-Ported from OCR_invoice with all advanced improvements:
-  - 300 DPI rasterization (vs 150 DPI)
-  - EXIF orientation correction
-  - White border padding (prevents edge text cutoff by DBNet)
-  - Image sharpening (makes faint/small text bolder)
-  - Marginal text extraction at full resolution (captures tiny VAT IDs in headers/footers)
-  - Rotation detection for landscape-scanned documents
-  - Red-channel fallback for pink/highlighted invoices
-  - Configurable PaddleOCR parameters (det_limit_side_len=4096, lower det thresholds)
+Install:
+    pip install paddleocr paddlepaddle pdfplumber pymupdf
 """
 
 from __future__ import annotations
@@ -59,8 +52,8 @@ def _get_paddleocr():
         # We increase det_limit_side_len to 4096 so that the image isn't heavily downscaled,
         # which prevents the OCR from completely missing tiny marginal text.
         _paddleocr_instance = PaddleOCR(
-            use_angle_cls=True,
-            use_doc_unwarping=True,
+            use_angle_cls=False, 
+            use_doc_unwarping=False,
             lang="es",
             det_limit_side_len=4096,
             det_db_thresh=0.2,
@@ -77,16 +70,16 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
     import io
 
     ocr = _get_paddleocr()
-
+    
     try:
         # Load image and apply EXIF orientation to ensure it's not upside down
         pil_img = Image.open(io.BytesIO(image_bytes))
         pil_img = ImageOps.exif_transpose(pil_img)
-
+        
         # Add a white border to prevent text at the very edge from being cut off by DBNet
         border_size = 50
         pil_img = ImageOps.expand(pil_img, border=(border_size, border_size, border_size, border_size), fill='white')
-
+        
         # Convert PIL to OpenCV BGR format
         if pil_img.mode == 'RGBA':
             img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGBA2BGR)
@@ -98,38 +91,45 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
         # Fallback to direct OpenCV decode if PIL fails
         img_array = np.frombuffer(image_bytes, dtype=np.uint8)
         img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-        border_size = 0
 
     # Sharpen the image to make faint/small text bolder before OCR
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    sharpened = cv2.addWeighted(gray, 1.8, cv2.GaussianBlur(gray, (0, 0), 3), -0.8, 0)
+    sharpened = cv2.addWeighted(gray, 1.8, cv2.GaussianBlur(gray, (0,0), 3), -0.8, 0)
     img = cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR)
 
     # Helper to extract tiny text from the margins at full resolution
     def get_marginal_texts(image, ocr_engine):
         h, w = image.shape[:2]
-        # Top 20% split into 4 quadrants to capture tiny letterhead (upper-left, upper-right)
-        # and Bottom 20% split left/right for footer VAT registry lines
-        margin_h = int(h * 0.20)
-        third_w = int(w * 0.5)
-        if margin_h == 0 or third_w == 0:
-            return ""
+        # Top, Bottom, Left, and Right strips (15%) to catch all marginal print
+        margin_h = int(h * 0.15)
+        margin_w = int(w * 0.15)
+        # Cap the overlap to a sensible amount (e.g. 2000px max) so we don't feed huge crops
+        overlap_w = min(int(w * 0.6), 2000)
+        overlap_h = min(int(h * 0.6), 2000)
+        if margin_h == 0 or margin_w == 0: return ""
         crops = [
-            # Top strip - split into left and right halves
-            image[0:margin_h, 0:third_w],
-            image[0:margin_h, third_w:w],
-            # Bottom strip - split into left and right halves
-            image[h - margin_h:h, 0:third_w],
-            image[h - margin_h:h, third_w:w]
+            image[0:margin_h, 0:overlap_w].copy(),         # Top Left
+            image[0:margin_h, w-overlap_w:w].copy(),       # Top Right
+            image[h-margin_h:h, 0:overlap_w].copy(),       # Bottom Left
+            image[h-margin_h:h, w-overlap_w:w].copy(),     # Bottom Right
+            image[0:overlap_h, 0:margin_w].copy(),         # Left Top
+            image[h-overlap_h:h, 0:margin_w].copy(),       # Left Bottom
+            image[0:overlap_h, w-margin_w:w].copy(),       # Right Top
+            image[h-overlap_h:h, w-margin_w:w].copy()      # Right Bottom
         ]
-        # Upscale crops by 1.9x to maximise resolution without hitting the 4000px limit
-        crops = [cv2.resize(c, None, fx=1.9, fy=1.9, interpolation=cv2.INTER_CUBIC) for c in crops]
         marginal_texts = []
         for crop in crops:
             try:
-                res = ocr_engine.predict(crop)
-                if not res or not res[0]:
-                    continue
+                # Upscale by 2x ONLY if the original image is relatively small.
+                # If it's already a high-res scan (h > 4000), upscaling by 2x just forces PaddleOCR to painfully downscale it again.
+                if max(h, w) < 3000:
+                    processed_crop = cv2.resize(crop, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+                else:
+                    processed_crop = crop
+                    
+                # print("MARGINAL CROP SHAPE:", processed_crop.shape)
+                res = ocr_engine.predict(processed_crop)
+                if not res or not res[0]: continue
                 res0 = res[0]
                 if hasattr(res0, 'get') and res0.get("rec_texts") is not None:
                     texts = res0.get("rec_texts", [])
@@ -143,11 +143,71 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
 
     margin_text = get_marginal_texts(img, ocr)
 
-    result = ocr.predict(img)
+    # If the image exceeds PaddleOCR's internal max_side_limit (4000px), PaddleOCR will brutally squash it.
+    # We must slice it into chunks to preserve full resolution for the detection and recognition models.
+    h, w = img.shape[:2]
+    if h > 4000:
+        result = [[]]
+        # Calculate how many slices we need to keep each slice under 4000px
+        num_slices = int(np.ceil(h / 3800.0))  # use 3800 to leave room for overlap
+        slice_h = h // num_slices
+        for i in range(num_slices):
+            y_start = i * slice_h
+            # Add a 50px overlap so text on the boundary isn't cut in half
+            y_end = min(h, (i + 1) * slice_h + 50)
+            chunk = img[y_start:y_end, 0:w].copy()
+            print("MAIN SLICE SHAPE:", chunk.shape)
+            chunk_res = ocr.predict(chunk)
+            if chunk_res and chunk_res[0]:
+                res0 = chunk_res[0]
+                if hasattr(res0, 'get') and res0.get("rec_texts") is not None:
+                    # PaddleX 3.0 dict format
+                    polys = res0.get("dt_polys", [])
+                    texts = res0.get("rec_texts", [])
+                    scores = res0.get("rec_scores", [])
+                    for p, t, s in zip(polys, texts, scores):
+                        # Shift Y coordinates
+                        p_shifted = [[pt[0], pt[1] + y_start] for pt in p]
+                        result[0].append([p_shifted, (t, s)])
+                else:
+                    # Old list format
+                    for line in res0:
+                        p, (t, s) = line
+                        p_shifted = [[pt[0], pt[1] + y_start] for pt in p]
+                        result[0].append([p_shifted, (t, s)])
+    elif w > 4000:
+        result = [[]]
+        # Calculate how many slices we need to keep each slice under 4000px
+        num_slices = int(np.ceil(w / 3800.0))
+        slice_w = w // num_slices
+        for i in range(num_slices):
+            x_start = i * slice_w
+            # Add a 50px overlap so text on the boundary isn't cut in half
+            x_end = min(w, (i + 1) * slice_w + 50)
+            chunk = img[0:h, x_start:x_end].copy()
+            chunk_res = ocr.predict(chunk)
+            if chunk_res and chunk_res[0]:
+                res0 = chunk_res[0]
+                if hasattr(res0, 'get') and res0.get("rec_texts") is not None:
+                    # PaddleX 3.0 dict format
+                    polys = res0.get("dt_polys", [])
+                    texts = res0.get("rec_texts", [])
+                    scores = res0.get("rec_scores", [])
+                    for p, t, s in zip(polys, texts, scores):
+                        # Shift X coordinates
+                        p_shifted = [[pt[0] + x_start, pt[1]] for pt in p]
+                        result[0].append([p_shifted, (t, s)])
+                else:
+                    # Old list format
+                    for line in res0:
+                        p, (t, s) = line
+                        p_shifted = [[pt[0] + x_start, pt[1]] for pt in p]
+                        result[0].append([p_shifted, (t, s)])
+    else:
+        result = ocr.predict(img)
 
     def get_char_count(res):
-        if not res or not res[0]:
-            return 0
+        if not res or not res[0]: return 0
         if hasattr(res[0], 'get') and res[0].get("rec_texts") is not None:
             return sum(len(t) for t in res[0].get("rec_texts", []))
         return sum(len(line[1][0]) for line in res[0])
@@ -162,12 +222,12 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
         result_r = ocr.predict(r_bgr)
         if get_char_count(result_r) > c_raw * 1.5:
             result = result_r
-
+    
     if not result or not result[0]:
         return PageResult(raw_text="", tokens=[], avg_confidence=0.0, is_native_text=False)
-
+    
     res0 = result[0]
-
+    
     # Handle both old PaddleOCR lists and new PaddleX 3.0 dict-like objects
     if hasattr(res0, 'get') and res0.get("rec_texts") is not None:
         polys = res0.get("dt_polys", [])
@@ -181,30 +241,59 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
 
     if not lines:
         return PageResult(raw_text="", tokens=[], avg_confidence=0.0, is_native_text=False)
+    
+    # ── Adaptive layout detection ──────────────────────────────────────────
+    # Strategy: cluster the X-coordinates of all text boxes to detect if there
+    # is a meaningful column gap. If so, split into Left/Right blocks so the
+    # LLM can reason correctly about which block is Customer vs Supplier.
+    #
+    # Works for ALL invoice types:
+    #  - Single-column (normal portrait invoices): no gap found → output as before
+    #  - Two-column (thermal/landscape receipts like Moritz): gap found → output
+    #    left block, then separator, then right block
+    #  - Rotated 90°: detected separately below
 
-    # Detect if the document is rotated (landscape scan)
-    horizontal_count = 0
-    vertical_count = 0
-    for line in lines:
-        p = line[0]  # polygon
-        xs = [pt[0] for pt in p]
-        ys = [pt[1] for pt in p]
-        if (max(xs) - min(xs)) > (max(ys) - min(ys)):
-            horizontal_count += 1
-        else:
-            vertical_count += 1
+    def _get_x_center(line):
+        xs = [pt[0] for pt in line[0]]
+        return (min(xs) + max(xs)) / 2.0
 
+    def _get_y_center(line):
+        ys = [pt[1] for pt in line[0]]
+        return (min(ys) + max(ys)) / 2.0
+
+    def _detect_column_gap(lines, img_w):
+        """Returns a split_x threshold if there is a clear column gap, or None."""
+        if len(lines) < 10:
+            return None
+        x_centers = sorted([_get_x_center(l) for l in lines])
+        # Compute differences between consecutive sorted X positions
+        gaps = [(x_centers[i+1] - x_centers[i], (x_centers[i] + x_centers[i+1]) / 2.0)
+                for i in range(len(x_centers) - 1)]
+        if not gaps:
+            return None
+        max_gap, gap_center = max(gaps, key=lambda g: g[0])
+        # Only treat as two-column if: gap is large relative to image width
+        # AND the gap is in the middle 30%-70% zone (not at the edges)
+        mid_zone_lo = img_w * 0.30
+        mid_zone_hi = img_w * 0.70
+        avg_gap = sum(g[0] for g in gaps) / len(gaps)
+        if max_gap > avg_gap * 3.5 and mid_zone_lo < gap_center < mid_zone_hi:
+            return gap_center
+        return None
+
+    # Detect rotation first (mostly-vertical bboxes = rotated scan)
+    horizontal_count = sum(1 for l in lines if (max(pt[0] for pt in l[0]) - min(pt[0] for pt in l[0])) > (max(pt[1] for pt in l[0]) - min(pt[1] for pt in l[0])))
+    vertical_count = len(lines) - horizontal_count
     is_rotated = vertical_count > horizontal_count
 
-    if is_rotated:
-        # Rotated 90 degrees clockwise (or counter-clockwise)
-        # Group by rough X-coordinate instead of Y, and sort within the group by Y
-        lines.sort(key=lambda x: (round(x[0][0][0] / 25) * 25, x[0][0][1]))
+    h_img, w_img = img.shape[:2]
 
+    if is_rotated:
+        # Rotated 90 degrees — group by X axis (each X group = one visual line)
+        lines.sort(key=lambda x: (round(x[0][0][0] / 25) * 25, x[0][0][1]))
         text_lines = []
         current_line = []
         current_axis = None
-
         for line in lines:
             axis_val = round((line[0][0][0] - border_size) / 25) * 25
             if current_axis is None:
@@ -214,36 +303,59 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
                 current_line = []
                 current_axis = axis_val
             current_line.append(line[1][0])
-
         if current_line:
             text_lines.append(" ".join(current_line))
-
-        # Reverse the lines — 90 CW is the most common scanner rotation for Spanish invoices
         text_lines.reverse()
+        raw_text = "\n".join(text_lines)
     else:
-        # Normal vertical orientation
-        # Sort bounding boxes top-to-bottom, left-to-right (grouping by rough Y-coordinate)
-        lines.sort(key=lambda x: (round(x[0][0][1] / 25) * 25, x[0][0][0]))
+        # Normal orientation — check for two-column layout
+        split_x = _detect_column_gap(lines, w_img)
 
-        text_lines = []
-        current_line = []
-        current_axis = None
+        if split_x is not None:
+            # Two-column layout detected: separate Left and Right
+            left_lines  = [l for l in lines if _get_x_center(l) <= split_x]
+            right_lines = [l for l in lines if _get_x_center(l) >  split_x]
 
-        for line in lines:
-            axis_val = round((line[0][0][1] - border_size) / 25) * 25
-            if current_axis is None:
-                current_axis = axis_val
-            if axis_val != current_axis:
-                text_lines.append(" ".join(current_line))
+            def _sort_and_join(chunk):
+                chunk.sort(key=lambda l: (round(_get_y_center(l) / 20) * 20, _get_x_center(l)))
+                text_lines = []
                 current_line = []
-                current_axis = axis_val
-            current_line.append(line[1][0])
+                current_y = None
+                for line in chunk:
+                    y_val = round((_get_y_center(line) - border_size) / 20) * 20
+                    if current_y is None:
+                        current_y = y_val
+                    if y_val != current_y:
+                        text_lines.append(" ".join(current_line))
+                        current_line = []
+                        current_y = y_val
+                    current_line.append(line[1][0])
+                if current_line:
+                    text_lines.append(" ".join(current_line))
+                return "\n".join(text_lines)
 
-        if current_line:
-            text_lines.append(" ".join(current_line))
-
-    raw_text = "\n".join(text_lines)
-
+            left_text  = _sort_and_join(left_lines)
+            right_text = _sort_and_join(right_lines)
+            raw_text = f"{left_text}\n\n--- DOCUMENT INFO COLUMN ---\n{right_text}"
+        else:
+            # Single-column layout — standard top-to-bottom, left-to-right sort
+            lines.sort(key=lambda x: (round(x[0][0][1] / 25) * 25, x[0][0][0]))
+            text_lines = []
+            current_line = []
+            current_axis = None
+            for line in lines:
+                axis_val = round((line[0][0][1] - border_size) / 25) * 25
+                if current_axis is None:
+                    current_axis = axis_val
+                if axis_val != current_axis:
+                    text_lines.append(" ".join(current_line))
+                    current_line = []
+                    current_axis = axis_val
+                current_line.append(line[1][0])
+            if current_line:
+                text_lines.append(" ".join(current_line))
+            raw_text = "\n".join(text_lines)
+    
     # Append the marginal text at the end so the LLM doesn't miss the tiny headers/footers
     if margin_text:
         raw_text += f"\n\n--- Marginal Text (Full Resolution) ---\n{margin_text}"
@@ -258,7 +370,6 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
         is_native_text=False,
         page_images=[img]
     )
-
 
 def _pdf_has_text_layer(pdf_path: str, min_chars: int = 30) -> bool:
     """Heuristic: if pdfplumber can pull a reasonable amount of text, treat
@@ -322,9 +433,8 @@ def extract_text_pdf_native(pdf_path: str) -> PageResult:
                       is_native_text=True, page_images=None)
 
 
-def _rasterize_pdf(pdf_path: str, dpi: int = 300) -> List["bytes"]:
-    """Render each PDF page to a PNG image (in-memory) for OCR input.
-    Using 300 DPI (vs 150) significantly improves text readability for small fonts."""
+def _rasterize_pdf(pdf_path: str, dpi: int = 150) -> List["bytes"]:
+    """Render each PDF page to a PNG image (in-memory) for OCR input."""
     images = []
     doc = fitz.open(pdf_path)
     zoom = dpi / 72
@@ -354,7 +464,7 @@ def _merge_pages(pages: List[PageResult]) -> PageResult:
     avg_conf = sum(confs) / len(confs) if confs else 0.0
     images = [img for p in pages if p.page_images for img in p.page_images]
     return PageResult(raw_text=text, tokens=tokens, avg_confidence=avg_conf,
-                      is_native_text=False, page_images=images or None)
+                       is_native_text=False, page_images=images or None)
 
 
 def build_invoice_markdown(raw_text: str) -> str:
@@ -444,7 +554,7 @@ def build_invoice_markdown(raw_text: str) -> str:
                 continue
 
             # Skip date, NIF, Reg.Merc, Telf/Fax, Página noise
-            if re.match(r'(NIF|Reg\.?\s*Merc|Telf|Fax)', line, re.I):
+            if re.match(r'(NIF|Reg\.\s*Merc|Telf|Fax)', line, re.I):
                 continue
             if re.search(r'Fecha\s*(de\s*venta|impresi)', line, re.I):
                 continue

@@ -30,9 +30,9 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
     """
     logger.info(f"Task process_invoice_task started for Invoice ID: {invoice_id}, Object Key: {object_key}")
 
-    temp_dir = os.path.join(os.getcwd(), "temp_uploads")
-    os.makedirs(temp_dir, exist_ok=True)
-    local_path = os.path.join(temp_dir, object_key)
+    import tempfile
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+        local_path = tmp_file.name
 
     try:
         # Download file from MinIO
@@ -45,14 +45,14 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
         logger.info(f"Running OCR pipeline on local file: {local_path}")
 
         # Run in threadpool — PaddleOCR is CPU-bound and blocks the event loop
-        ocr_invoice = await asyncio.to_thread(process_invoice, local_path)
+        base_name = os.path.splitext(object_key)[0]
+        ocr_invoice = await asyncio.to_thread(process_invoice, local_path, True, base_name)
 
         logger.info(
             f"OCR pipeline complete for invoice {invoice_id}: "
-            f"doc_number={ocr_invoice.general_info.document_number}, "
-            f"supplier={ocr_invoice.supplier.display_name}, "
-            f"total={ocr_invoice.totals.total_with_iva}, "
-            f"method={ocr_invoice.meta.extraction_method}"
+            f"doc_number={ocr_invoice.serialNumber}, "
+            f"supplier={ocr_invoice.supplier.name if ocr_invoice.supplier else 'Unknown'}, "
+            f"total={ocr_invoice.total}"
         )
 
         # Persist results to the database

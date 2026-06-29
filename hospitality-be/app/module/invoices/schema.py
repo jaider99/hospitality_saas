@@ -6,6 +6,7 @@ from typing import Optional, List
 class SupplierBase(BaseModel):
     id: int
     name: str
+    vat_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -15,9 +16,11 @@ class InvoiceListResponse(BaseModel):
     id: int
     invoice_number: Optional[str] = None
     document_number: Optional[str] = None         # OCR-extracted doc number
+    document_type: Optional[str] = None
     document_date: Optional[str] = None           # ISO date from invoice
     supplier_id: Optional[int] = None
     supplier_display_name: Optional[str] = None   # OCR supplier name
+    supplier_tax_id: Optional[str] = None
     issue_date: Optional[datetime] = None
     total_amount: float = 0.0
     status: str
@@ -50,6 +53,7 @@ class InvoiceStatusResponse(BaseModel):
     needs_review: bool = False
     invoice_number: Optional[str] = None
     supplier_name: Optional[str] = None
+    supplier_tax_id: Optional[str] = None
     total_amount: Optional[float] = None
     extraction_method: Optional[str] = None
     ocr_confidence: Optional[float] = None
@@ -112,7 +116,9 @@ class InvoiceDetailsResponse(BaseModel):
     id: int
     invoice_number: Optional[str] = None
     document_number: Optional[str] = None
+    document_type: Optional[str] = None
     supplier_id: Optional[int] = None
+    supplier_tax_id: Optional[str] = None
     issue_date: Optional[datetime] = None
     total_amount: float = 0.0
     status: str
@@ -132,6 +138,13 @@ class InvoiceDetailsResponse(BaseModel):
     attributable_cost: Optional[float] = None
     tax_free_costs: Optional[float] = None
     source_file: Optional[str] = None
+    
+    # Missing totals
+    discount: Optional[float] = None
+    paye: Optional[float] = None
+    base_amount: Optional[float] = None
+    iva_amount: Optional[float] = None
+    total_with_iva: Optional[float] = None
 
     class Config:
         from_attributes = True

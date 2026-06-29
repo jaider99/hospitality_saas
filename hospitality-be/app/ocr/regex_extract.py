@@ -4,11 +4,6 @@ regex_extract.py
 Stage 1: cheap, deterministic extraction using bilingual keyword anchors +
 regex patterns. This stage should resolve the *majority* of fields on
 well-formed invoices and only leave gaps for messy/unusual layouts.
-
-Strategy: for every label in schema.LABELS, search the raw OCR/PDF text for
-a keyword occurrence (case-insensitive, accent-insensitive), then look at a
-window of text right after it (same line, or next ~60 chars) for a value
-matching the expected pattern (date / money / id / free text).
 """
 
 from __future__ import annotations
@@ -17,7 +12,7 @@ import unicodedata
 from typing import Optional, List
 from datetime import datetime
 
-from app.ocr.schema import OcrInvoice as Invoice, GeneralInfo, Supplier, Totals, StatusInfo, LineItem, LABELS, clean_extracted_text
+from app.ocr.schema import Invoice, Supplier, PaymentInfo, LineItem, LABELS
 
 
 # ---------------------------------------------------------------------------
@@ -83,22 +78,13 @@ def _parse_date(raw_match) -> Optional[str]:
     try:
         return datetime(int(y), int(m), int(d)).date().isoformat()
     except ValueError:
-        # could be MM/DD/YYYY (US-style English invoice) — try swapped
-        try:
-            return datetime(int(y), int(d), int(m)).date().isoformat()
-        except ValueError:
-            return None
+        return None
 
 
 def _find_value_near_label(text_norm: str, original_text: str, keywords: List[str],
                             pattern: re.Pattern, window: int = 120):
-    """Search for the first keyword occurrence, then look for `pattern`
-    within `window` characters AFTER it on the original (non-normalized)
-    text, preserving original casing/punctuation for parsing."""
     for kw in keywords:
         kw_norm = _normalize(kw)
-        # Create a regex that allows optional spaces between every character of the keyword
-        # e.g. "total" -> r"t\s*o\s*t\s*a\s*l"
         spaced_pattern = r"\s*".join(re.escape(c) for c in kw_norm.replace(" ", ""))
         kw_re = re.compile(spaced_pattern)
         
@@ -121,21 +107,13 @@ def _find_value_near_label(text_norm: str, original_text: str, keywords: List[st
             return best_match
     return None
 
-
-# ---------------------------------------------------------------------------
-# helper: complete truncated company names (e.g. "LA TIENDA DEL" -> "LA TIENDA DEL BARMAN, S.L.")
-# ---------------------------------------------------------------------------
-
 SL_SUFFIX_RE = re.compile(
     r"([A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜa-záéíóúñü ,\-\.&']+?)"
     r"\s*,?\s*(S\.L\.U?|S\.A\.U?|S\.L|S\.A|SL|SA|S\.C\.P|SCP|S\.à\s*r\.?l\.?|INC\.?|CORP\.?|LTD\.?|GMBH)\b",
     re.IGNORECASE,
 )
 
-
 def _find_full_company_name(raw_text: str, partial_name: str) -> Optional[str]:
-    """If partial_name is truncated (no S.L./S.A. suffix), scan raw_text
-    for a longer match that starts with partial_name and ends with a legal-form suffix."""
     if not partial_name:
         return partial_name
     partial_upper = partial_name.strip().upper()
@@ -143,7 +121,6 @@ def _find_full_company_name(raw_text: str, partial_name: str) -> Optional[str]:
         candidate = m.group(0).strip().upper()
         if candidate.startswith(partial_upper) and len(candidate) > len(partial_upper):
             return m.group(0).strip()
-    # Wider approach: find partial name in text, grab 60 chars after it
     idx = raw_text.upper().find(partial_upper)
     if idx != -1:
         window = raw_text[idx: idx + len(partial_upper) + 60]
@@ -151,6 +128,68 @@ def _find_full_company_name(raw_text: str, partial_name: str) -> Optional[str]:
         if m2:
             return m2.group(0).strip()
     return partial_name
+
+# ---------------------------------------------------------------------------
+# Supplier VAT ID extraction helpers
+# ---------------------------------------------------------------------------
+
+# Pattern: a legal entity suffix followed (within 80 chars) by C.I.F. / N.I.F. and a VAT ID
+# e.g. "DISTRIBUCIONES E.POZO S.L. · C.I.F. B-6003877"
+_LEGAL_SUFFIX_RE = re.compile(
+    r"(?:S\.L\.U?\.?|S\.A\.U?\.?|S\.C\.P\.?|S\.COOP\.?|SLU?|SAU?|SL|SA)"
+    r"[^\n]{0,80}?"
+    r"(?:C\.I\.F\.?|N\.I\.F\.?|CIF|NIF)\s*[:\-·]?\s*([A-Z]{1,2}[\-\s]?\d{7,8}[A-Z0-9]?)",
+    re.IGNORECASE,
+)
+
+# Pattern: a VAT ID on a line that starts with (or is near) a customer keyword — these must be EXCLUDED
+_CUSTOMER_NIF_LINE_RE = re.compile(
+    r"(?:NIF|D\.N\.I|CIF|NIE)[:\s]+([A-Z]{1,2}[\-\s]?\d{7,8}[A-Z0-9]?)",
+    re.IGNORECASE,
+)
+_CUSTOMER_CONTEXT_KEYWORDS = re.compile(
+    r"(?:CLIENTE|NOMBRE|BILL\s*TO|FACTURAR\s*A|DESTINATARIO|SHIP\s*TO|BUYER|COMPRADOR)",
+    re.IGNORECASE,
+)
+
+
+def _extract_supplier_vat_from_header(raw_text: str) -> Optional[str]:
+    """Deterministically extract the Supplier's VAT ID from the document header.
+
+    Strategy (in priority order):
+    1. Look for pattern: <LegalEntitySuffix> ... C.I.F. <VATID>  (strongest signal)
+    2. Look for a line that starts with C.I.F. or N.I.F. NOT in a customer context
+    3. Fallback: first TAX_ID_RE match that is NOT on a customer-NIF-labelled line
+    """
+
+    # Stage 1: Legal suffix + CIF in close proximity
+    m = _LEGAL_SUFFIX_RE.search(raw_text)
+    if m:
+        return m.group(1).replace(" ", "").replace("-", "").upper()
+
+    # Stage 2: Scan header lines for a C.I.F./N.I.F. that is NOT in a customer block
+    header_lines = raw_text.splitlines()[:30]
+    for i, line in enumerate(header_lines):
+        line_norm = _normalize(line)
+        # Skip lines that clearly belong to the customer section
+        context = "\n".join(header_lines[max(0, i-2):i+1])
+        if _CUSTOMER_CONTEXT_KEYWORDS.search(context):
+            continue
+        cm = _CUSTOMER_NIF_LINE_RE.search(line)
+        if cm:
+            # This line has a NIF label — check the surrounding context for customer keywords
+            if not _CUSTOMER_CONTEXT_KEYWORDS.search(context):
+                return cm.group(1).replace(" ", "").replace("-", "").upper()
+
+    # Stage 3: Fallback — first TAX_ID_RE that is NOT on a customer-NIF line
+    for line in raw_text.splitlines():
+        if _CUSTOMER_CONTEXT_KEYWORDS.search(line):
+            continue
+        m2 = TAX_ID_RE.search(line)
+        if m2:
+            return m2.group(1)
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -163,69 +202,31 @@ def extract_with_regex(raw_text: str) -> Invoice:
 
     # ---- General info ----
     date_match = _find_value_near_label(text_norm, raw_text, LABELS["date"], DATE_RE)
-    inv.general_info.date = _parse_date(date_match) if date_match else None
+    inv.date = _parse_date(date_match) if date_match else None
 
     doc_num_match = _find_value_near_label(
-        text_norm, raw_text, LABELS["document_number"], re.compile(r"([A-Za-z0-9/\-]*\d[A-Za-z0-9/\-]*)")
+        text_norm, raw_text, LABELS["serialNumber"], re.compile(r"([A-Za-z0-9/\-\s]*\d[A-Za-z0-9/\-\s]*)")
     )
-    inv.general_info.document_number = doc_num_match.group(1).strip() if doc_num_match else None
+    inv.serialNumber = doc_num_match.group(1).strip() if doc_num_match else None
 
-    for kw in LABELS["document_type"]:
+    for kw in LABELS["type"]:
         if _normalize(kw) in text_norm:
-            inv.general_info.document_type = kw.title()
+            inv.type = kw.title()
             break
 
     email_match = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", raw_text)
-    inv.general_info.uploaded_by = email_match.group(0) if email_match else None
+    inv.documentInboxEmail = email_match.group(0) if email_match else None
 
     # ---- Supplier ----
-    tax_id_match = TAX_ID_RE.search(raw_text)
-    inv.supplier.tax_id = tax_id_match.group(1) if tax_id_match else None
-
-    # ---- Supplier Display Name Fallback ----
-    supplier_name = None
-    known_suppliers = [
-        "Beverage Source Ltd",
-        "Fresh Foods Express",
-        "MAKRO DISTRIBUCION",
-        "MAKRO",
-        "Re Pla Tres S.L.",
-        "Re Pla Tres",
-        "Holaluz-clidom S.A.",
-        "Holaluz",
-        "La Tienda Del Barman",
-        "Vendo lo que tengo"
-    ]
-    for k_supp in known_suppliers:
-        if k_supp.lower() in text_norm:
-            supplier_name = k_supp
-            break
-            
-    if not supplier_name:
-        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
-        for line in lines:
-            cleaned = clean_extracted_text(line)
-            if not cleaned:
-                continue
-            line_norm = _normalize(cleaned)
-            if any(lbl in line_norm for lbl in ["factura", "albaran", "ticket", "invoice", "cliente", "client", "nif", "cif", "c.i.f", "n.i.f", "c/.", "fecha", "date", "supplier", "proveedor", "emisor", "vendor", "vendedor", "seller"]):
-                continue
-            if len(cleaned) < 3 or len(cleaned) > 50:
-                continue
-            if any(c.isdigit() for c in cleaned) and not any(c.isalpha() for c in cleaned):
-                continue
-            supplier_name = cleaned
-            break
-            
-    inv.supplier.display_name = clean_extracted_text(supplier_name)
+    # Use the smart header-based extractor to avoid accidentally grabbing the Customer's NIF
+    inv.supplier.vatID = _extract_supplier_vat_from_header(raw_text)
 
     # ---- Totals ----
-    # For total_with_iva, look for high-priority labels first (P. PAGADOS, etc.)
-    total_match = _find_value_near_label(text_norm, raw_text, LABELS["total_with_iva"], MONEY_RE)
-    inv.totals.total_with_iva = _parse_money(total_match.group(1)) if total_match else None
+    total_match = _find_value_near_label(text_norm, raw_text, LABELS["total"], MONEY_RE)
+    inv.total = _parse_money(total_match.group(1)) if total_match else 0.0
 
     s1_candidates = []
-    base_labels = ["base imp", "base imponible", "base amount", "importe bruto", "subtotal", "importe", "net amount", "taxable amount", "taxable base"]
+    base_labels = LABELS["subtotal"]
     for lbl in base_labels:
         spaced_pattern = r"\s*".join(re.escape(c) for c in _normalize(lbl).replace(" ", ""))
         lbl_re = re.compile(spaced_pattern)
@@ -244,7 +245,6 @@ def extract_with_regex(raw_text: str) -> Invoice:
                     s1_candidates.append(val)
             search_start = match_lbl.end()
 
-    # Strategy 2 — IVA bracket table (ALWAYS runs, compared against S1 at the end)
     s2_base = 0.0
     s2_iva = 0.0
     s2_found = False
@@ -262,11 +262,9 @@ def extract_with_regex(raw_text: str) -> Invoice:
                 s2_iva += val * (rate / 100.0)
                 s2_found = True
 
-    # Try to find explicit IVA amount label
-    explicit_iva_match = _find_value_near_label(text_norm, raw_text, LABELS["iva_amount"], MONEY_RE)
+    explicit_iva_match = _find_value_near_label(text_norm, raw_text, LABELS["tax"], MONEY_RE)
     explicit_iva = _parse_money(explicit_iva_match.group(1)) if explicit_iva_match else None
 
-    # Strategy 3: "Rate% Base IVA" format (e.g. Amazon invoices)
     s3_base = 0.0
     s3_iva = 0.0
     s3_found = False
@@ -283,8 +281,7 @@ def extract_with_regex(raw_text: str) -> Invoice:
                 s3_iva += i_val
                 s3_found = True
 
-    # Evaluate S1 candidates to find the best matching base
-    known_total = inv.totals.total_with_iva
+    known_total = inv.total if inv.total else None
     s1_base = 0.0
     s1_iva_test = explicit_iva if explicit_iva is not None else 0.0
     s1_found = False
@@ -296,24 +293,21 @@ def extract_with_regex(raw_text: str) -> Invoice:
             if diff > 0:
                 diff_str1 = f"{diff:.2f}".replace(".", ",")
                 diff_str2 = f"{diff:.2f}"
-                # If diff is exactly in text, this is a PERFECT base
                 if diff_str1 in raw_text or diff_str2 in raw_text or f" {diff_str1} " in raw_text.replace("\n", " "):
                     s1_base = c
                     s1_iva_test = diff
                     s1_found = True
                     best_diff_error = 0
                     break
-                # Or if base + explicit IVA matches total perfectly
                 err = abs((c + s1_iva_test) - known_total)
                 if err < best_diff_error:
                     best_diff_error = err
                     s1_base = c
                     s1_found = True
     elif s1_candidates:
-        s1_base = s1_candidates[0] # Just pick first if no total to verify
+        s1_base = s1_candidates[0]
         s1_found = True
 
-    # Pick the strategy whose (base + iva) is closest to total_with_iva
     if known_total:
         s1_err = abs((s1_base + s1_iva_test) - known_total) if s1_found else float("inf")
         s2_err = abs((s2_base + s2_iva) - known_total) if s2_found else float("inf")
@@ -332,7 +326,6 @@ def extract_with_regex(raw_text: str) -> Invoice:
         else:
             base_sum, iva_sum, base_found = s1_base, s1_iva_test, s1_found
     else:
-        # Fallback priority if no known total: S3 > S1 > S2
         if s3_found:
             base_sum, iva_sum, base_found = s3_base, s3_iva, True
         elif s1_found:
@@ -340,69 +333,62 @@ def extract_with_regex(raw_text: str) -> Invoice:
         else:
             base_sum, iva_sum, base_found = s2_base, s2_iva, s2_found
 
-    inv.totals.base_amount = round(base_sum, 2) if base_found else None
-    # Python-computed (or explicitly extracted) iva_amount
-    if base_found and inv.totals.iva_amount is None:
-        inv.totals.iva_amount = round(iva_sum, 2) if iva_sum is not None else 0.0
+    inv.subtotal = round(base_sum, 2) if base_found else 0.0
+    if base_found and inv.tax == 0.0:
+        inv.tax = round(iva_sum, 2) if iva_sum is not None else 0.0
 
-    # Sanity: if base ≈ total and iva still None → IVA is 0 (delivery note or zero-rate)
     if (
-        inv.totals.base_amount is not None
-        and inv.totals.total_with_iva is not None
-        and inv.totals.iva_amount == 0.0
-        and abs(inv.totals.base_amount - inv.totals.total_with_iva) < 0.05
+        inv.subtotal is not None
+        and inv.total is not None
+        and inv.tax == 0.0
+        and abs(inv.subtotal - inv.total) < 0.05
     ):
-        inv.totals.iva_amount = 0.0
+        inv.tax = 0.0
 
-    # Cross-check: If base + iva != total, but total - base == a number printed on the page, use it as IVA
-    if inv.totals.base_amount is not None and inv.totals.total_with_iva is not None:
-        diff = round(inv.totals.total_with_iva - inv.totals.base_amount, 2)
-        if diff > 0 and abs(inv.totals.iva_amount - diff) > 0.05:
+    if inv.subtotal is not None and inv.total is not None:
+        diff = round(inv.total - inv.subtotal, 2)
+        if diff > 0 and abs(inv.tax - diff) > 0.05:
             diff_str1 = f"{diff:.2f}".replace(".", ",")
             diff_str2 = f"{diff:.2f}"
-            # Check if this number exists in the raw text
             if diff_str1 in raw_text or diff_str2 in raw_text or f" {diff_str1} " in raw_text.replace("\n", " "):
-                inv.totals.iva_amount = diff
+                inv.tax = diff
 
-
-
-    # Other totals (skip iva_amount as it was handled above)
     for label_key, attr in [
         ("discount", "discount"),
-        ("paye", "paye"),
-        ("green_point", "green_point"),
-        ("ibee", "ibee"),
-        ("attributable_cost", "attributable_cost"),
-        ("tax_free_costs", "tax_free_costs"),
+        ("payeAmount", "payeAmount"),
+        ("greenPointAmount", "greenPointAmount"),
+        ("ibeeAmount", "ibeeAmount"),
+        ("taxableAdditionalCost", "taxableAdditionalCost"),
+        ("netAdditionalCost", "netAdditionalCost"),
     ]:
         m = _find_value_near_label(text_norm, raw_text, LABELS[label_key], MONEY_RE)
         if m:
-            setattr(inv.totals, attr, _parse_money(m.group(1)))
+            val = _parse_money(m.group(1))
+            if val is not None:
+                if label_key == "discount":
+                    context = raw_text[max(0, m.start()-5) : min(len(raw_text), m.end()+5)]
+                    if "%" in context or "Dto" in context or "dto" in context.lower():
+                        continue
+                setattr(inv, attr, val)
 
     # ---- Status ----
-    for kw, val in [("unreconciled", "Unreconciled"), ("reconciled", "Reconciled")]:
+    for kw, val in [("unreconciled", False), ("reconciled", True)]:
         if kw in text_norm:
-            inv.status.reconciliation_status = val
+            inv.isReconciled = val
             break
-    for kw, val in [("unpaid", "Unpaid"), ("paid", "Paid")]:
+    for kw, val in [("unpaid", "unpaid"), ("paid", "paid")]:
         if kw in text_norm:
-            inv.status.payment_status = val
+            inv.paidStatus = val
             break
 
     # ---- Special Case: Makro Line Items ----
-    # If we know this is Makro, we can deterministically parse their garbled table
     if "makro" in raw_text.lower():
         makro_items = _extract_makro_line_items(raw_text)
         if makro_items:
-            inv.line_items = makro_items
+            inv.items = makro_items
 
-    inv.meta.extraction_method = "regex"
     return inv
 
-
-# NOTE: line-item table extraction now lives in table_extract.py
-# (rows_to_line_items / extract_line_items), since it needs PP-StructureV3
-# / pdfplumber table detection rather than plain regex on flat text.
 
 def _extract_makro_line_items(text: str) -> List[LineItem]:
     lines = text.splitlines()
@@ -412,7 +398,6 @@ def _extract_makro_line_items(text: str) -> List[LineItem]:
         line1 = lines[i].strip()
         line2 = lines[i+1].strip()
         
-        # A valid line1 starts with exactly 6 digits (spaced or not)
         code_match = re.match(r'^((?:\d\s*){6})(.*)', line1)
         if not code_match:
             continue
@@ -421,8 +406,6 @@ def _extract_makro_line_items(text: str) -> List[LineItem]:
         product = code_match.group(2).strip()
         
         compact = line2.replace(" ", "")
-        
-        # There must be exactly 3 commas in the compact string for Makro
         if compact.count(',') != 3:
             continue
             
@@ -477,11 +460,11 @@ def _extract_makro_line_items(text: str) -> List[LineItem]:
                         
             if best_diff < 0.1:
                 items.append(LineItem(
-                    provider_code=code,
+                    providerCode=code,
                     product=product,
                     quantity=best_qty,
                     unit=unit if unit else None,
-                    gross_price=best_gross,
+                    grossPrice=best_gross,
                     base=best_base,
                     iva_pct=iva_pct
                 ))

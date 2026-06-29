@@ -18,7 +18,6 @@ class Supplier:
     vatID: Optional[str] = None
     address: Optional[str] = None
     contacts: int = 0
-    contactInfo: Optional[str] = None
 
 
 @dataclass
