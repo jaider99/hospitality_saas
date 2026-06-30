@@ -189,6 +189,12 @@ def _extract_supplier_vat_from_header(raw_text: str) -> Optional[str]:
         if m2:
             return m2.group(1)
 
+    # Stage 4: Universal fallback — first TAX_ID_RE or any CIF/NIF/CIN anywhere in the document
+    universal_vat_re = re.compile(r"\b([A-Z]{1,2}[\-\s]?\d{7,8}[A-Z0-9]?)\b", re.IGNORECASE)
+    m4 = universal_vat_re.search(raw_text)
+    if m4:
+        return m4.group(1).replace(" ", "").replace("-", "").upper()
+
     return None
 
 

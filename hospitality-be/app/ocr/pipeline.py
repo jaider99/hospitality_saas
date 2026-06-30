@@ -69,8 +69,15 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     llm_total_time += time.time() - llm_start_1
 
     try:
+        combined_md = (
+            f"# Reconstructed Invoice (LLM Output)\n\n"
+            f"{structured_md}\n\n"
+            f"---\n\n"
+            f"# Raw OCR Text (PaddleOCR Output)\n\n"
+            f"{raw_md}"
+        )
         with open(md_path, "w", encoding="utf-8") as f:
-            f.write(structured_md)
+            f.write(combined_md)
     except Exception as e:
         logger.warning(f"Could not save markdown: {e}")
 
@@ -368,7 +375,7 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
         f"  │  Supplier : {supplier_name} (VAT: {supplier_vat})\n"
         f"  │  Doc No.  : {doc_number}    Date: {doc_date}\n"
         f"  │  Total    : {total_val}    Line Items: {items_count}\n"
-        f"  │  Confidence: {(inv.ocr_confidence or 0)*100:.0f}%{review_str}\n"
+        f"  │  Confidence: {(inv.ocr_confidence or 0):.0f}%{review_str}\n"
         f"  └──────────────────────────────────────────────────────────┘"
     )
     # ────────────────────────────────────────────────────────────────────────

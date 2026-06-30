@@ -81,6 +81,8 @@ interface InvoiceDetail {
   base_amount?: number;
   iva_amount?: number;
   total_with_iva?: number;
+  ocr_duration?: number;
+  llm_duration?: number;
 }
 
 export default function DocumentDetailPage() {
@@ -548,12 +550,24 @@ export default function DocumentDetailPage() {
                       {docDate ? new Date(docDate).toLocaleDateString('en-GB') : '—'}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-0.5">
+                  <div className={`flex justify-between items-center py-0.5 ${(invoice.ocr_duration !== undefined && invoice.ocr_duration !== null) || (invoice.llm_duration !== undefined && invoice.llm_duration !== null) ? 'border-b border-border/40' : ''}`}>
                     <span className="text-muted-foreground text-xs">Category</span>
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-[#e6eef8] text-[#2f6bb0] text-xs font-medium">
                       {docCategory}
                     </span>
                   </div>
+                  {invoice.ocr_duration !== undefined && invoice.ocr_duration !== null && (
+                    <div className={`flex justify-between items-center py-0.5 ${invoice.llm_duration !== undefined && invoice.llm_duration !== null ? 'border-b border-border/40' : ''}`}>
+                      <span className="text-muted-foreground text-xs">OCR processing time</span>
+                      <span className="font-medium text-foreground">{invoice.ocr_duration.toFixed(2)}s</span>
+                    </div>
+                  )}
+                  {invoice.llm_duration !== undefined && invoice.llm_duration !== null && (
+                    <div className="flex justify-between items-center py-0.5">
+                      <span className="text-muted-foreground text-xs">LLM fallback time</span>
+                      <span className="font-medium text-foreground">{invoice.llm_duration.toFixed(2)}s</span>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-2.5 pt-1">

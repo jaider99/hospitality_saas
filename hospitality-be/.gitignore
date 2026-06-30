@@ -98,6 +98,7 @@ ipython_config.py
 # virtualenv
 venv/
 .venv/
+venv_old/
 env/
 ENV/
 non-global-venv/

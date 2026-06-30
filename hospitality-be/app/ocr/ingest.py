@@ -64,7 +64,7 @@ def _get_paddleocr():
                 # We increase det_limit_side_len to 4096 so that the image isn't heavily downscaled,
                 # which prevents the OCR from completely missing tiny marginal text.
                 _paddleocr_instance = PaddleOCR(
-                    use_angle_cls=False, 
+                    use_angle_cls=True, 
                     use_doc_unwarping=False,
                     lang="es",
                     det_limit_side_len=4096,
@@ -441,7 +441,7 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
         raw_text += f"\n\n--- Marginal Text (Full Resolution) ---\n{margin_text}"
 
     confs = [line[1][1] for line in lines]
-    avg_conf = sum(confs) / len(confs) if confs else 0.0
+    avg_conf = (sum(confs) / len(confs) * 100.0) if confs else 0.0
 
     return PageResult(
         raw_text=raw_text,
