@@ -78,7 +78,9 @@ as the decimal separator regardless of source format):
       "otherFees": number|null,
       "nominalPrice": number|null,
       "iva_pct": number|null,
-      "base": number|null
+      "base": number|null,
+      "gra": number|null,
+      "u_m": number|null
     }
   ],
   "taxBrackets": [
@@ -154,19 +156,21 @@ SYSTEM_PROMPT = (
     "Do NOT use a quantity (1,00) or page number (1/1) as the total.\n"
     "\n"
     "=== LINE ITEMS ===\n"
-    "Each line item logically contains: [Code] [Description] [Qty] [Unit] [Price] [Base].\n"
+    "Each line item logically contains: [Code/ART] [Description] [Gra (graduación/degree)] [U/M (unit/liter size)] [Qty/BOT/UDS] [Price/PRECIO] [Base/Amount].\n"
     "ONLY extract actual products/services as line items. DO NOT extract additional fees, regulatory costs, credits, or adjustments as line items.\n"
     "Due to OCR limitations, these fields are often heavily INTERLEAVED across multiple lines.\n"
-    "When a table has multiple quantity-like columns (e.g. 'Cajas', 'Bultos', "
-    "'UDS', 'Unidades', 'Cantidad' in the same row), ALWAYS prefer the column "
-    "whose header most directly means total units sold: prefer 'UDS'/'Unidades'/"
-    "'Cantidad' over package-count columns like 'Cajas'/'Bultos'. Extract "
-    "grossPrice as the price per that same unit, exactly as printed — do NOT "
-    "multiply/divide it to fit a total. NEVER back-calculate quantity or price "
-    "to make a total match. If uncertain, set quantity=null and rely on 'base'.\n"
-    "You MUST reconstruct the row by associating the Code, Product Name, and the closest numeric values for Qty, Unit (if available like 'und', 'U/M', 'kg', 'l'), and Price. Extract the unit into the `unit` field.\n"
+    "You MUST reconstruct the row by associating:\n"
+    "- providerCode (ART.): the alphanumeric product code (e.g. 001783, 006115)\n"
+    "- product: the product description (e.g. BAILEYS 0.70, CINZANO ROSSO BOTTEGA 1757)\n"
+    "- gra: the alcohol percentage/degree (from GRA. column, e.g. 17.0, 16.0, 40.0). Save as a plain number.\n"
+    "- u_m: the capacity volume size in liters/kg (from U/M column, e.g. 0.700, 1.000). Save as a plain number.\n"
+    "- quantity: the number of units sold (prefer BOT. or UDS or Cantidad column over package-count columns like Cajas/Bultos).\n"
+    "- grossPrice: the unit price before discount (from PRECIO column).\n"
+    "- nominalPrice: the unit price after discount.\n"
+    "- base: the total line amount before tax (usually Quantity * nominalPrice).\n"
+    "When a table has multiple quantity-like columns (e.g. 'Cajas', 'Bultos', 'BOT.', 'UDS', 'Cantidad' in the same row), ALWAYS prefer the column whose header most directly means total units sold: prefer 'BOT.'/'UDS'/'Cantidad' over package-count columns like 'Cajas'/'Bultos'. Extract grossPrice as the exact printed price per that unit, exactly as printed.\n"
     "CRITICAL: Be extremely careful not to confuse numbers INSIDE a product description (e.g., 'PICOS DE METAL X 12 UDS', 'PUREE 1 KG') with the actual quantity or price columns. The actual quantity and price will be separate numeric blocks. You MUST strictly preserve the vertical order of the line items to avoid swapping values between rows!\n"
-    "CRITICAL: You MUST extract the Unit Price into `nominalPrice` and the Total Amount (Qty * Price) into `base` for EVERY line item. Never omit them if they exist on the page.\n"
+    "CRITICAL: You MUST extract the Unit Price into `grossPrice` (or `nominalPrice` if discounted) and the Total Amount (Qty * Price) into `base` for EVERY line item. Never omit them if they exist on the page.\n"
     "Always ensure EVERY extracted product gets its `base` and `iva_pct`.\n"
     "If the receipt is a B2C receipt (like Apple Retail or Meta Ads) where line items are listed WITH tax, extract the listed price into `grossPrice` BUT you MUST mathematically strip the IVA to calculate the pre-tax `base` amount for each line item (e.g. base = grossPrice / (1 + iva_pct/100)) so that the sum of line item bases equals the invoice's overall `subtotal`. If the invoice has no tax (iva_pct = 0 or missing), then `base` MUST EXACTLY EQUAL `grossPrice`.\n"
     "Never put TAX-breakdown rows or general total rows as line items.\n"
@@ -199,7 +203,7 @@ SYSTEM_PROMPT = (
     "The VAT ID is usually labeled as: NIF, CIF, NIF-IVA, VAT, VAT Number, Número de IVA, or IVA intracomunitario.\n"
     "CRITICAL: If the document contains MULTIPLE VAT IDs (e.g. one for the Supplier and one for the Customer), you MUST extract the one belonging to the SUPPLIER/VENDOR into `supplier.vatID`.\n"
     "Remember: A VAT ID near any CUSTOMER KEYWORDS (e.g., 'CLIENTE', 'Facturar a', 'Bill To') is the Customer's. A VAT ID near SUPPLIER KEYWORDS or in the 'Registre Mercantil' header/footer/logo is the Supplier's.\n"
-    "HOWEVER, if the document only contains ONE VAT ID on the entire page, extract that exact VAT ID into `supplier.vatID`, even if it is located near the Customer's address.\n"
+    "STRICT MISSING DATA RULE: If the Supplier's VAT ID is completely missing from the extracted text, you MUST leave `supplier.vatID` as null. NEVER guess, and NEVER use the Customer's VAT ID as a substitute! If the Customer's NIF/CIF is B67019018, and there is no other CIF/NIF, then `supplier.vatID` MUST be null. ABSOLUTE PROHIBITION: You must NEVER put the Customer's VAT ID into the `supplier.vatID` field. If `supplier.vatID` is identical to the Customer's VAT ID, you have failed the task.\n"
     "\n"
     "=== ARITHMETIC RULES ===\n"
     "DO NOT compute sums for `subtotal` or `tax`. The pipeline does all arithmetic in Python. "
@@ -317,10 +321,10 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
         "You are an expert at reconstructing raw document text into clean, structured Markdown.\n"
         "The following text is extracted from an invoice or delivery note. "
         "Your task is to:\n"
-        "1. Identify the ACTUAL PRODUCTS/SERVICES and reconstruct them into a proper Markdown table. The table MUST retain ALL columns present in the original text (for example, if you see columns like 'GRA.', 'U/M', 'und', 'Unit', 'DTO.', include them in the table!). Ensure you also map columns for: Code, Description, Quantity, Gross Price (before discount), Net Price (after discount), Discount % (extremely important!), IVA %, Amount/Total.\n"
+        "1. Identify the ACTUAL PRODUCTS/SERVICES and reconstruct them into a proper Markdown table. The table MUST retain ALL columns present in the original text. For wine/spirits invoices, you MUST include columns like 'GRA.' (alcohol percentage/degree, e.g. 17.0, 16.0, 40.0) and 'U/M' (unit of measure / volume size in liters, e.g. 0.700, 1.000). Reconstruct columns for: Code, Description, Graduación (GRA.), Unit Liters (U/M), Quantity, Gross Price (PRECIO before discount), Net Price, Discount %, IVA %, Amount/Total.\n"
         "DISCOUNT PERCENTAGE: You MUST extract the discount percentage (DTO / % / Discount) for each line item if it exists. DO NOT output 0 or null if there is a discount applied! If Gross Price and Net Price differ, there is a discount, and you must find it in the text or calculate the percentage.\n"
         "CRITICAL ARITHMETIC ALIGNMENT RULE: The Quantity multiplied by the Net Price (or Unit Price) should equal the Amount/Total. Use this to verify you have mapped the columns correctly! For example, if you see '0.495 10%' and 'AC.DESHUESADAS 7.950 3.94', Qty=0.495, Price=7.950, Total=3.94 (because 0.495 * 7.950 = 3.93525). If your chosen Qty * Price does not match the Total printed on the page, YOU HAVE MAPPED THE COLUMNS WRONG and must try a different mapping.\n"
-        "LINE ITEM QUANTITY RULE: If a table has multiple quantity-like columns (e.g. 'Cajas' vs 'UDS'/'CANTIDAD'), prefer the 'UDS' or 'CANTIDAD' column for the actual quantity, not the 'Cajas' column. Extract Gross Price as the exact printed price per that unit. DO NOT back-calculate the price.\n"
+        "LINE ITEM QUANTITY RULE: If a table has multiple quantity-like columns (e.g. 'Cajas' vs 'BOT.'/'UDS'/'CANTIDAD'), prefer the 'BOT.' or 'UDS' or 'CANTIDAD' column for the actual quantity, not the 'Cajas' column. Extract Gross Price as the exact printed price per unit (PRECIO column). DO NOT back-calculate the price.\n"
         "QUANTITY EXTRACTION: If a product description appears to end with a standalone number (e.g. 'MORITZ 7 1/3 24BOT RET 28'), that trailing number is almost always the QUANTITY column value that wrapped onto the same line as the description — extract it into 'quantity', not as part of the product name. Cross-check: quantity × gross_price - applied_discount should equal base (within 0.05). If it does not match with quantity=1, look for a wrapped/misplaced quantity digit in the description text and re-extract it.\n"
         "STRICT NO-INVENTION RULE: You MUST ONLY extract numbers that literally appear in the raw text! DO NOT perform calculations to generate/invent new numbers! If you invent a number like '31.32' that isn't in the text, you fail.\n"
         "LINE ITEM SEPARATION RULE: Do NOT merge multiple distinct products into a single row's description. Keep each line item separate on its own row just as they appear in the source.\n"
@@ -351,7 +355,7 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
         "2. Identify the IVA/TAX BREAKDOWN section (which lists the tax rates, base amounts, and tax amounts). YOU MUST format this breakdown as a Markdown table (e.g. Rate, Base, IVA, Total). Even if the text is messy, do your best to extract it. Common IVA rates in Spain are 4%, 10%, and 21%. This is CRITICAL for data extraction downstream.\n"
         "3. Keep all the other information intact and well-structured using Markdown headings and lists. Be sure to explicitly extract the Supplier name, Supplier VAT ID/CIF, Customer name, Document Number, Date, Subtotal (of products only), ALL Taxes (e.g. IVA amounts), all Adjustments/Fees, and the Grand Total.\n"
         "TOTAL: when multiple total-like labels exist (e.g. 'PROD+ENVASES' vs 'TOTAL ENTREGA'), the FINAL total after all discounts/fees/taxes is the correct value for 'total' — usually the LAST and LARGEST-context labeled total on the page, often called 'TOTAL ENTREGA', 'TOTAL A PAGAR', 'IMPORTE TOTAL'. A subtotal labeled 'PROD+ENVASES' or similar is a pre-discount intermediate figure, NOT the final total.\n"
-        "CUSTOMER VAT ID RULE: You must NEVER include the Customer's VAT ID in the Markdown output. Simply omit it if you see it. DO NOT redact or omit the Supplier's name, Supplier's VAT ID, or the Customer's name—they MUST be explicitly extracted and included in the output.\n"
+        "CUSTOMER VAT ID RULE: You must NEVER include the Customer's VAT ID in the Markdown output. If you see a VAT ID next to the Customer's name (e.g. 'D.N.I./C.I.F: B67019018' near 'CLIENTE:'), you MUST replace it with '[REDACTED]' in the Markdown output. Do NOT include the Customer's real VAT ID anywhere in the Markdown output! This is an ABSOLUTE PROHIBITION. However, DO NOT redact or omit the Supplier's name, Supplier's VAT ID, or the Customer's name—they MUST be explicitly extracted and included in the output.\n"
         "=== DATE PARSING ===\n"
         "=== TWO-COLUMN LAYOUT RULE ===\n"
         "The raw text may contain a separator '--- DOCUMENT INFO COLUMN ---'. If present:\n"

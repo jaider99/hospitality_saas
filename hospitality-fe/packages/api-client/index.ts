@@ -83,6 +83,11 @@ export class ApiClient {
     return res.data;
   }
 
+  async updateInvoice(id: number, data: any): Promise<any> {
+    const res = await this.instance.put<any>(`/invoices/${id}`, data);
+    return res.data;
+  }
+
   async uploadInvoice(formData: FormData): Promise<{ invoiceId: number; invoiceNumber: string | null; supplierName: string | null; totalAmount: number; linesCount: number }> {
     const res = await this.instance.post('/invoices/upload', formData, {
       headers: {

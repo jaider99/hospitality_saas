@@ -75,6 +75,12 @@ interface InvoiceDetail {
   tax_free_costs?: number;
   source_file?: string;
   review_reasons?: string;
+  // Missing totals fields
+  discount?: number;
+  paye?: number;
+  base_amount?: number;
+  iva_amount?: number;
+  total_with_iva?: number;
 }
 
 export default function DocumentDetailPage() {
@@ -128,7 +134,7 @@ export default function DocumentDetailPage() {
           setDocNum(data.document_number || data.invoice_number || '');
           setDocDate(data.issue_date ? new Date(data.issue_date).toISOString().split('T')[0] : '');
 
-          setBaseAmount(data.base_amount || data.total_amount || 0);
+          setBaseAmount(data.base_amount !== undefined && data.base_amount !== null ? data.base_amount : (data.total_amount || 0));
           setVatAmount(data.iva_amount || 0);
           setDiscount(data.discount || 0);
           setPaye(data.paye || 0);
@@ -151,6 +157,7 @@ export default function DocumentDetailPage() {
 
     fetchDetails();
   }, [id]);
+
 
   if (loading) {
     return (
@@ -195,47 +202,84 @@ export default function DocumentDetailPage() {
   // Formatted display values
   const standardVatRates = [0, 2, 4, 5, 7.5, 10, 12, 21];
 
-  const handleSaveSupplier = () => {
-    if (invoice) {
-      setInvoice({
-        ...invoice,
+  const handleSaveSupplier = async () => {
+    try {
+      const client = getApiClient();
+      await client.updateInvoice(Number(id), {
         supplier: {
-          ...invoice.supplier,
           name: supplierName,
-          legal_name: supplierLegalName,
-          vat_id: supplierVatId
+          legalName: supplierLegalName,
+          vatID: supplierVatId
         }
       });
+      const updatedData = await client.getInvoiceDetails(Number(id));
+      setInvoice(updatedData);
+      if (updatedData) {
+        setSupplierName(updatedData.supplier?.name || updatedData.supplier_display_name || '');
+        setSupplierLegalName(updatedData.supplier?.legal_name || updatedData.supplier_legal_name || '');
+        setSupplierVatId(updatedData.supplier?.vat_id || updatedData.supplier_tax_id || '');
+      }
+      setEditSupplier(false);
+    } catch (err) {
+      console.error('Error saving supplier:', err);
+      alert('Failed to save supplier details');
     }
-    setEditSupplier(false);
   };
 
-  const handleSaveGeneral = () => {
-    if (invoice) {
-      setInvoice({
-        ...invoice,
-        document_number: docNum,
-        invoice_number: docNum,
-        issue_date: docDate
+  const handleSaveGeneral = async () => {
+    try {
+      const client = getApiClient();
+      await client.updateInvoice(Number(id), {
+        serialNumber: docNum,
+        date: docDate
       });
+      const updatedData = await client.getInvoiceDetails(Number(id));
+      setInvoice(updatedData);
+      if (updatedData) {
+        setDocNum(updatedData.document_number || updatedData.invoice_number || '');
+        setDocDate(updatedData.issue_date ? new Date(updatedData.issue_date).toISOString().split('T')[0] : '');
+      }
+      setEditGeneral(false);
+    } catch (err) {
+      console.error('Error saving general details:', err);
+      alert('Failed to save general details');
     }
-    setEditGeneral(false);
   };
 
-  const handleSaveTotals = () => {
-    if (invoice) {
-      setInvoice({
-        ...invoice,
-        total_amount:
-          baseAmount + vatAmount + greenPoint + ibee + attributableCost + taxFreeCosts - discount,
-        green_point: greenPoint,
-        ibee: ibee,
-        attributable_cost: attributableCost,
-        tax_free_costs: taxFreeCosts
+  const handleSaveTotals = async () => {
+    try {
+      const client = getApiClient();
+      const calculatedTotal = baseAmount + vatAmount + greenPoint + ibee + attributableCost + taxFreeCosts - discount;
+      await client.updateInvoice(Number(id), {
+        subtotal: baseAmount,
+        tax: vatAmount,
+        discount: discount,
+        payeAmount: paye,
+        greenPointAmount: greenPoint,
+        ibeeAmount: ibee,
+        taxableAdditionalCost: attributableCost,
+        netAdditionalCost: taxFreeCosts,
+        total: calculatedTotal
       });
+      const updatedData = await client.getInvoiceDetails(Number(id));
+      setInvoice(updatedData);
+      if (updatedData) {
+        setBaseAmount(updatedData.base_amount !== undefined && updatedData.base_amount !== null ? updatedData.base_amount : (updatedData.total_amount || 0));
+        setVatAmount(updatedData.iva_amount || 0);
+        setDiscount(updatedData.discount || 0);
+        setPaye(updatedData.paye || 0);
+        setGreenPoint(updatedData.green_point || 0);
+        setIbee(updatedData.ibee || 0);
+        setAttributableCost(updatedData.attributable_cost || 0);
+        setTaxFreeCosts(updatedData.tax_free_costs || 0);
+      }
+      setEditTotals(false);
+    } catch (err) {
+      console.error('Error saving totals:', err);
+      alert('Failed to save total amounts');
     }
-    setEditTotals(false);
   };
+
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1440px] mx-auto font-sans flex flex-col gap-6">
@@ -564,7 +608,7 @@ export default function DocumentDetailPage() {
                     TOTAL (with VAT)
                   </span>
                   <span className="text-3xl font-extrabold text-foreground font-mono mt-1 block">
-                    {formatCurrency(invoice.total_amount)}
+                    {formatCurrency(invoice.total_with_iva !== undefined && invoice.total_with_iva !== null ? invoice.total_with_iva : invoice.total_amount)}
                   </span>
                 </div>
                 {!editTotals ? (
@@ -597,13 +641,13 @@ export default function DocumentDetailPage() {
                   <div className="space-y-1">
                     <span className="text-xs text-muted-foreground block">Base amount</span>
                     <span className="font-semibold text-foreground font-mono">
-                      {formatCurrency(invoice.total_amount - vatAmount)}
+                      {formatCurrency(invoice.base_amount !== undefined && invoice.base_amount !== null ? invoice.base_amount : (invoice.total_amount - (invoice.iva_amount || 0)))}
                     </span>
                   </div>
                   <div className="space-y-1">
                     <span className="text-xs text-muted-foreground block">VAT amount</span>
                     <span className="font-semibold text-foreground font-mono">
-                      {formatCurrency(vatAmount)}
+                      {formatCurrency(invoice.iva_amount !== undefined && invoice.iva_amount !== null ? invoice.iva_amount : 0)}
                     </span>
                   </div>
                   <div className="space-y-1">
@@ -615,37 +659,37 @@ export default function DocumentDetailPage() {
                   <div className="space-y-1">
                     <span className="text-xs text-muted-foreground block">Global Discount</span>
                     <span className="font-semibold text-foreground font-mono">
-                      {formatCurrency(discount)}
+                      {formatCurrency(invoice.discount !== undefined && invoice.discount !== null ? invoice.discount : 0)}
                     </span>
                   </div>
                   <div className="space-y-1">
                     <span className="text-xs text-muted-foreground block">PAYE</span>
                     <span className="font-semibold text-foreground font-mono">
-                      {formatCurrency(paye)}
+                      {formatCurrency(invoice.paye !== undefined && invoice.paye !== null ? invoice.paye : 0)}
                     </span>
                   </div>
                   <div className="space-y-1">
                     <span className="text-xs text-muted-foreground block">Green Point</span>
                     <span className="font-semibold text-foreground font-mono">
-                      {formatCurrency(greenPoint)}
+                      {formatCurrency(invoice.green_point !== undefined && invoice.green_point !== null ? invoice.green_point : 0)}
                     </span>
                   </div>
                   <div className="space-y-1">
                     <span className="text-xs text-muted-foreground block">IBEE</span>
                     <span className="font-semibold text-foreground font-mono">
-                      {formatCurrency(ibee)}
+                      {formatCurrency(invoice.ibee !== undefined && invoice.ibee !== null ? invoice.ibee : 0)}
                     </span>
                   </div>
                   <div className="space-y-1">
                     <span className="text-xs text-muted-foreground block">Attributable cost</span>
                     <span className="font-semibold text-foreground font-mono">
-                      {formatCurrency(attributableCost)}
+                      {formatCurrency(invoice.attributable_cost !== undefined && invoice.attributable_cost !== null ? invoice.attributable_cost : 0)}
                     </span>
                   </div>
                   <div className="space-y-1">
                     <span className="text-xs text-muted-foreground block">Tax-free costs</span>
                     <span className="font-semibold text-foreground font-mono">
-                      {formatCurrency(taxFreeCosts)}
+                      {formatCurrency(invoice.tax_free_costs !== undefined && invoice.tax_free_costs !== null ? invoice.tax_free_costs : 0)}
                     </span>
                   </div>
                 </div>

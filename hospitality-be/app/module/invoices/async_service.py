@@ -106,6 +106,9 @@ async def async_save_ocr_invoice(
     invoice.total_with_iva = getattr(ocr_invoice, 'total', 0.0)
 
     # OCR meta
+    invoice.ocr_confidence = getattr(ocr_invoice, 'ocr_confidence', None)
+    invoice.ocr_duration = getattr(ocr_invoice, 'ocr_duration', None)
+    invoice.llm_duration = getattr(ocr_invoice, 'llm_duration', None)
     invoice.needs_review = getattr(ocr_invoice, 'needs_review', False)
     invoice.review_reasons = json.dumps(getattr(ocr_invoice, 'review_reasons', [])) if getattr(ocr_invoice, 'review_reasons', []) else None
     invoice.raw_ocr_json = ocr_invoice.to_json()
@@ -114,13 +117,21 @@ async def async_save_ocr_invoice(
     await db.commit()
     await db.refresh(invoice)
 
+    # Clear any existing lines and brackets to support reprocessing
+    from sqlalchemy import delete
+    await db.execute(delete(InvoiceLine).where(InvoiceLine.invoice_id == invoice.id))
+    await db.execute(delete(InvoiceTaxBracket).where(InvoiceTaxBracket.invoice_id == invoice.id))
+    await db.commit()
+
     processed_lines = []
 
     # --- Process each line item ---
     for line in getattr(ocr_invoice, 'items', []):
         description = getattr(line, 'product', "Unknown Item")
         quantity = getattr(line, 'quantity', 0.0)
-        unit_price = getattr(line, 'grossPrice', getattr(line, 'nominal_price', 0.0))
+        gp = getattr(line, 'grossPrice', None)
+        np = getattr(line, 'nominalPrice', None)
+        unit_price = gp if gp is not None else (np if np is not None else 0.0)
         total_price = getattr(line, 'base', 0.0)
         sku = getattr(line, 'providerCode', None)
 
@@ -144,13 +155,19 @@ async def async_save_ocr_invoice(
 
         if product:
             old_price = product.current_price
-            if unit_price > old_price and unit_price > 0:
+            if old_price is not None and unit_price is not None and old_price > 0 and unit_price > old_price:
                 price_increased = True
                 increase_pct = ((unit_price - old_price) / old_price) * 100
 
                 history = ProductCostHistory(product_id=product.id, price=old_price)
                 db.add(history)
 
+                product.current_price = unit_price
+                product.updated_at = datetime.utcnow()
+                db.add(product)
+                await db.commit()
+                await db.refresh(product)
+            elif old_price is None and unit_price is not None:
                 product.current_price = unit_price
                 product.updated_at = datetime.utcnow()
                 db.add(product)
@@ -207,6 +224,8 @@ async def async_save_ocr_invoice(
             nominal_price=getattr(line, 'nominalPrice', None),
             iva_pct=getattr(line, 'iva_pct', None),
             base=total_price,
+            gra=getattr(line, 'gra', None),
+            u_m=getattr(line, 'u_m', None),
         )
         db.add(invoice_line)
         await db.commit()

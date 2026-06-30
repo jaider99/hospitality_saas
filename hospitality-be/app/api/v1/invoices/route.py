@@ -109,9 +109,10 @@ def list_invoices(
             "supplier_contact_count": inv.supplier_contact_count,
             "green_point": inv.green_point,
             "ibee": inv.ibee,
-            "attributable_cost": inv.attributable_cost,
             "tax_free_costs": inv.tax_free_costs,
             "source_file": inv.source_file,
+            "ocr_duration": inv.ocr_duration,
+            "llm_duration": inv.llm_duration,
         })
     return result
 
@@ -127,13 +128,31 @@ async def broadcast_event(message: str):
 
 
 @router.post("/webhook")
-async def receive_webhook(payload: WebhookPayload):
+async def receive_webhook(payload: WebhookPayload, db: Session = Depends(get_db)):
     """
     Webhook endpoint called by background worker when invoice processing finishes.
     Triggers client EventSource updates to reload documents in real-time.
     """
+    import logging
+    from datetime import datetime
+    api_logger = logging.getLogger("api")
+
+    invoice = db.get(Invoice, payload.invoice_id)
+    if invoice and invoice.created_at:
+        duration = (datetime.utcnow() - invoice.created_at).total_seconds()
+        api_logger.info(
+            f"[OCR TIME LOG] Webhook received for Invoice ID: {payload.invoice_id} | "
+            f"Status: {payload.status} | Total time since upload: {duration:.2f}s"
+        )
+    else:
+        api_logger.info(
+            f"[OCR TIME LOG] Webhook received for Invoice ID: {payload.invoice_id} | "
+            f"Status: {payload.status} | (Invoice or created_at not found)"
+        )
+
     await broadcast_event("reload")
     return {"status": "success", "message": "Webhook received and event broadcasted"}
+
 
 
 @router.get("/events")
@@ -190,6 +209,8 @@ def get_invoice_status(
         "total_amount": invoice.total_with_iva or invoice.total_amount,
         "extraction_method": invoice.extraction_method,
         "ocr_confidence": invoice.ocr_confidence,
+        "ocr_duration": invoice.ocr_duration,
+        "llm_duration": invoice.llm_duration,
     }
 
 from app.ocr.schema_ocr import Invoice as InvoiceDTO
@@ -295,6 +316,68 @@ async def update_invoice_api(
         success = update_invoice(invoice_id, new_inv, session=db)
         if not success:
             raise HTTPException(status_code=500, detail="Failed to update invoice in database")
+            
+        # Synchronize with SQLModel tables
+        from app.module.invoices.model import InvoiceLine, InvoiceTaxBracket
+        from datetime import datetime
+        sqlmodel_inv = db.get(Invoice, invoice_id)
+        if sqlmodel_inv:
+            sqlmodel_inv.invoice_number = new_inv.serialNumber
+            sqlmodel_inv.document_number = new_inv.serialNumber
+            if new_inv.date:
+                try: sqlmodel_inv.issue_date = datetime.fromisoformat(new_inv.date)
+                except: pass
+            sqlmodel_inv.total_amount = new_inv.total or 0.0
+            sqlmodel_inv.base_amount = new_inv.subtotal
+            sqlmodel_inv.iva_amount = new_inv.tax
+            sqlmodel_inv.discount = new_inv.discount
+            sqlmodel_inv.paye = new_inv.payeAmount
+            sqlmodel_inv.green_point = new_inv.greenPointAmount
+            sqlmodel_inv.ibee = new_inv.ibeeAmount
+            sqlmodel_inv.attributable_cost = new_inv.taxableAdditionalCost
+            sqlmodel_inv.tax_free_costs = new_inv.netAdditionalCost
+            sqlmodel_inv.total_with_iva = new_inv.total
+            sqlmodel_inv.supplier_display_name = new_inv.supplier.name
+            sqlmodel_inv.supplier_tax_id = new_inv.supplier.vatID
+            
+            from sqlalchemy import delete
+            db.execute(delete(InvoiceLine).where(InvoiceLine.invoice_id == invoice_id))
+            db.execute(delete(InvoiceTaxBracket).where(InvoiceTaxBracket.invoice_id == invoice_id))
+            
+            db.add_all([
+                InvoiceLine(
+                    invoice_id=invoice_id,
+                    description=li.product or "Unknown Item",
+                    quantity=li.quantity or 0.0,
+                    unit_price=li.nominalPrice or li.unitPrice or 0.0,
+                    total_price=li.totalPrice or 0.0,
+                    provider_code=li.providerCode,
+                    unit=li.unit,
+                    gross_price=li.grossPrice,
+                    discount_pct=li.discountPct,
+                    applied_discount=li.appliedDiscount,
+                    other_fees=li.otherFees,
+                    nominal_price=li.nominalPrice,
+                    iva_pct=li.iva_pct or 0.0,
+                    base=li.base or 0.0
+                )
+                for li in new_inv.items
+            ])
+            
+            db.add_all([
+                InvoiceTaxBracket(
+                    invoice_id=invoice_id,
+                    rate_pct=tb.taxRate,
+                    base=tb.subtotal,
+                    iva_amount=tb.tax,
+                    row_total=tb.total,
+                    equivalence_surcharge_rate=tb.equivalenceSurchargeRate,
+                    equivalence_surcharge=tb.equivalenceSurcharge
+                )
+                for tb in new_inv.taxBrackets
+            ])
+            db.add(sqlmodel_inv)
+            db.commit()
             
         return {
             "status": "success",

@@ -6,7 +6,10 @@ PostgreSQL persistence layer matching the full developer blueprint.
 
 from __future__ import annotations
 import os
+import logging
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 from typing import Optional, List
@@ -148,6 +151,14 @@ def save_invoice(inv: InvoiceDTO, session: Optional[Session] = None) -> int:
     session = session or SessionLocal()
 
     try:
+        # Delete existing invoice with the same serial number to avoid UniqueViolation
+        if inv.serialNumber:
+            existing_invoice = session.query(InvoiceRecord).filter_by(serialNumber=inv.serialNumber).first()
+            if existing_invoice:
+                logger.info(f"Deleting existing InvoiceRecord with serialNumber '{inv.serialNumber}' to prevent unique violation.")
+                session.delete(existing_invoice)
+                session.flush()
+
         # Resolve supplier
         supplier_record = None
         if inv.supplier.vatID:

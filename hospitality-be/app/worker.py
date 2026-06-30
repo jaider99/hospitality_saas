@@ -30,6 +30,13 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
     """
     logger.info(f"Task process_invoice_task started for Invoice ID: {invoice_id}, Object Key: {object_key}")
 
+    # Retrieve created_at to compute duration
+    created_at = None
+    async with async_session_maker() as db:
+        invoice = await db.get(Invoice, invoice_id)
+        if invoice:
+            created_at = invoice.created_at
+
     import tempfile
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
         local_path = tmp_file.name
@@ -73,8 +80,10 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
         # Trigger Success Webhook
         try:
             import httpx
+            from datetime import datetime
+            duration_str = f"{(datetime.utcnow() - created_at).total_seconds():.2f}s" if created_at else "unknown"
             webhook_url = f"http://localhost:{settings.PORT}/api/v1/invoices/webhook"
-            logger.info(f"Triggering success webhook at {webhook_url}...")
+            logger.info(f"Triggering success webhook at {webhook_url} (Total duration: {duration_str})...")
             async with httpx.AsyncClient() as client:
                 await client.post(webhook_url, json={"invoice_id": invoice_id, "status": "PROCESSED"})
         except Exception as webhook_err:
@@ -93,8 +102,10 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
         # Trigger Failure Webhook
         try:
             import httpx
+            from datetime import datetime
+            duration_str = f"{(datetime.utcnow() - created_at).total_seconds():.2f}s" if created_at else "unknown"
             webhook_url = f"http://localhost:{settings.PORT}/api/v1/invoices/webhook"
-            logger.info(f"Triggering failure webhook at {webhook_url}...")
+            logger.info(f"Triggering failure webhook at {webhook_url} (Total duration: {duration_str})...")
             async with httpx.AsyncClient() as client:
                 await client.post(webhook_url, json={"invoice_id": invoice_id, "status": "FAILED"})
         except Exception as webhook_err:

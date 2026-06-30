@@ -92,6 +92,8 @@ class Invoice(SQLModel, table=True):
     ocr_confidence: Optional[float] = Field(default=None)       # 0-100
     needs_review: bool = Field(default=False, index=True)
     review_reasons: Optional[str] = Field(default=None)         # JSON list as string
+    ocr_duration: Optional[float] = Field(default=None)
+    llm_duration: Optional[float] = Field(default=None)
 
     # Full raw OCR JSON (future-proof, never loses data)
     raw_ocr_json: Optional[str] = Field(default=None)
@@ -122,6 +124,8 @@ class InvoiceLine(SQLModel, table=True):
     nominal_price: Optional[float] = Field(default=None)
     iva_pct: Optional[float] = Field(default=None)             # VAT/IVA rate %
     base: Optional[float] = Field(default=None)                # line base amount (pre-tax)
+    gra: Optional[float] = Field(default=None)
+    u_m: Optional[float] = Field(default=None)
 
     # Relationships
     invoice: Invoice = Relationship(back_populates="lines")

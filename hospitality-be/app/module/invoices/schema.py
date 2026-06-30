@@ -40,6 +40,8 @@ class InvoiceListResponse(BaseModel):
     attributable_cost: Optional[float] = None
     tax_free_costs: Optional[float] = None
     source_file: Optional[str] = None
+    ocr_duration: Optional[float] = None
+    llm_duration: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -57,6 +59,8 @@ class InvoiceStatusResponse(BaseModel):
     total_amount: Optional[float] = None
     extraction_method: Optional[str] = None
     ocr_confidence: Optional[float] = None
+    ocr_duration: Optional[float] = None
+    llm_duration: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -93,6 +97,8 @@ class InvoiceLineDetails(BaseModel):
     nominal_price: Optional[float] = None
     iva_pct: Optional[float] = None
     base: Optional[float] = None
+    gra: Optional[float] = None
+    u_m: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -139,6 +145,8 @@ class InvoiceDetailsResponse(BaseModel):
     tax_free_costs: Optional[float] = None
     source_file: Optional[str] = None
     review_reasons: Optional[str] = None
+    ocr_duration: Optional[float] = None
+    llm_duration: Optional[float] = None
     
     # Missing totals
     discount: Optional[float] = None

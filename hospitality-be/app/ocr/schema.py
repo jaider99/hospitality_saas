@@ -52,6 +52,8 @@ class LineItem:
     otherFees: Optional[float] = None
     nominalPrice: Optional[float] = None
     totalPrice: Optional[float] = None
+    gra: Optional[float] = None
+    u_m: Optional[float] = None
     # For compatibility with some extraction modules that might set these:
     iva_pct: Optional[float] = None
     base: Optional[float] = None
@@ -108,6 +110,8 @@ class Invoice:
     ocr_confidence: Optional[float] = None
     needs_review: bool = False
     review_reasons: List[str] = field(default_factory=list)
+    ocr_duration: Optional[float] = None
+    llm_duration: Optional[float] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -156,4 +160,6 @@ LINE_ITEM_HEADERS = {
     "nominalPrice":    ["nominal price", "precio nominal"],
     "iva_pct":         ["iva", "vat"],
     "base":            ["base"],
+    "gra":             ["gra.", "gra", "graduacion", "grado", "degrees"],
+    "u_m":             ["u/m", "um", "unidad medida", "litros", "liters"],
 }

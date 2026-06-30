@@ -41,9 +41,14 @@ def _needs_llm_fallback(inv: Invoice) -> bool:
 def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = "") -> Invoice:
     logger.info(f"Processing: {file_path}")
 
+    import time
+    llm_total_time = 0.0
+
     # --- Stage 0: ingest ---
+    ocr_start_time = time.time()
     page_result = ingest(file_path)
-    logger.info(f"OCR/text extraction done. avg_confidence={page_result.avg_confidence:.1f}")
+    ocr_duration = time.time() - ocr_start_time
+    logger.info(f"OCR/text extraction done. avg_confidence={page_result.avg_confidence:.1f} in {ocr_duration:.2f}s")
 
     import os
     md_outputs_dir = os.path.join(os.getcwd(), "ocr_results")
@@ -59,7 +64,9 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     else:
         raw_md = f"# Invoice (Scanned OCR)\n\n{page_result.raw_text}"
         
+    llm_start_1 = time.time()
     structured_md = format_ocr_markdown_with_llm(raw_md)
+    llm_total_time += time.time() - llm_start_1
 
     try:
         with open(md_path, "w", encoding="utf-8") as f:
@@ -114,7 +121,9 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
             
             # Provide the original raw text as well in case the structured_md stripped something (like marginal text)
             full_llm_input = ocr_text + "\n\n=== RAW OCR TEXT ===\n" + page_result.raw_text
+            llm_start_2 = time.time()
             llm_result = extract_with_llm(full_llm_input, missing_fields=missing)
+            llm_total_time += time.time() - llm_start_2
             logger.info(f"LLM returned dict: {llm_result}")
             inv = merge_llm_result_into_invoice(inv, llm_result, force_fields=missing)
             
@@ -326,6 +335,9 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
                     logger.info(f"Backfilled missing supplier.vatID from DB using name '{inv.supplier.name}': {supplier_match.vatID}")
         except Exception as e:
             logger.error(f"Failed to query DB for supplier fallback: {e}")
+
+    inv.ocr_duration = round(ocr_duration, 2)
+    inv.llm_duration = round(llm_total_time, 2)
 
     if inv.needs_review:
         logger.warning(f"NEEDS REVIEW: {inv.review_reasons}")
