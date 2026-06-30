@@ -15,6 +15,7 @@ from app.core.translation import get_lang
 from app.module.invoices.model import Invoice
 from app.core.queue import enqueue_invoice_processing
 from app.core.minio import upload_to_minio
+from app.core.setting import settings
 
 # In-memory list of active client queues for Server-Sent Events
 active_connections: List[asyncio.Queue] = []
@@ -35,14 +36,18 @@ async def upload_invoice(
     """
     file_bytes = await file.read()
 
-    # 1. Create a PENDING Invoice record
-    invoice = Invoice(
-        status="PENDING",
-        total_amount=0.0
-    )
-    db.add(invoice)
-    db.commit()
-    db.refresh(invoice)
+    # 1. Create a PENDING Invoice record (run sync DB ops in thread pool)
+    def create_invoice_record():
+        inv = Invoice(
+            status="PENDING",
+            total_amount=0.0
+        )
+        db.add(inv)
+        db.commit()
+        db.refresh(inv)
+        return inv
+
+    invoice = await asyncio.to_thread(create_invoice_record)
 
     # Determine file extension from filename
     ext = "pdf"
@@ -52,12 +57,18 @@ async def upload_invoice(
             ext = file_ext.lstrip(".")
 
     object_key = f"invoice_{invoice.id}.{ext}"
-    invoice.source_file = object_key
-    db.add(invoice)
-    db.commit()
 
-    # 2. Upload bytes to MinIO
-    upload_to_minio(file_bytes, object_key)
+    def update_source_file(minio_url: str):
+        invoice.source_file = object_key
+        invoice.file_url = minio_url
+        db.add(invoice)
+        db.commit()
+
+    minio_url = f"{settings.MINIO_ENDPOINT_URL}/{settings.MINIO_BUCKET_NAME}/{object_key}"
+    await asyncio.to_thread(update_source_file, minio_url)
+
+    # 2. Upload bytes to MinIO — run in thread pool to avoid blocking event loop
+    await asyncio.to_thread(upload_to_minio, file_bytes, object_key)
 
     # 3. Enqueue to ARQ background queue with the object_key
     await enqueue_invoice_processing(

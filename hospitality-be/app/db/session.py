@@ -15,7 +15,7 @@ async_db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
 async_engine = create_async_engine(async_db_url, echo=False)
 
 async_session_maker = sessionmaker(
-    async_engine, class_=AsyncSession, expire_on_commit=False
+    async_engine, class_=AsyncSession, expire_on_commit=True
 )
 
 def init_db():

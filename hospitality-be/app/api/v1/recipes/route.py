@@ -3,6 +3,7 @@ from sqlmodel import Session
 from typing import List
 
 from app.db.session import get_db
+from app.db.redis import del_cache
 from app.module.auth.model import User
 from app.module.auth.service import get_current_user
 from app.module.recipes.schema import RecipeCreate, RecipeUpdate, IngredientAdd, RecipeResponse
@@ -65,6 +66,9 @@ def remove_recipe(
 ):
     """Deletes a recipe entirely."""
     delete_recipe(db, recipe_id)
+    # Invalidate cache
+    del_cache("recipes_list")
+    del_cache(f"recipe_{recipe_id}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.post("/{recipe_id}/ingredients", response_model=RecipeResponse, status_code=status.HTTP_201_CREATED)
@@ -76,6 +80,8 @@ def post_ingredient(
 ):
     """Appends an ingredient portion to recipe card."""
     add_ingredient(db, recipe_id, dto)
+    # Invalidate cache
+    del_cache(f"recipe_{recipe_id}")
     return get_recipe_details(db, recipe_id)
 
 @router.delete("/ingredients/{ingredient_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -86,4 +92,6 @@ def delete_ingredient(
 ):
     """Detaches an ingredient portion from its recipe."""
     remove_ingredient(db, ingredient_id)
+    # Invalidate cache for all recipes (ingredient affects multiple recipes)
+    del_cache("recipes_list")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -74,22 +74,55 @@ def update_recipe(db: Session, recipe_id: int, dto: RecipeUpdate) -> Recipe:
     return recipe
 
 def delete_recipe(db: Session, recipe_id: int) -> Recipe:
-    """Removes a recipe from the database."""
-    recipe = db.get(Recipe, recipe_id)
-    if not recipe:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recipe with ID {recipe_id} not found")
-    db.delete(recipe)
-    db.commit()
-    return recipe
+    """Removes a recipe from the database with proper transaction management."""
+    try:
+        recipe = db.get(Recipe, recipe_id)
+        if not recipe:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recipe with ID {recipe_id} not found")
+        
+        # Delete all ingredients first (cascade delete helper)
+        for ingredient in recipe.ingredients:
+            db.delete(ingredient)
+        
+        # Delete the recipe
+        db.delete(recipe)
+        db.flush()  # Ensure deletes are processed
+        db.commit()  # Commit transaction
+        
+        # Verify deletion
+        verification = db.get(Recipe, recipe_id)
+        if verification:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Recipe deletion verification failed")
+        
+        return recipe
+    except Exception as e:
+        db.rollback()
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to delete recipe: {str(e)}")
 
 def remove_ingredient(db: Session, ingredient_id: int) -> RecipeIngredient:
-    """Detaches an ingredient from its recipe."""
-    ingredient = db.get(RecipeIngredient, ingredient_id)
-    if not ingredient:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"RecipeIngredient with ID {ingredient_id} not found")
-    db.delete(ingredient)
-    db.commit()
-    return ingredient
+    """Detaches an ingredient from its recipe with proper transaction management."""
+    try:
+        ingredient = db.get(RecipeIngredient, ingredient_id)
+        if not ingredient:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"RecipeIngredient with ID {ingredient_id} not found")
+        
+        db.delete(ingredient)
+        db.flush()  # Ensure delete is processed
+        db.commit()  # Commit transaction
+        
+        # Verify deletion
+        verification = db.get(RecipeIngredient, ingredient_id)
+        if verification:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Ingredient deletion verification failed")
+        
+        return ingredient
+    except Exception as e:
+        db.rollback()
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to delete ingredient: {str(e)}")
 
 def enrich_recipe_data(recipe: Recipe) -> Dict[str, Any]:
     """Helper to calculate total portion cost, profit margin, and warning state for a recipe."""

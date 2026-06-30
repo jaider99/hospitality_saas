@@ -46,7 +46,7 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
 
         # Run in threadpool — PaddleOCR is CPU-bound and blocks the event loop
         base_name = os.path.splitext(object_key)[0]
-        ocr_invoice = await asyncio.to_thread(process_invoice, local_path, True, base_name)
+        ocr_invoice = await asyncio.to_thread(process_invoice, local_path, False, base_name)
 
         logger.info(
             f"OCR pipeline complete for invoice {invoice_id}: "
@@ -73,7 +73,7 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
         # Trigger Success Webhook
         try:
             import httpx
-            webhook_url = f"http://localhost:{settings.PORT}/api/v1/invoices/webhook"
+            webhook_url = f"http://127.0.0.1:{settings.PORT}/api/v1/invoices/webhook"
             logger.info(f"Triggering success webhook at {webhook_url}...")
             async with httpx.AsyncClient() as client:
                 await client.post(webhook_url, json={"invoice_id": invoice_id, "status": "PROCESSED"})
@@ -93,7 +93,7 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
         # Trigger Failure Webhook
         try:
             import httpx
-            webhook_url = f"http://localhost:{settings.PORT}/api/v1/invoices/webhook"
+            webhook_url = f"http://127.0.0.1:{settings.PORT}/api/v1/invoices/webhook"
             logger.info(f"Triggering failure webhook at {webhook_url}...")
             async with httpx.AsyncClient() as client:
                 await client.post(webhook_url, json={"invoice_id": invoice_id, "status": "FAILED"})
@@ -121,3 +121,4 @@ class WorkerSettings:
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
     max_jobs = 1  # Process one invoice at a time — prevents PaddleOCR from double-loading and freezing
+    job_timeout = 900  # 15 minutes (default is 300s) - prevents TimeoutError when downloading heavy models

@@ -32,8 +32,13 @@ async def async_save_ocr_invoice(
     # --- Resolve / create Supplier ---
     supplier_name = (
         ocr_invoice.supplier.name if ocr_invoice.supplier else None
-    ) or "Unknown Supplier"  # Guard against None — ilike(None) crashes SQLAlchemy
+    )
+    # Only fallback to "Unknown Supplier" for database queries, but preserve actual name if available
     supplier_tax_id = ocr_invoice.supplier.vatID if ocr_invoice.supplier else None
+    supplier_address = ocr_invoice.supplier.address if ocr_invoice.supplier else None
+    supplier_contact_info = ocr_invoice.supplier.contactInfo if ocr_invoice.supplier else None
+    supplier_legal_name = ocr_invoice.supplier.legalName if ocr_invoice.supplier else None
+    supplier_contacts_count = ocr_invoice.supplier.contacts if ocr_invoice.supplier else 0
 
     # Try to find by tax_id first (most accurate), then by name
     supplier = None
@@ -42,16 +47,20 @@ async def async_save_ocr_invoice(
         result = await db.execute(stmt)
         supplier = result.scalars().first()
 
-    if not supplier and supplier_name and supplier_name != "Unknown Supplier":
-        # Only do ilike lookup when we have a real name — not "Unknown Supplier"
+    if not supplier and supplier_name:
+        # Only do ilike lookup when we have a real name
         stmt = select(Supplier).where(Supplier.name.ilike(supplier_name))
         result = await db.execute(stmt)
         supplier = result.scalars().first()
 
     if not supplier:
         supplier = Supplier(
-            name=supplier_name,
+            name=supplier_name or "Unknown Supplier",  # Only default to "Unknown" if creating new
             vat_id=supplier_tax_id,
+            address=supplier_address,
+            contact_info=supplier_contact_info,
+            legal_name=supplier_legal_name,
+            contacts=supplier_contacts_count or 0,
         )
         db.add(supplier)
         await db.commit()
@@ -60,9 +69,19 @@ async def async_save_ocr_invoice(
         # Update existing supplier with new info if available
         if supplier_tax_id and not supplier.vat_id:
             supplier.vat_id = supplier_tax_id
+        if supplier_address and not supplier.address:
+            supplier.address = supplier_address
+        if supplier_contact_info and not supplier.contact_info:
+            supplier.contact_info = supplier_contact_info
+        if supplier_legal_name and not supplier.legal_name:
+            supplier.legal_name = supplier_legal_name
+        if supplier_contacts_count and supplier.contacts < supplier_contacts_count:
+            supplier.contacts = supplier_contacts_count
         db.add(supplier)
         await db.commit()
         await db.refresh(supplier)
+
+    current_supplier_id = supplier.id
 
     # --- Update the existing PENDING Invoice record ---
     invoice = await db.get(Invoice, invoice_id)
@@ -80,7 +99,7 @@ async def async_save_ocr_invoice(
 
     # Map OCR fields onto the Invoice model
     invoice.invoice_number = ocr_invoice.serialNumber
-    invoice.supplier_id = supplier.id
+    invoice.supplier_id = current_supplier_id
     invoice.issue_date = issue_date
     invoice.total_amount = ocr_invoice.total or 0.0
     invoice.status = "PROCESSED"
@@ -93,6 +112,10 @@ async def async_save_ocr_invoice(
     # OCR supplier info (denormalized)
     invoice.supplier_display_name = supplier_name
     invoice.supplier_tax_id = supplier_tax_id
+    invoice.supplier_address = supplier_address
+    invoice.supplier_contact_count = supplier_contacts_count
+    invoice.supplier_contact_info = supplier_contact_info
+    invoice.supplier_legal_name = supplier_legal_name
 
     # OCR totals
     invoice.base_amount = getattr(ocr_invoice, 'subtotal', 0.0)
@@ -113,6 +136,17 @@ async def async_save_ocr_invoice(
     db.add(invoice)
     await db.commit()
     await db.refresh(invoice)
+    
+    current_invoice_id = invoice.id
+    current_invoice_number = invoice.invoice_number
+    current_total_amount = invoice.total_amount
+    current_needs_review = invoice.needs_review
+
+    # Clean up old lines and tax brackets before adding new ones (in case of re-processing)
+    from sqlalchemy import delete
+    await db.execute(delete(InvoiceLine).where(InvoiceLine.invoice_id == current_invoice_id))
+    await db.execute(delete(InvoiceTaxBracket).where(InvoiceTaxBracket.invoice_id == current_invoice_id))
+    await db.commit()
 
     processed_lines = []
 
@@ -126,7 +160,7 @@ async def async_save_ocr_invoice(
 
         # Find or create SuppliedProduct
         product_query = select(SuppliedProduct).where(
-            SuppliedProduct.supplier_id == supplier.id
+            SuppliedProduct.supplier_id == current_supplier_id
         )
         if sku:
             product_query = product_query.where(
@@ -164,14 +198,14 @@ async def async_save_ocr_invoice(
                 conflict_query = select(SuppliedProduct).where(SuppliedProduct.sku == sku)
                 conflict_res = await db.execute(conflict_query)
                 conflict_prod = conflict_res.scalars().first()
-                if conflict_prod and conflict_prod.supplier_id != supplier.id:
+                if conflict_prod and conflict_prod.supplier_id != current_supplier_id:
                     # Append supplier ID to make it globally unique
-                    sku = f"{sku}-{supplier.id}"
+                    sku = f"{sku}-{current_supplier_id}"
 
             product = SuppliedProduct(
                 name=description,
                 sku=sku,
-                supplier_id=supplier.id,
+                supplier_id=current_supplier_id,
                 current_price=unit_price,
                 unit=getattr(line, 'unit', "units") or "units",
             )
@@ -190,7 +224,7 @@ async def async_save_ocr_invoice(
 
         # Create InvoiceLine with full OCR detail
         invoice_line = InvoiceLine(
-            invoice_id=invoice.id,
+            invoice_id=current_invoice_id,
             description=description,
             quantity=quantity,
             unit_price=unit_price,
@@ -209,18 +243,23 @@ async def async_save_ocr_invoice(
             base=total_price,
         )
         db.add(invoice_line)
+        
+        current_product_id = product.id
+        current_product_sku = product.sku
+        current_product_name = product.name
+        
         await db.commit()
         await db.refresh(invoice_line)
 
         processed_lines.append({
             "id": invoice_line.id,
-            "invoice_id": invoice.id,
+            "invoice_id": current_invoice_id,
             "description": description,
             "quantity": quantity,
             "unit_price": unit_price,
             "total_price": total_price,
-            "product_id": product.id,
-            "sku": product.sku,
+            "product_id": current_product_id,
+            "sku": current_product_sku,
             "price_increased": price_increased,
             "increase_pct": increase_pct,
         })
@@ -231,12 +270,12 @@ async def async_save_ocr_invoice(
             message = translate(
                 "price_hike_msg",
                 lang=lang,
-                product_name=product.name,
-                sku=product.sku,
+                product_name=current_product_name,
+                sku=current_product_sku,
                 pct=increase_pct,
                 old=old_price,
                 new=unit_price,
-                invoice_number=invoice.invoice_number,
+                invoice_number=current_invoice_number,
                 supplier_name=supplier_name,
             )
             incident = OperationalIncident(
@@ -248,12 +287,12 @@ async def async_save_ocr_invoice(
             db.add(incident)
             await db.commit()
 
-            await async_recalculate_dependent_recipes(db, product.id, product.name, lang=lang)
+            await async_recalculate_dependent_recipes(db, current_product_id, current_product_name, lang=lang)
 
     # --- Persist IVA tax brackets ---
     for row in getattr(ocr_invoice, 'taxBrackets', []):
         bracket = InvoiceTaxBracket(
-            invoice_id=invoice.id,
+            invoice_id=current_invoice_id,
             rate_pct=getattr(row, 'taxRate', getattr(row, 'rate_pct', 0.0)),
             base=getattr(row, 'subtotal', getattr(row, 'base', 0.0)),
             iva_amount=getattr(row, 'tax', getattr(row, 'iva_amount', 0.0)),
@@ -263,13 +302,13 @@ async def async_save_ocr_invoice(
     await db.commit()
 
     return {
-        "invoiceId": invoice.id,
-        "invoiceNumber": invoice.invoice_number,
+        "invoiceId": current_invoice_id,
+        "invoiceNumber": current_invoice_number,
         "supplierName": supplier_name,
-        "totalAmount": invoice.total_amount,
+        "totalAmount": current_total_amount,
         "linesCount": len(processed_lines),
         "lines": processed_lines,
-        "needsReview": invoice.needs_review,
+        "needsReview": current_needs_review,
         "extractionMethod": "ocr",
         "ocrConfidence": getattr(ocr_invoice, 'ocr_confidence', 0.0),
     }
@@ -320,19 +359,25 @@ async def async_process_invoice_upload(
         await db.commit()
         await db.refresh(supplier)
 
+    current_supplier_id = supplier.id
+
     # 3. Retrieve and Update the pending Invoice record
     invoice = await db.get(Invoice, invoice_id)
     if not invoice:
         raise ValueError(f"Invoice with ID {invoice_id} not found in database.")
 
     invoice.invoice_number = invoice_number
-    invoice.supplier_id = supplier.id
+    invoice.supplier_id = current_supplier_id
     invoice.issue_date = issue_date
     invoice.total_amount = total_amount
     invoice.status = "PROCESSED"
     db.add(invoice)
     await db.commit()
     await db.refresh(invoice)
+
+    current_invoice_id = invoice.id
+    current_invoice_number = invoice.invoice_number
+    current_total_amount = invoice.total_amount
 
     processed_lines = []
 
@@ -347,7 +392,7 @@ async def async_process_invoice_upload(
 
         # Search for pre-existing product under this supplier
         product_query = select(SuppliedProduct).where(
-            SuppliedProduct.supplier_id == supplier.id
+            SuppliedProduct.supplier_id == current_supplier_id
         )
         if sku:
             product_query = product_query.where(
@@ -389,7 +434,7 @@ async def async_process_invoice_upload(
             product = SuppliedProduct(
                 name=description,
                 sku=sku,
-                supplier_id=supplier.id,
+                supplier_id=current_supplier_id,
                 current_price=unit_price,
                 unit=unit
             )
@@ -408,7 +453,7 @@ async def async_process_invoice_upload(
 
         # Create InvoiceLine
         invoice_line = InvoiceLine(
-            invoice_id=invoice.id,
+            invoice_id=current_invoice_id,
             description=description,
             quantity=quantity,
             unit_price=unit_price,
@@ -416,18 +461,23 @@ async def async_process_invoice_upload(
             product_id=product.id
         )
         db.add(invoice_line)
+
+        current_product_id = product.id
+        current_product_sku = product.sku
+        current_product_name = product.name
+
         await db.commit()
         await db.refresh(invoice_line)
 
         processed_lines.append({
             "id": invoice_line.id,
-            "invoice_id": invoice.id,
+            "invoice_id": current_invoice_id,
             "description": description,
             "quantity": quantity,
             "unit_price": unit_price,
             "total_price": total_price,
-            "product_id": product.id,
-            "sku": product.sku,
+            "product_id": current_product_id,
+            "sku": current_product_sku,
             "price_increased": price_increased,
             "increase_pct": increase_pct
         })
@@ -440,8 +490,8 @@ async def async_process_invoice_upload(
             message = translate(
                 "price_hike_msg",
                 lang=lang,
-                product_name=product.name,
-                sku=product.sku,
+                product_name=current_product_name,
+                sku=current_product_sku,
                 pct=increase_pct,
                 old=old_price,
                 new=unit_price,
@@ -459,10 +509,10 @@ async def async_process_invoice_upload(
             await db.commit()
 
             # Recalculate dependent recipes margins
-            await async_recalculate_dependent_recipes(db, product.id, product.name, lang=lang)
+            await async_recalculate_dependent_recipes(db, current_product_id, current_product_name, lang=lang)
 
     return {
-        "invoiceId": invoice.id,
+        "invoiceId": current_invoice_id,
         "invoiceNumber": invoice_number,
         "supplierName": supplier_name,
         "totalAmount": total_amount,

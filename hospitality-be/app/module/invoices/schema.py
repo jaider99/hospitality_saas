@@ -7,6 +7,10 @@ class SupplierBase(BaseModel):
     id: int
     name: str
     vat_id: Optional[str] = None
+    legal_name: Optional[str] = None
+    address: Optional[str] = None
+    contact_info: Optional[str] = None
+    contact_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -84,7 +88,8 @@ class InvoiceLineDetails(BaseModel):
     product: Optional[ProductBase] = Field(default=None, validation_alias="product_rel")
     # OCR fields
     provider_code: Optional[str] = None
-    product_name: Optional[str] = Field(default=None, validation_alias="product")            # OCR product name/description, aliased from 'product'
+    product_name: Optional[str] = Field(default=None, validation_alias="product")            # OCR product name/description
+    product_type: Optional[str] = None                                                       # Product type/category
     unit: Optional[str] = None
     gross_price: Optional[float] = None
     discount_pct: Optional[float] = None
@@ -118,7 +123,11 @@ class InvoiceDetailsResponse(BaseModel):
     document_number: Optional[str] = None
     document_type: Optional[str] = None
     supplier_id: Optional[int] = None
+    supplier_display_name: Optional[str] = None  # OCR-extracted supplier name
+    supplier_legal_name: Optional[str] = None    # OCR-extracted supplier legal name
     supplier_tax_id: Optional[str] = None
+    supplier_address: Optional[str] = None       # OCR-extracted supplier address
+    supplier_contact_info: Optional[str] = None  # OCR-extracted supplier contact info
     issue_date: Optional[datetime] = None
     total_amount: float = 0.0
     status: str

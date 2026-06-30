@@ -121,9 +121,9 @@ class Invoice:
 # ---------------------------------------------------------------------------
 LABELS = {
     "type":            ["invoice", "factura", "credit note", "nota de credito", "receipt", "recibo", "albarán", "albaran", "albarán copia", "delivery note", "nota de entrega", "ticket", "orden de compra"],
-    "serialNumber":    ["number:", "number", "invoice number", "document number", "n\u00ba factura", "no. factura",
-                         "factura n", "n\u00ba documento", "num. factura", "documento número", "documento numero",
-                         "nota de pago", "comprobante", "n\u00ba:", "n°:", "n\u00ba", "n°", "document:", "albarán", "albaran", "pedido"],
+    "serialNumber":    ["factura:", "n\u00ba factura:", "factura n\u00ba", "factura no.", "factura num", "n\u00ba albar\u00e1n", "number:", "number", "invoice number", "document number", "n\u00ba factura", "no. factura",
+                         "factura n", "n\u00ba documento", "num. factura", "documento n\u00famero", "documento numero",
+                         "nota de pago", "comprobante", "n\u00ba:", "n\u00b0:", "n\u00ba", "n\u00b0", "document:", "albar\u00e1n", "albaran", "pedido"],
     "date":            ["date", "fecha", "fecha factura", "invoice date", "data"],
     "categoryID":      ["category", "categoria"],
     "uploaderID":      ["uploaded by", "subido por"],

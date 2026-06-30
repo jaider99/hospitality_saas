@@ -3,6 +3,26 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# ---- Project-specific ignores ----
+# Ad-hoc test / scratch scripts at repo root
+test_*.py
+scratch_*.py
+debug_*.py
+
+# Temporary / local files
+*.tmp
+*.bak
+/tmp/
+
+# Local PDF / invoice uploads during development
+*.pdf
+
+# OCR / AI output artifacts
+ocr_results/
+temp_uploads/
+
+
+
 # C extensions
 *.so
 
@@ -146,3 +166,9 @@ Thumbs.db
 temp_uploads/
 
 ocr_results/
+
+# Temporary scratch scripts and logs
+review_queue.jsonl
+run_worker.py
+get_job.py
+list_arq.py
