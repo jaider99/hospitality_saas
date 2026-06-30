@@ -14,14 +14,27 @@ import {
   ChatPanel
 } from './_components/layout-components';
 
+import { AuthGuard } from '../../components/AuthGuard';
+
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const router = useRouter();
+  return (
+    <AuthGuard>
+      <DashboardContent>{children}</DashboardContent>
+    </AuthGuard>
+  );
+}
+
+function DashboardContent({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const pathname = usePathname();
-  const { accessToken, logout, user } = useAuthStore();
+  const { accessToken, logout, user, login, apiClient } = useAuthStore();
 
   const {
     chatOpen,
@@ -33,17 +46,9 @@ export default function DashboardLayout({
 
   const [mounted, setMounted] = useState(false);
 
-  // 1. Force Redirect if unauthorized
-  useEffect(() => {
-    if (!accessToken) {
-      router.push('/');
-    } else {
-      setMounted(true);
-    }
-  }, [accessToken, router]);
-
   // Sync Tailwind .dark class with React state
   useEffect(() => {
+    setMounted(true);
     const root = window.document.documentElement;
     if (dark) {
       root.classList.add('dark');
@@ -52,7 +57,26 @@ export default function DashboardLayout({
     }
   }, [dark]);
 
-  if (!accessToken || !mounted) {
+  // Load user profile on dashboard mount if not already populated
+  useEffect(() => {
+    async function loadProfile() {
+      try {
+        const profile = await apiClient.getMe();
+        login({
+          accessToken: accessToken || 'supertokens-active',
+          refreshToken: 'supertokens-active',
+          user: profile
+        });
+      } catch (err) {
+        console.error("Failed to load user profile on dashboard load:", err);
+      }
+    }
+    if (mounted && !user) {
+      loadProfile();
+    }
+  }, [mounted, user, apiClient, login, accessToken]);
+
+  if (!mounted) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-[#fafaf8]">
         <RefreshCw className="animate-spin text-muted-foreground" size={24} />

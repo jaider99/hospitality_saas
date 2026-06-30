@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "axios": "^1.7.2",
+    "supertokens-web-js": "^0.8.0",
     "@hospitality-saas/shared-types": "1.0.0",
     "@hospitality-saas/validation": "1.0.0",
     "@hospitality-saas/constants": "1.0.0"

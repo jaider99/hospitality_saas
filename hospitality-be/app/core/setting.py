@@ -20,6 +20,20 @@ class Settings(BaseSettings):
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET_NAME: str = "invoices"
 
+    # SuperTokens Settings
+    SUPERTOKENS_CONNECTION_URI: str = "http://localhost:3567"
+    SUPERTOKENS_API_KEY: Optional[str] = None
+    WEBSITE_DOMAIN: str = "http://localhost:3000"
+    API_DOMAIN: str = "http://localhost:8000"
+
+    # Email / SMTP Settings
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""           # e.g. yourapp@gmail.com
+    SMTP_PASSWORD: str = ""       # App password (not account password)
+    SMTP_FROM_NAME: str = "Hospitality Elite"
+    SMTP_FROM_EMAIL: str = ""     # Defaults to SMTP_USER if blank
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

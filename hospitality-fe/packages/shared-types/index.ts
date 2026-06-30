@@ -3,11 +3,16 @@ export type UserStatus = 'pending' | 'active';
 
 export interface User {
   id: string;
+  supertokens_id?: string;
+  first_name?: string;
+  last_name?: string;
   name: string;
   email: string;
-  role: UserRole;
-  status: UserStatus;
-  createdAt: string;
+  phone?: string;
+  role: string;
+  restaurant_id?: number;
+  status: string;
+  createdAt?: string;
 }
 
 export interface Supplier {

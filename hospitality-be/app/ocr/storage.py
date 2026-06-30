@@ -146,7 +146,7 @@ class OperationalIncidentRecord(Base):
 # DTO <-> ORM conversion
 # ---------------------------------------------------------------------------
 
-def save_invoice(inv: InvoiceDTO, session: Optional[Session] = None) -> int:
+def save_invoice(inv: InvoiceDTO, session: Optional[Session] = None, invoice_id: Optional[int] = None) -> int:
     own_session = session is None
     session = session or SessionLocal()
 
@@ -157,6 +157,13 @@ def save_invoice(inv: InvoiceDTO, session: Optional[Session] = None) -> int:
             if existing_invoice:
                 logger.info(f"Deleting existing InvoiceRecord with serialNumber '{inv.serialNumber}' to prevent unique violation.")
                 session.delete(existing_invoice)
+                session.flush()
+
+        if invoice_id:
+            existing_by_id = session.query(InvoiceRecord).get(invoice_id)
+            if existing_by_id:
+                logger.info(f"Deleting existing InvoiceRecord with ID '{invoice_id}' to prevent unique violation.")
+                session.delete(existing_by_id)
                 session.flush()
 
         # Resolve supplier
@@ -182,6 +189,7 @@ def save_invoice(inv: InvoiceDTO, session: Optional[Session] = None) -> int:
             except: return None
 
         record = InvoiceRecord(
+            id=invoice_id,
             serialNumber=inv.serialNumber,
             supplierId=supplier_record.id if supplier_record else None,
             date=parse_date(inv.date),
@@ -375,7 +383,38 @@ def update_invoice(invoice_id: int, inv: InvoiceDTO, session: Optional[Session] 
         record.propertyId = inv.propertyID
         record.categoryId = inv.categoryID
 
-        record.categoryId = inv.categoryID
+        # Resolve/update supplier in SQLAlchemy tables
+        if inv.supplier:
+            supplier_record = None
+            if inv.supplier.vatID:
+                supplier_record = session.query(SupplierRecord).filter_by(vatID=inv.supplier.vatID).first()
+            if not supplier_record and inv.supplier.name and inv.supplier.name != "Unknown Supplier":
+                supplier_record = session.query(SupplierRecord).filter(SupplierRecord.name.ilike(inv.supplier.name)).first()
+                
+            if not supplier_record and (inv.supplier.name or inv.supplier.vatID):
+                supplier_record = SupplierRecord(
+                    name=inv.supplier.name or "Unknown Supplier",
+                    vatID=inv.supplier.vatID,
+                    legalName=inv.supplier.legalName,
+                    address=inv.supplier.address,
+                    contacts=inv.supplier.contacts or 0
+                )
+                session.add(supplier_record)
+                session.flush()
+            elif supplier_record:
+                if inv.supplier.name:
+                    supplier_record.name = inv.supplier.name
+                if inv.supplier.legalName:
+                    supplier_record.legalName = inv.supplier.legalName
+                if inv.supplier.vatID:
+                    supplier_record.vatID = inv.supplier.vatID
+                if inv.supplier.address:
+                    supplier_record.address = inv.supplier.address
+                session.add(supplier_record)
+                session.flush()
+
+            if supplier_record:
+                record.supplierId = supplier_record.id
 
         # Update line items (preserve IDs)
         existing_lines = {li.id: li for li in record.lines}

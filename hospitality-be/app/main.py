@@ -8,13 +8,22 @@ from app.db.session import init_db
 from app.db.qdrant import init_qdrant
 from app.core.minio import init_minio
 
+from app.core.supertokens import init_supertokens, create_roles_if_not_exist
+from supertokens_python.framework.fastapi import get_middleware
+from supertokens_python import get_all_cors_headers
+
+# Initialize SuperTokens configuration
+init_supertokens()
+
 # Route imports
 from app.api.v1.auth.route import router as auth_router
+from app.api.v1.users.route import router as users_router
 from app.api.v1.invoices.route import router as invoices_router
 from app.api.v1.recipes.route import router as recipes_router
 from app.api.v1.labor.route import router as labor_router
 from app.api.v1.incidents.route import router as incidents_router
 from app.api.v1.ai.route import router as ai_router
+from app.api.v1.restaurant.route import router as restaurant_router
 
 # Setup logger
 logging.basicConfig(level=logging.INFO)
@@ -26,10 +35,18 @@ app = FastAPI(
     version="1.0"
 )
 
-# CORS configuration
+# SuperTokens middleware (inner — runs second)
+app.add_middleware(get_middleware())
+
+# CORS middleware (outer — runs first, handles OPTIONS preflight before SuperTokens)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        settings.WEBSITE_DOMAIN,
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://192.168.29.73:3000"
+    ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
     allow_headers=["*"],
@@ -37,7 +54,7 @@ app.add_middleware(
 
 # Global Startup event
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
     logger.info("Starting Hospitality backend service...")
     # Initialize SQL Database tables
     logger.info("Initializing SQL Database schema...")
@@ -48,6 +65,8 @@ def on_startup():
     # Initialize MinIO Bucket
     logger.info("Initializing MinIO Bucket...")
     init_minio()
+    # Create default roles in SuperTokens core
+    await create_roles_if_not_exist()
     logger.info("Startup complete. Service is running.")
 
 # Global Exception handler for unhandled errors
@@ -70,11 +89,13 @@ def read_root():
 
 # Include routers matching NestJS endpoint parity
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Authentication"])
+app.include_router(users_router, prefix="/api/v1/users", tags=["Users Management"])
 app.include_router(invoices_router, prefix="/api/v1/invoices", tags=["Invoices"])
 app.include_router(recipes_router, prefix="/api/v1/recipes", tags=["Recipes"])
 app.include_router(labor_router, prefix="/api/v1/labor", tags=["Labor Cost Auditing"])
 app.include_router(incidents_router, prefix="/api/v1/incidents", tags=["Operational Incidents"])
 app.include_router(ai_router, prefix="/api/v1/ai", tags=["Decision AI & Chatbot"])
+app.include_router(restaurant_router, prefix="/api/v1/restaurant", tags=["Restaurant Management"])
 
 if __name__ == "__main__":
     import uvicorn

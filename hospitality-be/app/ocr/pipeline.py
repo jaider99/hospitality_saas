@@ -38,7 +38,7 @@ def _needs_llm_fallback(inv: Invoice) -> bool:
     return False
 
 
-def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = "") -> Invoice:
+def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = "", invoice_id: Optional[int] = None) -> Invoice:
     logger.info(f"Processing: {file_path}")
 
     import time
@@ -354,8 +354,8 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     if save_to_db:
         from app.ocr.storage import save_invoice
         try:
-            invoice_id = save_invoice(inv)
-            logger.info(f"Saved to PostgreSQL: invoices.id={invoice_id}")
+            db_id = save_invoice(inv, invoice_id=invoice_id)
+            logger.info(f"Saved to PostgreSQL: invoices.id={db_id}")
         except Exception as e:
             logger.error(f"Failed to save to DB: {e}")
 

@@ -10,19 +10,39 @@ from app.module.recipes.model import Recipe, RecipeIngredient
 from app.module.incidents.model import OperationalIncident
 from app.module.labor.model import StaffMember, StaffShift
 from app.module.ai.model import AIInsight
+from app.module.restaurant.model import Restaurant
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("seed")
 
+import asyncio
+
 def main():
+    asyncio.run(async_main())
+
+async def async_main():
+    from app.ocr.storage import Base, InvoiceRecord, SupplierRecord, InvoiceLineRecord, TaxBracketRecord, OperationalIncidentRecord
+    from app.core.supertokens import init_supertokens, create_roles_if_not_exist
+    
+    # Initialize SuperTokens config
+    init_supertokens()
+    await create_roles_if_not_exist()
+
     logger.info("Dropping existing tables...")
     SQLModel.metadata.drop_all(engine)
+    Base.metadata.drop_all(engine)
     logger.info("Initializing database tables...")
     SQLModel.metadata.create_all(engine)
+    Base.metadata.create_all(engine)
 
     with Session(engine) as session:
         logger.info("Clearing existing data...")
         # Clear in correct order of foreign key dependencies
+        session.query(OperationalIncidentRecord).delete()
+        session.query(InvoiceLineRecord).delete()
+        session.query(TaxBracketRecord).delete()
+        session.query(InvoiceRecord).delete()
+        session.query(SupplierRecord).delete()
         session.query(AIInsight).delete()
         session.query(OperationalIncident).delete()
         session.query(StaffShift).delete()
@@ -35,22 +55,143 @@ def main():
         session.query(SuppliedProduct).delete()
         session.query(Supplier).delete()
         session.query(User).delete()
+        session.query(Restaurant).delete()
         session.commit()
 
         logger.info("Seeding data...")
 
-        # 1. Create Users
-        hashed_password = get_password_hash("123456")
-        manager = User(
-            email="manager@venue.com",
-            password=hashed_password,
-            name="Venue Manager",
-            role="ADMIN"
+        # Create default Restaurant
+        bistro = Restaurant(
+            name="Hospitality Elite Bistro",
+            address="123 Operational Way, Brussels",
+            phone="+32 2 123 45 67",
+            email="info@elitebistro.com",
+            tax_id="BE0123456789",
+            currency="EUR",
+            timezone="Europe/Brussels",
+            operational_status="OPEN"
         )
-        session.add(manager)
+        session.add(bistro)
         session.commit()
+        session.refresh(bistro)
+        logger.info("Created default Restaurant")
+
+        # 1. Create Users
+        from supertokens_python.recipe.emailpassword.asyncio import sign_up as st_sign_up
+        from supertokens_python.recipe.userroles.asyncio import add_role_to_user
+        from supertokens_python.asyncio import list_users_by_account_info
+        from supertokens_python.types.base import AccountInfoInput
+
+        # Create Super Admin
+        owner_email = "owner@venue.com"
+        owner_password = "123456"
+        st_owner_id = None
+
+        try:
+            res_owner = await st_sign_up("public", owner_email, owner_password)
+            if hasattr(res_owner, "user") and res_owner.user is not None:
+                st_owner_id = res_owner.recipe_user_id.get_as_string()
+        except Exception:
+            pass
+
+        if not st_owner_id:
+            try:
+                users = await list_users_by_account_info("public", AccountInfoInput(email=owner_email))
+                if users:
+                    st_owner_id = users[0].id
+            except Exception as e:
+                logger.error(f"Failed to fetch owner from SuperTokens: {e}")
+
+        if not st_owner_id:
+            st_owner_id = "dummy-st-id-owner"
+
+        try:
+            await add_role_to_user("public", st_owner_id, "SUPER_ADMIN")
+        except Exception as e:
+            logger.error(f"Failed to assign role to seeded owner: {e}")
+
+        # Fetch or insert Super Admin
+        owner = session.exec(select(User).where(User.email == owner_email)).first()
+        if not owner:
+            owner = User(
+                supertokens_id=st_owner_id,
+                email=owner_email,
+                first_name="Restaurant",
+                last_name="Owner",
+                name="Restaurant Owner",
+                role="SUPER_ADMIN",
+                restaurant_id=bistro.id,
+                status="ACTIVE"
+            )
+            session.add(owner)
+        else:
+            owner.supertokens_id = st_owner_id
+            owner.first_name = "Restaurant"
+            owner.last_name = "Owner"
+            owner.name = "Restaurant Owner"
+            owner.role = "SUPER_ADMIN"
+            owner.restaurant_id = bistro.id
+            owner.status = "ACTIVE"
+            session.add(owner)
+
+        # Create Admin (Venue Manager)
+        email = "manager@venue.com"
+        password = "123456"
+        st_user_id = None
+
+        try:
+            res = await st_sign_up("public", email, password)
+            if hasattr(res, "user") and res.user is not None:
+                st_user_id = res.recipe_user_id.get_as_string()
+        except Exception:
+            pass
+
+        if not st_user_id:
+            try:
+                users = await list_users_by_account_info("public", AccountInfoInput(email=email))
+                if users:
+                    st_user_id = users[0].id
+            except Exception as e:
+                logger.error(f"Failed to fetch user from SuperTokens core: {e}")
+
+        if not st_user_id:
+            st_user_id = "dummy-st-id-manager"
+
+        # Assign role in SuperTokens core
+        try:
+            await add_role_to_user("public", st_user_id, "ADMIN")
+        except Exception as e:
+            logger.error(f"Failed to assign role to seeded user: {e}")
+
+        # Fetch or insert Admin
+        manager = session.exec(select(User).where(User.email == email)).first()
+        if not manager:
+            manager = User(
+                supertokens_id=st_user_id,
+                email=email,
+                first_name="Venue",
+                last_name="Manager",
+                name="Venue Manager",
+                role="ADMIN",
+                restaurant_id=bistro.id,
+                status="ACTIVE"
+            )
+            session.add(manager)
+        else:
+            manager.supertokens_id = st_user_id
+            manager.first_name = "Venue"
+            manager.last_name = "Manager"
+            manager.name = "Venue Manager"
+            manager.role = "ADMIN"
+            manager.restaurant_id = bistro.id
+            manager.status = "ACTIVE"
+            session.add(manager)
+
+        session.commit()
+        session.refresh(owner)
         session.refresh(manager)
-        logger.info(f"Created User: {manager.email}")
+        logger.info(f"Created User: {owner.email} (SUPER_ADMIN)")
+        logger.info(f"Created User: {manager.email} (ADMIN)")
 
         # 2. Create Suppliers
         beverage_supplier = Supplier(

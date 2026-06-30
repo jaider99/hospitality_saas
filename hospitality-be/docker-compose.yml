@@ -51,6 +51,18 @@ services:
       - minio_data:/data
     command: server /data --console-address ":9001"
 
+  # Authentication Core (SuperTokens Self-Hosted)
+  supertokens:
+    image: supertokens/supertokens-postgresql
+    container_name: hospitality-supertokens
+    restart: always
+    depends_on:
+      - postgres
+    ports:
+      - "3567:3567"
+    environment:
+      POSTGRES_CONNECTION_URI: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality"
+
 volumes:
   postgres_data:
   qdrant_data:

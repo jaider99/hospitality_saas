@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../store/auth';
 import { LoginSchema } from '@hospitality-saas/validation';
 import { Mail, Lock, Eye, EyeOff, AlertTriangle, Zap } from 'lucide-react';
+import EmailPassword from 'supertokens-web-js/recipe/emailpassword';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,9 +19,18 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (accessToken) {
-      router.push('/dashboard');
+    async function checkSession() {
+      try {
+        const Session = (await import('supertokens-web-js/recipe/session')).default;
+        const exists = await Session.doesSessionExist();
+        if (exists && accessToken) {
+          router.push('/dashboard');
+        }
+      } catch (e) {
+        console.error("Session check error on login page:", e);
+      }
     }
+    checkSession();
   }, [accessToken, router]);
 
   const validate = () => {
@@ -53,16 +63,34 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      // 2. Call Platform-Agnostic API Client
-      const res = await apiClient.login({ email, password });
-      
-      // 3. Update Auth Zustand Store
-      login(res);
-      
-      // 4. Redirect to Dashboard
-      router.push('/dashboard');
+      // 1. Sign in via SuperTokens EmailPassword recipe
+      const response = await EmailPassword.signIn({
+        formFields: [
+          { id: 'email', value: email },
+          { id: 'password', value: password }
+        ]
+      });
+
+      if (response.status === 'OK') {
+        // 2. Fetch authenticated user profile details from PostgreSQL database
+        const userProfile = await apiClient.getMe();
+        
+        // 3. Update Zustand Store with user profile and dummy tokens (cookies manage actual auth)
+        login({
+          accessToken: 'supertokens-active',
+          refreshToken: 'supertokens-active',
+          user: userProfile
+        });
+        
+        // 4. Redirect to Dashboard
+        router.push('/dashboard');
+      } else if (response.status === 'WRONG_CREDENTIALS_ERROR') {
+        setGeneralErr('Invalid email or password. Please try again.');
+      } else {
+        setGeneralErr('Authentication failed. Please check your credentials.');
+      }
     } catch (err: any) {
-      setGeneralErr(err.response?.data?.message || 'Invalid email or password. Please try again.');
+      setGeneralErr(err.response?.data?.message || 'A network error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -187,6 +215,17 @@ export default function LoginPage() {
                 {loading ? "Signing in…" : "Sign In"}
               </button>
             </form>
+          </div>
+
+          <div className="flex justify-center items-center gap-1 text-sm mt-6">
+            <span className="text-muted-foreground">Don't have an account?</span>
+            <button 
+              type="button"
+              onClick={() => router.push('/auth/register')} 
+              className="text-primary font-semibold hover:underline"
+            >
+              Register workspace
+            </button>
           </div>
 
           <p className="text-center text-xs text-muted-foreground mt-6">Hospitality Elite · Enterprise Operations Platform</p>

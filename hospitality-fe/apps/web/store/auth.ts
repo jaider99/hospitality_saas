@@ -19,8 +19,14 @@ const getStoredToken = (key: string): string | null => {
 
 const getStoredUser = (): User | null => {
   if (typeof window === 'undefined') return null;
-  const user = localStorage.getItem(STORAGE_KEYS.USER_DATA);
-  return user ? JSON.parse(user) : null;
+  try {
+    const user = localStorage.getItem(STORAGE_KEYS.USER_DATA);
+    if (!user || user === 'undefined') return null;
+    return JSON.parse(user);
+  } catch (e) {
+    console.error("Failed to parse stored user:", e);
+    return null;
+  }
 };
 
 export const useAuthStore = create<AuthState>((set, get) => {
@@ -31,8 +37,16 @@ export const useAuthStore = create<AuthState>((set, get) => {
     set({ accessToken: token });
   };
 
-  const logoutAction = () => {
+  const logoutAction = async () => {
     if (typeof window !== 'undefined') {
+      try {
+        const Session = (await import('supertokens-web-js/recipe/session')).default;
+        if (await Session.doesSessionExist()) {
+          await Session.signOut();
+        }
+      } catch (err) {
+        console.error("Error signing out from SuperTokens:", err);
+      }
       localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
       localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
       localStorage.removeItem(STORAGE_KEYS.USER_DATA);

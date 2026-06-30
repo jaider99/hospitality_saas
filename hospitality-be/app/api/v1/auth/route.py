@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
+from datetime import datetime
 from app.db.session import get_db
 from app.module.auth.schema import UserRegister, UserLogin, UserResponse, Token
-from app.module.auth.model import User
+from app.module.auth.model import User, AuditLog
 from app.module.auth.service import (
     get_user_by_email, 
     get_password_hash, 
@@ -62,7 +63,47 @@ def login(
         "accessToken": token
     }
 
+@router.get("/status")
+def get_user_status(email: str, db: Session = Depends(get_db)):
+    """Retrieves user activation status for checking consumed invite links."""
+    user = get_user_by_email(db, email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return {"status": user.status}
+
 @router.get("/me", response_model=UserResponse)
-def get_me(current_user: User = Depends(get_current_user)):
-    """Retrieves current user's profile info based on JWT."""
+def get_me(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieves current user's profile info based on JWT. Activates profile on successful sign-in."""
+    current_user.last_login_at = datetime.utcnow()
+    
+    # If the user was just invited, transition their status to active and log it
+    if current_user.status == "INVITED":
+        current_user.status = "ACTIVE"
+        
+        # Log password configuration and activation event
+        pw_log = AuditLog(
+            actor_id=current_user.id,
+            action="SET_PASSWORD",
+            target_user_id=current_user.id,
+            details=f"User {current_user.email} completed account setup (set password)."
+        )
+        db.add(pw_log)
+
+    # Log login event
+    login_log = AuditLog(
+        actor_id=current_user.id,
+        action="LOGIN",
+        target_user_id=current_user.id,
+        details=f"User {current_user.email} successfully logged in."
+    )
+    db.add(login_log)
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
     return current_user

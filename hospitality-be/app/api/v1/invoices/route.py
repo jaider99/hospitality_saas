@@ -228,6 +228,66 @@ async def update_invoice_api(
             del update_data["document"]["fileUrl"]
             
         inv = load_invoice(invoice_id, session=db)
+        sa_record_id = invoice_id
+        if not inv:
+            sqlmodel_inv = db.get(Invoice, invoice_id)
+            if sqlmodel_inv:
+                if sqlmodel_inv.document_number or sqlmodel_inv.invoice_number:
+                    from app.ocr.storage import InvoiceRecord
+                    search_num = sqlmodel_inv.document_number or sqlmodel_inv.invoice_number
+                    sa_inv = db.query(InvoiceRecord).filter(InvoiceRecord.serialNumber == search_num).first()
+                    if sa_inv:
+                        inv = load_invoice(sa_inv.id, session=db)
+                        sa_record_id = sa_inv.id
+                
+                # If still not found, auto-heal by creating the InvoiceRecord from the SQLModel record
+                if not inv:
+                    from app.ocr.storage import InvoiceRecord, SupplierRecord, save_invoice
+                    from app.ocr.schema import Invoice as InvoiceDTO, Supplier as SupplierDTO, PaymentInfo, DocumentMeta
+                    
+                    # Resolve/create SupplierRecord in SQLAlchemy
+                    supplier_record = None
+                    if sqlmodel_inv.supplier_tax_id:
+                        supplier_record = db.query(SupplierRecord).filter_by(vatID=sqlmodel_inv.supplier_tax_id).first()
+                    if not supplier_record and sqlmodel_inv.supplier_display_name:
+                        supplier_record = db.query(SupplierRecord).filter(SupplierRecord.name.ilike(sqlmodel_inv.supplier_display_name)).first()
+                    if not supplier_record and sqlmodel_inv.supplier:
+                        supplier_record = SupplierRecord(
+                            name=sqlmodel_inv.supplier.name,
+                            vatID=sqlmodel_inv.supplier.vat_id,
+                            legalName=sqlmodel_inv.supplier.legal_name,
+                            address=sqlmodel_inv.supplier.address
+                        )
+                        db.add(supplier_record)
+                        db.flush()
+                    
+                    dto = InvoiceDTO(
+                        id=sqlmodel_inv.id,
+                        supplierID=supplier_record.id if supplier_record else None,
+                        supplierName=sqlmodel_inv.supplier_display_name or (sqlmodel_inv.supplier.name if sqlmodel_inv.supplier else None),
+                        type=sqlmodel_inv.document_type or "invoice",
+                        date=sqlmodel_inv.document_date or (sqlmodel_inv.issue_date.isoformat() if sqlmodel_inv.issue_date else None),
+                        subtotal=sqlmodel_inv.base_amount or 0.0,
+                        tax=sqlmodel_inv.iva_amount or 0.0,
+                        total=sqlmodel_inv.total_amount or 0.0,
+                        discount=sqlmodel_inv.discount or 0.0,
+                        payeAmount=sqlmodel_inv.paye or 0.0,
+                        greenPointAmount=sqlmodel_inv.green_point or 0.0,
+                        ibeeAmount=sqlmodel_inv.ibee or 0.0,
+                        taxableAdditionalCost=sqlmodel_inv.attributable_cost or 0.0,
+                        netAdditionalCost=sqlmodel_inv.tax_free_costs or 0.0,
+                        serialNumber=sqlmodel_inv.invoice_number or sqlmodel_inv.document_number,
+                        supplier=SupplierDTO(
+                            id=str(supplier_record.id) if supplier_record else None,
+                            name=supplier_record.name if supplier_record else (sqlmodel_inv.supplier_display_name or "Unknown Supplier"),
+                            vatID=supplier_record.vatID if supplier_record else sqlmodel_inv.supplier_tax_id,
+                            legalName=supplier_record.legalName if supplier_record else None
+                        )
+                    )
+                    
+                    sa_record_id = save_invoice(dto, session=db, invoice_id=invoice_id)
+                    inv = load_invoice(sa_record_id, session=db)
+                    
         if not inv:
             raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
         
@@ -313,17 +373,19 @@ async def update_invoice_api(
             taxBrackets=[TaxBracket(**{k: v for k, v in tb.items() if k in TaxBracket.__dataclass_fields__}) for tb in d.get("taxBrackets", [])]
         )
         
-        success = update_invoice(invoice_id, new_inv, session=db)
+        success = update_invoice(sa_record_id, new_inv, session=db)
         if not success:
             raise HTTPException(status_code=500, detail="Failed to update invoice in database")
             
         # Synchronize with SQLModel tables
-        from app.module.invoices.model import InvoiceLine, InvoiceTaxBracket
+        from app.module.invoices.model import InvoiceLine, InvoiceTaxBracket, Supplier
         from datetime import datetime
+        from sqlmodel import select
         sqlmodel_inv = db.get(Invoice, invoice_id)
         if sqlmodel_inv:
             sqlmodel_inv.invoice_number = new_inv.serialNumber
             sqlmodel_inv.document_number = new_inv.serialNumber
+            sqlmodel_inv.document_type = new_inv.type
             if new_inv.date:
                 try: sqlmodel_inv.issue_date = datetime.fromisoformat(new_inv.date)
                 except: pass
@@ -340,6 +402,41 @@ async def update_invoice_api(
             sqlmodel_inv.supplier_display_name = new_inv.supplier.name
             sqlmodel_inv.supplier_tax_id = new_inv.supplier.vatID
             
+            # Resolve/Update Supplier table in SQLModel
+            supplier_name = new_inv.supplier.name or "Unknown Supplier"
+            supplier_tax_id = new_inv.supplier.vatID
+
+            sqlmodel_supplier = None
+            if supplier_tax_id:
+                stmt = select(Supplier).where(Supplier.vat_id == supplier_tax_id)
+                sqlmodel_supplier = db.exec(stmt).first()
+            if not sqlmodel_supplier and supplier_name and supplier_name != "Unknown Supplier":
+                stmt = select(Supplier).where(Supplier.name.ilike(supplier_name))
+                sqlmodel_supplier = db.exec(stmt).first()
+
+            if not sqlmodel_supplier:
+                sqlmodel_supplier = Supplier(
+                    name=supplier_name,
+                    vat_id=supplier_tax_id,
+                    legal_name=new_inv.supplier.legalName,
+                    address=new_inv.supplier.address
+                )
+                db.add(sqlmodel_supplier)
+                db.flush()
+            else:
+                if supplier_name and supplier_name != "Unknown Supplier":
+                    sqlmodel_supplier.name = supplier_name
+                if supplier_tax_id:
+                    sqlmodel_supplier.vat_id = supplier_tax_id
+                if new_inv.supplier.legalName:
+                    sqlmodel_supplier.legal_name = new_inv.supplier.legalName
+                if new_inv.supplier.address:
+                    sqlmodel_supplier.address = new_inv.supplier.address
+                db.add(sqlmodel_supplier)
+                db.flush()
+
+            sqlmodel_inv.supplier_id = sqlmodel_supplier.id
+            
             from sqlalchemy import delete
             db.execute(delete(InvoiceLine).where(InvoiceLine.invoice_id == invoice_id))
             db.execute(delete(InvoiceTaxBracket).where(InvoiceTaxBracket.invoice_id == invoice_id))
@@ -349,7 +446,7 @@ async def update_invoice_api(
                     invoice_id=invoice_id,
                     description=li.product or "Unknown Item",
                     quantity=li.quantity or 0.0,
-                    unit_price=li.nominalPrice or li.unitPrice or 0.0,
+                    unit_price=li.nominalPrice or li.grossPrice or 0.0,
                     total_price=li.totalPrice or 0.0,
                     provider_code=li.providerCode,
                     unit=li.unit,

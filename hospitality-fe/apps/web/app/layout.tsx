@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { SuperTokensProvider } from './providers/SuperTokensProvider';
 
 export const metadata: Metadata = {
   title: 'Hospitality Decision Intelligence SaaS',
@@ -19,7 +20,9 @@ export default function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
       </head>
       <body className="font-sans antialiased text-[#151515] bg-[#fafaf8] min-h-screen">
-        {children}
+        <SuperTokensProvider>
+          {children}
+        </SuperTokensProvider>
       </body>
     </html>
   );

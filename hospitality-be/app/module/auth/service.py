@@ -46,45 +46,33 @@ def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
     """Retrieves a user by ID."""
     return db.get(User, user_id)
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(lambda: next(iter(from_session_import())))
+from supertokens_python.recipe.session.framework.fastapi import verify_session
+from supertokens_python.recipe.session import SessionContainer
+from app.db.session import get_db
+
+async def get_current_user(
+    session: SessionContainer = Depends(verify_session()),
+    db: Session = Depends(get_db)
 ) -> User:
     """
-    FastAPI dependency to retrieve the currently authenticated user from JWT.
-    Throws 401 UNAUTHORIZED if token is invalid or user does not exist.
+    FastAPI dependency to retrieve the currently authenticated user from SuperTokens Session.
+    Throws 401 UNAUTHORIZED if session is invalid or user does not exist in local DB.
     """
-    token = credentials.credentials
+    st_user_id = session.get_user_id()
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.ALGORITHM])
-        email: str = payload.get("email")
-        sub_claim = payload.get("sub")
-        if email is None or sub_claim is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        user_id = int(sub_claim)
-    except (jwt.PyJWTError, ValueError):
+        from sqlmodel import select
+        statement = select(User).where(User.supertokens_id == st_user_id)
+        user = db.exec(statement).first()
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication token",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database query error during auth: {str(e)}"
         )
 
-
-    
-    user = get_user_by_id(db, user_id)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
+            detail="User not found in application database",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
-
-def from_session_import():
-    # Helper to avoid circular imports during dependency resolution
-    from app.db.session import get_db
-    return get_db()

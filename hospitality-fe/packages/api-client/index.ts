@@ -15,51 +15,30 @@ export class ApiClient {
     this.instance = axios.create({
       baseURL: API_BASE_URL,
       timeout: 60000,
+      withCredentials: true,
       headers: {
         'Content-Type': 'application/json',
       },
     });
 
-    // Request interceptor to attach access token
-    this.instance.interceptors.request.use(
-      (config) => {
-        const token = this.getAccessToken();
-        if (token && config.headers) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
-        return config;
-      },
-      (error) => Promise.reject(error)
-    );
+    // Add SuperTokens interceptors to axios instance
+    if (typeof window !== 'undefined') {
+      try {
+        const Session = require('supertokens-web-js/recipe/session').default;
+        Session.addAxiosInterceptors(this.instance);
+      } catch (e) {
+        console.error('Failed to load SuperTokens axios interceptor', e);
+      }
+    }
 
-    // Response interceptor to handle token refresh
+    // Simple response interceptor to redirect to login on 401
     this.instance.interceptors.response.use(
       (response) => response,
       async (error) => {
-        const originalRequest = error.config;
-        if (error.response?.status === 401 && !originalRequest._retry) {
-          originalRequest._retry = true;
-          const refreshToken = this.getRefreshToken();
-          if (!refreshToken) {
-            this.onUnauthorized();
-            return Promise.reject(error);
-          }
-
-          try {
-            // Attempt to fetch new tokens using refresh token
-            const res = await axios.post<AuthResponse>(`${API_BASE_URL}/auth/refresh`, {
-              refreshToken,
-            });
-            
-            const newAccessToken = res.data.accessToken;
-            this.setAccessToken(newAccessToken);
-            
-            originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-            return this.instance(originalRequest);
-          } catch (refreshError) {
-            this.onUnauthorized();
-            return Promise.reject(refreshError);
-          }
+        if (error.response?.status === 401) {
+          // If the request fails with 401 even after SuperTokens tries to refresh,
+          // the session is expired or invalid. Trigger logout to clear local state.
+          this.onUnauthorized();
         }
         return Promise.reject(error);
       }
@@ -69,6 +48,11 @@ export class ApiClient {
   // Authentication
   async login(data: LoginInput): Promise<AuthResponse> {
     const res = await this.instance.post<AuthResponse>('/auth/login', data);
+    return res.data;
+  }
+
+  async getMe(): Promise<any> {
+    const res = await this.instance.get<any>('/auth/me');
     return res.data;
   }
 
@@ -145,6 +129,50 @@ export class ApiClient {
     const res = await this.instance.get<{ answer: string }>('/chat/query', {
       params: { q: queryText },
     });
+    return res.data;
+  }
+
+  // User Management
+  async getUsers(params?: { search?: string; page?: number; limit?: number }): Promise<{
+    items: any[];
+    total: number;
+    page: number;
+    limit: number;
+    pages: number;
+  }> {
+    const res = await this.instance.get<{
+      items: any[];
+      total: number;
+      page: number;
+      limit: number;
+      pages: number;
+    }>('/users', { params });
+    return res.data;
+  }
+
+  async createUser(data: any): Promise<any> {
+    const res = await this.instance.post<any>('/users', data);
+    return res.data;
+  }
+
+  async resendInvite(id: number): Promise<any> {
+    const res = await this.instance.post<any>(`/users/${id}/resend-invite`);
+    return res.data;
+  }
+
+  async updateUserStatus(id: number, status: 'ACTIVE' | 'INACTIVE'): Promise<any> {
+    const res = await this.instance.patch<any>(`/users/${id}/status`, { status });
+    return res.data;
+  }
+
+  // Restaurant Management
+  async getRestaurant(): Promise<any> {
+    const res = await this.instance.get<any>('/restaurant');
+    return res.data;
+  }
+
+  async updateRestaurant(data: any): Promise<any> {
+    const res = await this.instance.put<any>('/restaurant', data);
     return res.data;
   }
 }

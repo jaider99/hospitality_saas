@@ -135,6 +135,15 @@ export default function DocumentDetailPage() {
 
           setDocNum(data.document_number || data.invoice_number || '');
           setDocDate(data.issue_date ? new Date(data.issue_date).toISOString().split('T')[0] : '');
+          if (data.document_type) {
+            const val = data.document_type.toLowerCase();
+            if (val === 'invoice') setDocType('Invoice');
+            else if (val === 'credit note' || val === 'credit_note') setDocType('Credit note');
+            else if (val === 'receipt') setDocType('Receipt');
+            else setDocType(data.document_type.charAt(0).toUpperCase() + data.document_type.slice(1));
+          } else {
+            setDocType('Invoice');
+          }
 
           setBaseAmount(data.base_amount !== undefined && data.base_amount !== null ? data.base_amount : (data.total_amount || 0));
           setVatAmount(data.iva_amount || 0);
@@ -233,13 +242,23 @@ export default function DocumentDetailPage() {
       const client = getApiClient();
       await client.updateInvoice(Number(id), {
         serialNumber: docNum,
-        date: docDate
+        date: docDate,
+        type: docType.toLowerCase()
       });
       const updatedData = await client.getInvoiceDetails(Number(id));
       setInvoice(updatedData);
       if (updatedData) {
         setDocNum(updatedData.document_number || updatedData.invoice_number || '');
         setDocDate(updatedData.issue_date ? new Date(updatedData.issue_date).toISOString().split('T')[0] : '');
+        if (updatedData.document_type) {
+          const val = updatedData.document_type.toLowerCase();
+          if (val === 'invoice') setDocType('Invoice');
+          else if (val === 'credit note' || val === 'credit_note') setDocType('Credit note');
+          else if (val === 'receipt') setDocType('Receipt');
+          else setDocType(updatedData.document_type.charAt(0).toUpperCase() + updatedData.document_type.slice(1));
+        } else {
+          setDocType('Invoice');
+        }
       }
       setEditGeneral(false);
     } catch (err) {
