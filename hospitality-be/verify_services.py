@@ -26,7 +26,7 @@ def verify_postgres():
                 
             test_user = User(
                 email=test_email,
-                password=get_password_hash("testpassword"),
+                supertokens_id="test-supertokens-id",
                 name="Tester User",
                 role="STAFF"
             )
