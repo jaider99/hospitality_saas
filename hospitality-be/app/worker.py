@@ -75,10 +75,11 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
             import httpx
             webhook_url = f"http://127.0.0.1:{settings.PORT}/api/v1/invoices/webhook"
             logger.info(f"Triggering success webhook at {webhook_url}...")
-            async with httpx.AsyncClient() as client:
-                await client.post(webhook_url, json={"invoice_id": invoice_id, "status": "PROCESSED"})
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(webhook_url, json={"invoice_id": invoice_id, "status": "PROCESSED"})
+                logger.info(f"Webhook response: {resp.status_code}")
         except Exception as webhook_err:
-            logger.error(f"Failed to trigger webhook on success: {webhook_err}")
+            logger.error(f"Failed to trigger webhook on success: {type(webhook_err).__name__}: {webhook_err}")
 
     except Exception as e:
         logger.error(f"Error processing invoice ID {invoice_id}: {str(e)}", exc_info=True)
@@ -97,10 +98,11 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
             import httpx
             webhook_url = f"http://127.0.0.1:{settings.PORT}/api/v1/invoices/webhook"
             logger.info(f"Triggering failure webhook at {webhook_url}...")
-            async with httpx.AsyncClient() as client:
-                await client.post(webhook_url, json={"invoice_id": invoice_id, "status": "FAILED"})
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(webhook_url, json={"invoice_id": invoice_id, "status": "FAILED"})
+                logger.info(f"Webhook response: {resp.status_code}")
         except Exception as webhook_err:
-            logger.error(f"Failed to trigger webhook on failure: {webhook_err}")
+            logger.error(f"Failed to trigger webhook on failure: {type(webhook_err).__name__}: {webhook_err}")
     finally:
         # Clean up temporary local file
         try:

@@ -76,7 +76,8 @@ def fix_wrapped_quantities(inv: Invoice, tolerance: float = 0.05):
 
 def check_line_item_internal_consistency(inv: Invoice) -> list:
     """quantity * (grossPrice - appliedDiscount) + otherFees ≈ base, per line.
-    OR (for flat discounts): quantity * grossPrice - appliedDiscount + otherFees ≈ base."""
+    OR (for flat discounts): quantity * grossPrice - appliedDiscount + otherFees ≈ base.
+    OR (for inclusive-IVA): quantity * nominalPrice ≈ base (pre-tax) where base is already stripped."""
     reasons = []
     for i, li in enumerate(inv.items):
         if None in (li.quantity, li.grossPrice, li.base):
@@ -89,8 +90,21 @@ def check_line_item_internal_consistency(inv: Invoice) -> list:
             continue
         elif abs(expected_total_disc - li.base) <= TOLERANCE:
             continue
-        elif expected_per_unit != 0 and expected_total_disc != 0:
-             reasons.append(f"Line item {i+1} arithmetic is inconsistent")
+        
+        # Also check inclusive-IVA case: qty * nominalPrice ≈ base (nominalPrice is after-tax strip)
+        if li.nominalPrice is not None:
+            expected_nominal = li.quantity * li.nominalPrice
+            if abs(expected_nominal - li.base) <= TOLERANCE:
+                continue
+        
+        # Also check: qty * grossPrice / (1 + iva_pct/100) ≈ base (IVA stripped from grossPrice)
+        if li.iva_pct is not None and li.iva_pct > 0:
+            expected_stripped = round(li.quantity * li.grossPrice / (1 + li.iva_pct / 100), 2)
+            if abs(expected_stripped - li.base) <= TOLERANCE:
+                continue
+        
+        if expected_per_unit != 0 and expected_total_disc != 0:
+            reasons.append(f"Line item {i+1} arithmetic is inconsistent")
     return reasons
 
 

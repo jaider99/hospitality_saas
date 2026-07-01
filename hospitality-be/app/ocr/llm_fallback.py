@@ -178,6 +178,7 @@ SYSTEM_PROMPT = (
     "You MUST reconstruct the row by associating the Code, Product Name, and the closest numeric values for Qty, Unit (if available like 'und', 'U/M', 'kg', 'l'), and Price. Extract the unit into the `unit` field.\n"
     "CRITICAL: Be extremely careful not to confuse numbers INSIDE a product description (e.g., 'PICOS DE METAL X 12 UDS', 'PUREE 1 KG') with the actual quantity or price columns. The actual quantity and price will be separate numeric blocks. You MUST strictly preserve the vertical order of the line items to avoid swapping values between rows!\n"
     "CRITICAL: You MUST extract the Unit Price into `nominalPrice` and the Total Amount (Qty * Price) into `base` for EVERY line item. Never omit them if they exist on the page.\n"
+    "CRITICAL LAZINESS PREVENTION: You MUST extract EVERY SINGLE line item from the text. DO NOT stop early. If there are 40 products in the text, your JSON array MUST contain 40 products. Skipping products is a critical failure.\n"
     "Always ensure EVERY extracted product gets its `base` and `iva_pct`.\n"
     "If the receipt is a B2C receipt (like Apple Retail or Meta Ads) where line items are listed WITH tax, extract the listed price into `grossPrice` BUT you MUST mathematically strip the IVA to calculate the pre-tax `base` amount for each line item (e.g. base = grossPrice / (1 + iva_pct/100)) so that the sum of line item bases equals the invoice's overall `subtotal`. If the invoice has no tax (iva_pct = 0 or missing), then `base` MUST EXACTLY EQUAL `grossPrice`.\n"
     "Never put TAX-breakdown rows or general total rows as line items.\n"
@@ -257,11 +258,24 @@ def extract_with_llm(raw_text: str, missing_fields: Optional[list] = None) -> di
             {"role": "system", "content": dynamic_system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        max_tokens=4000,
+        max_tokens=6000,
     )
     
     message = response.choices[0].message
     if not message or not message.content:
+        # Some thinking models exhaust token budget on reasoning, leaving content empty.
+        # Try to extract JSON from the reasoning field as a fallback.
+        reasoning = getattr(message, 'reasoning', None) or getattr(message, 'reasoning_content', None)
+        if reasoning:
+            logger.warning("LLM returned empty content; attempting to extract JSON from reasoning field.")
+            # Find the last JSON object in reasoning
+            start = reasoning.rfind('{')
+            end = reasoning.rfind('}') + 1
+            if start >= 0 and end > start:
+                try:
+                    return json.loads(reasoning[start:end])
+                except Exception:
+                    pass
         logger.error(f"LLM returned an empty response. Raw response: {response}")
         raise ValueError("LLM returned an empty response")
     
@@ -345,7 +359,7 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
         "You are an expert at reconstructing raw document text into clean, structured Markdown.\n"
         "The following text is extracted from an invoice or delivery note. "
         "Your task is to:\n"
-        "1. Identify the ACTUAL PRODUCTS/SERVICES and reconstruct them into a proper Markdown table. The table MUST retain ALL columns present in the original text (for example, if you see columns like 'GRA.', 'U/M', 'und', 'Unit', 'DTO.', include them in the table!). Ensure you also map columns for: Code, Description, Quantity, Gross Price (before discount), Net Price (after discount), Discount % (extremely important!), IVA %, Amount/Total.\n"
+        "1. Identify the ACTUAL PRODUCTS/SERVICES and reconstruct them into a proper Markdown table. You MUST use standard Markdown table syntax with pipes '|' and dashes '---' (e.g. '| Code | Description | Qty | Price |'). The table MUST retain ALL columns present in the original text (for example, if you see columns like 'GRA.', 'U/M', 'und', 'Unit', 'DTO.', include them in the table!). Ensure you also map columns for: Code, Description, Quantity, Gross Price (before discount), Net Price (after discount), Discount % (extremely important!), IVA %, Amount/Total.\n"
         "DISCOUNT PERCENTAGE: You MUST extract the discount percentage (DTO / % / Discount) for each line item if it exists. DO NOT output 0 or null if there is a discount applied! If Gross Price and Net Price differ, there is a discount, and you must find it in the text or calculate the percentage.\n"
         "CRITICAL ARITHMETIC ALIGNMENT RULE: The Quantity multiplied by the Net Price (or Unit Price) should equal the Amount/Total. Use this to verify you have mapped the columns correctly! For example, if you see Qty=2 and Price=1.50, the Total must be 3.00. If your chosen Qty * Price does not match the Total printed on the page for that line item, YOU HAVE MAPPED THE COLUMNS WRONG and must try a different mapping. Ensure EVERY line item you extract is mathematically valid.\n"
         "LINE ITEM QUANTITY RULE: If a table has multiple quantity-like columns (e.g. 'Cajas' vs 'UDS'/'CANTIDAD'), prefer the 'UDS' or 'CANTIDAD' column for the actual quantity, not the 'Cajas' column. Extract Gross Price as the exact printed price per that unit. DO NOT back-calculate the price.\n"
@@ -383,9 +397,9 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
         "=== DATE PARSING ===\n"
         "=== TWO-COLUMN LAYOUT RULE ===\n"
         "The raw text may contain a separator '--- DOCUMENT INFO COLUMN ---'. If present:\n"
-        "  - Text BEFORE this separator = LEFT COLUMN (contains: Supplier logo/header AND the Customer delivery address block).\n"
-        "  - Text AFTER this separator = RIGHT COLUMN (contains: document number, date, transport number — NOT supplier or customer identity).\n"
-        "Do NOT confuse right-column numbers/codes with supplier or customer names.\n"
+        "  - Text BEFORE this separator = LEFT COLUMN (contains: Supplier logo/header AND the Customer delivery address block, and often product descriptions).\n"
+        "  - Text AFTER this separator = RIGHT COLUMN (contains: document number, date, transport number, and often the PRICES, DISCOUNTS, and TOTALS corresponding to the products).\n"
+        "Do NOT confuse right-column numbers/codes with supplier or customer names. CRITICAL FOR SPLIT COLUMNS: If product descriptions are in the left column but their prices/quantities are in the right column, you MUST horizontally reconstruct the rows by matching the Nth description with the Nth set of prices, combining them into the unified Markdown table.\n"
         "\n"
         "=== DISTRIBUTOR RECEIPT RULE ===\n"
         "Some Spanish delivery notes are from food/beverage distributors (e.g. Moritz, Estrella, Heineken). They print TWO company names in the header:\n"
@@ -405,9 +419,18 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
             model=MODEL_NAME,
             temperature=0,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=4000,
+            max_tokens=8000,
         )
-        content = response.choices[0].message.content
+        message = response.choices[0].message
+        content = message.content if message else None
+        
+        if not content:
+            # Thinking models may put output in reasoning field if token budget is tight
+            reasoning = getattr(message, 'reasoning', None) or getattr(message, 'reasoning_content', None)
+            if reasoning:
+                logger.warning("Markdown LLM returned empty content; using reasoning field as fallback.")
+                content = reasoning
+        
         if not content:
             logger.error("LLM returned empty content for markdown formatting.")
             return raw_text

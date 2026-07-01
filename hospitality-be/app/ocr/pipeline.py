@@ -444,6 +444,13 @@ def _needs_llm_fallback(inv: Invoice) -> bool:
         return True
     if not inv.items:
         return True
+    
+    # If we have items but their base sum is way off from subtotal, PP-Structure probably failed
+    if inv.items and inv.subtotal:
+        items_base = sum(li.base or 0 for li in inv.items)
+        if items_base > 0 and abs(items_base - inv.subtotal) > 2.0:
+            return True
+            
     return False
 
 
@@ -481,15 +488,13 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     else:
         raw_md = f"# Invoice (Scanned OCR)\n\n{page_result.raw_text}"
 
-    structured_md = format_ocr_markdown_with_llm(raw_md)
+    # We start generating the structured markdown immediately in the background
+    import concurrent.futures
+    md_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future_md = md_executor.submit(format_ocr_markdown_with_llm, raw_md)
 
-    try:
-        with open(md_path, "w", encoding="utf-8") as f:
-            f.write(structured_md)
-    except Exception as e:
-        logger.warning(f"Could not save markdown: {e}")
-
-    ocr_text = structured_md
+    # We use raw_md for Stage 1 so it doesn't block on the LLM
+    ocr_text = raw_md
 
     # --- Stage 1: Fast deterministic Regex ---
     inv = extract_with_regex(ocr_text)
@@ -581,7 +586,13 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
                     if "subtotal" not in missing: missing.append("subtotal")
                     if "total" not in missing: missing.append("total")
 
-            full_llm_input = ocr_text + "\n\n=== RAW OCR TEXT ===\n" + page_result.raw_text
+            # We need structured_md for the LLM JSON extraction to work best
+            try:
+                structured_md = future_md.result()
+            except Exception:
+                structured_md = raw_md
+
+            full_llm_input = structured_md + "\n\n=== RAW OCR TEXT ===\n" + page_result.raw_text
             _start_llm = time.time()
             llm_result = extract_with_llm(full_llm_input, missing_fields=missing)
             inv.llm_time = time.time() - _start_llm
