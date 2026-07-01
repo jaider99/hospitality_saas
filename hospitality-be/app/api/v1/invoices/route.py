@@ -122,8 +122,7 @@ def list_invoices(
             "ibee": inv.ibee,
             "tax_free_costs": inv.tax_free_costs,
             "source_file": inv.source_file,
-            "ocr_duration": inv.ocr_duration,
-            "llm_duration": inv.llm_duration,
+            "review_reasons": inv.review_reasons,
         })
     return result
 
@@ -227,6 +226,49 @@ def get_invoice_status(
 from app.ocr.schema_ocr import Invoice as InvoiceDTO
 from app.ocr.storage import update_invoice, load_invoice
 
+@router.delete("/{invoice_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_invoice_api(
+    invoice_id: int,
+    db: Session = Depends(get_db)
+):
+    inv = db.get(Invoice, invoice_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
+    
+    db.delete(inv)
+    db.commit()
+    return None
+
+@router.delete("/{invoice_id}/lines/{line_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_invoice_line_api(
+    invoice_id: int,
+    line_id: int,
+    db: Session = Depends(get_db)
+):
+    from app.module.invoices.model import InvoiceLine
+    line_record = db.get(InvoiceLine, line_id)
+    if not line_record or line_record.invoice_id != invoice_id:
+        raise HTTPException(status_code=404, detail="Line not found")
+    
+    db.delete(line_record)
+    db.commit()
+    return None
+
+class BulkDeletePayload(BaseModel):
+    invoice_ids: List[int]
+
+@router.post("/bulk-delete", status_code=status.HTTP_204_NO_CONTENT)
+async def bulk_delete_invoices_api(
+    payload: BulkDeletePayload,
+    db: Session = Depends(get_db)
+):
+    for inv_id in payload.invoice_ids:
+        inv = db.get(Invoice, inv_id)
+        if inv:
+            db.delete(inv)
+    db.commit()
+    return None
+
 @router.put("/{invoice_id}", response_model=Dict[str, Any])
 async def update_invoice_api(
     invoice_id: int, 
@@ -234,159 +276,135 @@ async def update_invoice_api(
     db: Session = Depends(get_db)
 ):
     try:
-        # Explicitly protect fileUrl from being overridden by user
-        if "document" in update_data and "fileUrl" in update_data["document"]:
-            del update_data["document"]["fileUrl"]
-            
-        inv = load_invoice(invoice_id, session=db)
-        sa_record_id = invoice_id
-        if not inv:
-            sqlmodel_inv = db.get(Invoice, invoice_id)
-            if sqlmodel_inv:
-                if sqlmodel_inv.document_number or sqlmodel_inv.invoice_number:
-                    from app.ocr.storage import InvoiceRecord
-                    search_num = sqlmodel_inv.document_number or sqlmodel_inv.invoice_number
-                    sa_inv = db.query(InvoiceRecord).filter(InvoiceRecord.serialNumber == search_num).first()
-                    if sa_inv:
-                        inv = load_invoice(sa_inv.id, session=db)
-                        sa_record_id = sa_inv.id
-                
-                # If still not found, auto-heal by creating the InvoiceRecord from the SQLModel record
-                if not inv:
-                    from app.ocr.storage import InvoiceRecord, SupplierRecord, save_invoice
-                    from app.ocr.schema import Invoice as InvoiceDTO, Supplier as SupplierDTO, PaymentInfo, DocumentMeta
-                    
-                    # Resolve/create SupplierRecord in SQLAlchemy
-                    supplier_record = None
-                    if sqlmodel_inv.supplier_tax_id:
-                        supplier_record = db.query(SupplierRecord).filter_by(vatID=sqlmodel_inv.supplier_tax_id).first()
-                    if not supplier_record and sqlmodel_inv.supplier_display_name:
-                        supplier_record = db.query(SupplierRecord).filter(SupplierRecord.name.ilike(sqlmodel_inv.supplier_display_name)).first()
-                    if not supplier_record and sqlmodel_inv.supplier:
-                        supplier_record = SupplierRecord(
-                            name=sqlmodel_inv.supplier.name,
-                            vatID=sqlmodel_inv.supplier.vat_id,
-                            legalName=sqlmodel_inv.supplier.legal_name,
-                            address=sqlmodel_inv.supplier.address
-                        )
-                        db.add(supplier_record)
-                        db.flush()
-                    
-                    dto = InvoiceDTO(
-                        id=sqlmodel_inv.id,
-                        supplierID=supplier_record.id if supplier_record else None,
-                        supplierName=sqlmodel_inv.supplier_display_name or (sqlmodel_inv.supplier.name if sqlmodel_inv.supplier else None),
-                        type=sqlmodel_inv.document_type or "invoice",
-                        date=sqlmodel_inv.document_date or (sqlmodel_inv.issue_date.isoformat() if sqlmodel_inv.issue_date else None),
-                        subtotal=sqlmodel_inv.base_amount or 0.0,
-                        tax=sqlmodel_inv.iva_amount or 0.0,
-                        total=sqlmodel_inv.total_amount or 0.0,
-                        discount=sqlmodel_inv.discount or 0.0,
-                        payeAmount=sqlmodel_inv.paye or 0.0,
-                        greenPointAmount=sqlmodel_inv.green_point or 0.0,
-                        ibeeAmount=sqlmodel_inv.ibee or 0.0,
-                        taxableAdditionalCost=sqlmodel_inv.attributable_cost or 0.0,
-                        netAdditionalCost=sqlmodel_inv.tax_free_costs or 0.0,
-                        serialNumber=sqlmodel_inv.invoice_number or sqlmodel_inv.document_number,
-                        supplier=SupplierDTO(
-                            id=str(supplier_record.id) if supplier_record else None,
-                            name=supplier_record.name if supplier_record else (sqlmodel_inv.supplier_display_name or "Unknown Supplier"),
-                            vatID=supplier_record.vatID if supplier_record else sqlmodel_inv.supplier_tax_id,
-                            legalName=supplier_record.legalName if supplier_record else None
-                        )
-                    )
-                    
-                    sa_record_id = save_invoice(dto, session=db, invoice_id=invoice_id)
-                    inv = load_invoice(sa_record_id, session=db)
-                    
+        inv = db.get(Invoice, invoice_id)
         if not inv:
             raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
         
-        existing_data = inv.to_dict()
+        # General Document Info
+        if "documentNumber" in update_data:
+            inv.document_number = update_data["documentNumber"]
+        if "invoiceNumber" in update_data:
+            inv.invoice_number = update_data["invoiceNumber"]
+        if "needs_review" in update_data:
+            inv.needs_review = update_data["needs_review"]
+        if "status" in update_data:
+            inv.status = update_data["status"]
+        if "date" in update_data:
+            try:
+                from datetime import datetime
+                d_str = update_data["date"]
+                if d_str:
+                    inv.issue_date = datetime.fromisoformat(d_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                inv.document_date = d_str
+            except Exception:
+                inv.document_date = update_data["date"]
         
-        def update_dict(d, u):
-            for k, v in u.items():
-                if isinstance(v, dict):
-                    d[k] = update_dict(d.get(k, {}), v)
-                elif isinstance(v, list) and k == "items":
-                    existing_items = d.get("items", [])
-                    for incoming_item in v:
-                        matched = False
-                        for existing in existing_items:
-                            if incoming_item.get("id") and existing.get("id") == incoming_item["id"]:
-                                existing.update({k: v for k, v in incoming_item.items() if v is not None})
-                                matched = True
-                                break
-                            elif incoming_item.get("providerCode") and existing.get("providerCode") == incoming_item["providerCode"]:
-                                existing.update({k: v for k, v in incoming_item.items() if v is not None})
-                                matched = True
-                                break
-                            elif incoming_item.get("product") and existing.get("product") == incoming_item["product"]:
-                                existing.update({k: v for k, v in incoming_item.items() if v is not None})
-                                matched = True
-                                break
-                        if not matched:
-                            existing_items.append(incoming_item)
-                    d["items"] = existing_items
-                elif isinstance(v, list) and k == "taxBrackets":
-                    existing_tbs = d.get("taxBrackets", [])
-                    for incoming_tb in v:
-                        matched = False
-                        for existing in existing_tbs:
-                            if incoming_tb.get("id") and existing.get("id") == incoming_tb["id"]:
-                                existing.update({k2: v2 for k2, v2 in incoming_tb.items() if v2 is not None})
-                                matched = True
-                                break
-                        if not matched:
-                            existing_tbs.append(incoming_tb)
-                    d["taxBrackets"] = existing_tbs
-                else:
-                    d[k] = v
-            return d
+        # Totals
+        if "baseAmount" in update_data:
+            inv.base_amount = update_data["baseAmount"]
+        if "ivaAmount" in update_data:
+            inv.iva_amount = update_data["ivaAmount"]
+        if "discount" in update_data:
+            inv.discount = update_data["discount"]
+        if "totalAmount" in update_data:
+            inv.total_amount = update_data["totalAmount"]
+            inv.total_with_iva = update_data["totalAmount"]
+        if "taxFreeCosts" in update_data:
+            inv.tax_free_costs = update_data["taxFreeCosts"]
+
+        # Supplier Info
+        if "supplierName" in update_data:
+            inv.supplier_display_name = update_data["supplierName"]
             
-        updated_dict = update_dict(existing_data, update_data)
-        
-        d = updated_dict
-        from app.ocr.schema_ocr import Supplier as SupplierDTO, PaymentInfo, DocumentMeta, LineItem, TaxBracket
-        new_inv = InvoiceDTO(
-            id=d.get("id"),
-            supplierID=d.get("supplierID"),
-            supplierName=d.get("supplierName"),
-            uploaderID=d.get("uploaderID"),
-            propertyID=d.get("propertyID"),
-            categoryID=d.get("categoryID"),
-            created=d.get("created"),
-            updated=d.get("updated"),
-            type=d.get("type", "invoice"),
-            ocrStatus=d.get("ocrStatus", "processed"),
-            documentID=d.get("documentID"),
-            isRefund=d.get("isRefund", False),
-            paidStatus=d.get("paidStatus", "unpaid"),
-            dueDate=d.get("dueDate"),
-            date=d.get("date"),
-            subtotal=d.get("subtotal", 0.0),
-            tax=d.get("tax", 0.0),
-            total=d.get("total", 0.0),
-            discount=d.get("discount", 0.0),
-            taxableAdditionalCost=d.get("taxableAdditionalCost", 0.0),
-            netAdditionalCost=d.get("netAdditionalCost", 0.0),
-            payeAmount=d.get("payeAmount", 0.0),
-            greenPointAmount=d.get("greenPointAmount", 0.0),
-            ibeeAmount=d.get("ibeeAmount", 0.0),
-            serialNumber=d.get("serialNumber"),
-            isReconciled=d.get("isReconciled", False),
-            documentInboxEmail=d.get("documentInboxEmail"),
-            observations=d.get("observations"),
-            supplier=SupplierDTO(**{k: v for k, v in d.get("supplier", {}).items() if k in SupplierDTO.__dataclass_fields__}),
-            payment=PaymentInfo(**{k: v for k, v in d.get("payment", {}).items() if k in PaymentInfo.__dataclass_fields__}),
-            document=DocumentMeta(**{k: v for k, v in d.get("document", {}).items() if k in DocumentMeta.__dataclass_fields__}),
-            items=[LineItem(**{k: v for k, v in li.items() if k in LineItem.__dataclass_fields__}) for li in d.get("items", [])],
-            taxBrackets=[TaxBracket(**{k: v for k, v in tb.items() if k in TaxBracket.__dataclass_fields__}) for tb in d.get("taxBrackets", [])]
-        )
-        
-        success = update_invoice(sa_record_id, new_inv, session=db)
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to update invoice in database")
+        if "supplier" in update_data and isinstance(update_data["supplier"], dict):
+            s_data = update_data["supplier"]
+            
+            if inv.supplier_id:
+                from app.module.invoices.model import Supplier
+                supplier = db.get(Supplier, inv.supplier_id)
+                if supplier:
+                    if "name" in s_data:
+                        supplier.name = s_data["name"]
+                    if "legal_name" in s_data:
+                        supplier.legal_name = s_data["legal_name"]
+                        inv.supplier_legal_name = s_data["legal_name"]
+                    if "vat_id" in s_data:
+                        supplier.vat_id = s_data["vat_id"]
+                        inv.supplier_tax_id = s_data["vat_id"]
+                    db.add(supplier)
+            else:
+                if "legal_name" in s_data:
+                    inv.supplier_legal_name = s_data["legal_name"]
+                if "vat_id" in s_data:
+                    inv.supplier_tax_id = s_data["vat_id"]
+
+        # Lines Info
+        if "lines" in update_data and isinstance(update_data["lines"], list):
+            for l_data in update_data["lines"]:
+                line_id = l_data.get("id")
+                if line_id:
+                    from app.module.invoices.model import InvoiceLine
+                    line_record = db.get(InvoiceLine, line_id)
+                    if line_record and line_record.invoice_id == invoice_id:
+                        if "description" in l_data:
+                            line_record.description = l_data["description"]
+                        if "product" in l_data:
+                            line_record.product = l_data["product"]
+                            line_record.description = l_data["product"]
+                        if "provider_code" in l_data:
+                            line_record.provider_code = l_data["provider_code"]
+                        if "quantity" in l_data:
+                            line_record.quantity = float(l_data["quantity"] or 0.0)
+                        if "unit_price" in l_data:
+                            line_record.unit_price = float(l_data["unit_price"] or 0.0)
+                        if "total_price" in l_data:
+                            line_record.total_price = float(l_data["total_price"] or 0.0)
+                        if "nominal_price" in l_data:
+                            val = float(l_data["nominal_price"] or 0.0)
+                            line_record.nominal_price = val
+                            line_record.unit_price = val
+                        if "base" in l_data:
+                            val = float(l_data["base"] or 0.0)
+                            line_record.base = val
+                            line_record.total_price = val
+                        if "unit" in l_data:
+                            line_record.unit = l_data["unit"]
+                        if "gross_price" in l_data:
+                            line_record.gross_price = float(l_data["gross_price"] or 0.0) if l_data["gross_price"] is not None else None
+                        if "discount_pct" in l_data:
+                            line_record.discount_pct = float(l_data["discount_pct"] or 0.0) if l_data["discount_pct"] is not None else None
+                        if "applied_discount" in l_data:
+                            line_record.applied_discount = float(l_data["applied_discount"] or 0.0) if l_data["applied_discount"] is not None else None
+                        if "other_fees" in l_data:
+                            line_record.other_fees = float(l_data["other_fees"] or 0.0) if l_data["other_fees"] is not None else None
+                        if "iva_pct" in l_data:
+                            line_record.iva_pct = float(l_data["iva_pct"] or 0.0) if l_data["iva_pct"] is not None else None
+                        db.add(line_record)
+
+        # Tax Brackets Info
+        if "tax_brackets" in update_data and isinstance(update_data["tax_brackets"], list):
+            for t_data in update_data["tax_brackets"]:
+                bracket_id = t_data.get("id")
+                if bracket_id:
+                    from app.module.invoices.model import InvoiceTaxBracket
+                    bracket_record = db.get(InvoiceTaxBracket, bracket_id)
+                    if bracket_record and bracket_record.invoice_id == invoice_id:
+                        if "base" in t_data:
+                            bracket_record.base = float(t_data["base"] or 0.0) if t_data["base"] is not None else 0.0
+                        if "iva_amount" in t_data:
+                            bracket_record.iva_amount = float(t_data["iva_amount"] or 0.0) if t_data["iva_amount"] is not None else 0.0
+                        if "rate_pct" in t_data:
+                            bracket_record.rate_pct = float(t_data["rate_pct"] or 0.0) if t_data["rate_pct"] is not None else 0.0
+                        if "equivalence_surcharge_rate" in t_data:
+                            bracket_record.equivalence_surcharge_rate = float(t_data["equivalence_surcharge_rate"] or 0.0) if t_data["equivalence_surcharge_rate"] is not None else None
+                        if "equivalence_surcharge" in t_data:
+                            bracket_record.equivalence_surcharge = float(t_data["equivalence_surcharge"] or 0.0) if t_data["equivalence_surcharge"] is not None else None
+                        if "row_total" in t_data:
+                            bracket_record.row_total = float(t_data["row_total"] or 0.0) if t_data["row_total"] is not None else 0.0
+                        db.add(bracket_record)
+
+        db.add(inv)
+        db.commit()
             
         # Synchronize with SQLModel tables
         from app.module.invoices.model import InvoiceLine, InvoiceTaxBracket, Supplier
@@ -489,12 +507,12 @@ async def update_invoice_api(
             
         return {
             "status": "success",
-            "message": "Invoice updated successfully",
-            "data": new_inv.to_dict()
+            "message": "Invoice updated successfully"
         }
     except HTTPException:
         raise
     except Exception as e:
-        import logging
-        logging.getLogger("invoice_api").error(f"Error updating invoice {invoice_id}: {str(e)}")
+        import logging, traceback
+        logging.getLogger("invoice_api").error(f"Error updating invoice {invoice_id}: {traceback.format_exc()}")
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

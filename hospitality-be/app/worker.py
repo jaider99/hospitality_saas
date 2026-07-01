@@ -91,11 +91,13 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
 
     except Exception as e:
         logger.error(f"Error processing invoice ID {invoice_id}: {str(e)}", exc_info=True)
-        # Mark invoice as FAILED
+        # Mark invoice as FAILED with error reason stored
         async with async_session_maker() as db:
             invoice = await db.get(Invoice, invoice_id)
             if invoice:
                 invoice.status = "FAILED"
+                import json
+                invoice.review_reasons = json.dumps([f"Processing error: {type(e).__name__}: {str(e)[:200]}"])
                 db.add(invoice)
                 await db.commit()
 

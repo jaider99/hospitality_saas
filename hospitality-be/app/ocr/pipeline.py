@@ -407,6 +407,7 @@ sounding guess on bad input, not a correction. Flag it for a human instead.
 from __future__ import annotations
 import logging
 import re
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -464,10 +465,10 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     llm_total_time = 0.0
 
     # --- Stage 0: ingest ---
-    ocr_start_time = time.time()
+    _start_ocr = time.time()
     page_result = ingest(file_path)
-    ocr_duration = time.time() - ocr_start_time
-    logger.info(f"OCR/text extraction done. avg_confidence={page_result.avg_confidence:.1f} in {ocr_duration:.2f}s")
+    _ocr_time = time.time() - _start_ocr
+    logger.info(f"OCR/text extraction done. avg_confidence={page_result.avg_confidence:.1f}")
 
     import os
     md_outputs_dir = os.path.join(os.getcwd(), "ocr_results")
@@ -505,6 +506,8 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     # --- Stage 1: Fast deterministic Regex ---
     inv = extract_with_regex(ocr_text)
     inv.ocr_confidence = page_result.avg_confidence
+    inv.ocr_time = _ocr_time
+
 
     # --- Hard review floor: check BEFORE table extraction / LLM fallback ---
     # If OCR confidence is too low to trust, or the page heuristically looks
@@ -512,15 +515,17 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     # neither will produce a trustworthy result on input this poor. Flag and
     # return early with whatever the cheap regex pass found (likely little).
     if _is_below_review_floor(inv, page_result):
-        reason = (
-            "likely_handwritten_low_confidence"
-            if looks_handwritten(page_result.avg_confidence, page_result.low_conf_ratio, page_result.token_count)
-            else "ocr_confidence_below_hard_floor"
-        )
-        logger.warning(f"NEEDS REVIEW (hard floor): {reason}, avg_confidence={page_result.avg_confidence:.1f}")
+        if looks_handwritten(page_result.avg_confidence, page_result.low_conf_ratio, page_result.token_count):
+            logger_reason = "likely_handwritten_low_confidence"
+            user_reason = "Document appears handwritten or unreadable"
+        else:
+            logger_reason = "ocr_confidence_below_hard_floor"
+            user_reason = "Image quality is too low for automatic extraction"
+
+        logger.warning(f"NEEDS REVIEW (hard floor): {logger_reason}, avg_confidence={page_result.avg_confidence:.1f}")
         inv.needs_review = True
-        inv.review_reasons.append(reason)
-        log_to_review_queue(file_path, reason, inv=inv, raw_text_preview=page_result.raw_text)
+        inv.review_reasons.append(user_reason)
+        log_to_review_queue(file_path, logger_reason, inv=inv, raw_text_preview=page_result.raw_text)
 
         if save_to_db:
             from app.ocr.storage import save_invoice
@@ -573,6 +578,7 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
         missing.append("items")
 
     if _needs_llm_fallback(inv):
+        inv.extraction_method = "Stage 1 OCR Complete, Stage 2 LLM Extraction"
         logger.info(f"Triggering LLM fallback. Missing/weak fields: {missing}")
         try:
             py_base = inv.subtotal
@@ -588,9 +594,9 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
                     if "total" not in missing: missing.append("total")
 
             full_llm_input = ocr_text + "\n\n=== RAW OCR TEXT ===\n" + page_result.raw_text
-            llm_start_2 = time.time()
+            _start_llm = time.time()
             llm_result = extract_with_llm(full_llm_input, missing_fields=missing)
-            llm_total_time += time.time() - llm_start_2
+            inv.llm_time = time.time() - _start_llm
             logger.info(f"LLM returned dict: {llm_result}")
             inv = merge_llm_result_into_invoice(inv, llm_result, force_fields=missing)
 
@@ -610,9 +616,10 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
                 inv.total = py_total
         except Exception as e:
             logger.warning(f"LLM fallback failed: {e}")
-            inv.review_reasons.append(f"llm_fallback_error:{e}")
+            inv.review_reasons.append("AI extraction failed (requires manual review)")
             inv.needs_review = True
     else:
+        inv.extraction_method = "pdfplumber + regex" if page_result.is_native_text else "paddleocr + regex"
         logger.info("Regex stage sufficient — skipping LLM call.")
 
     # Auto-heal minor OCR typos in line item base amounts
@@ -762,7 +769,7 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     if inv.supplier.name and not re.search(
         r"\b(S\.?[LA]\.?U?|S\.?à\s*r\.?l\.?|INC\.?|CORP\.?|LTD\.?|GMBH)\b", inv.supplier.name, re.IGNORECASE
     ):
-        inv.review_reasons.append(f"truncated_supplier_name:{inv.supplier.name}")
+        inv.review_reasons.append(f"Truncated Supplier Name: {inv.supplier.name}")
         inv.needs_review = True
 
     # --- Dynamic Database Fallback for Supplier VAT ID ---
@@ -772,11 +779,12 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
             with SessionLocal() as session:
                 supplier_match = session.query(SupplierRecord).filter(
                     SupplierRecord.name.ilike(inv.supplier.name),
-                    SupplierRecord.vatID.isnot(None)
+                    SupplierRecord.vat_id.isnot(None)
                 ).first()
                 if supplier_match:
-                    inv.supplier.vatID = supplier_match.vatID
-                    logger.info(f"Backfilled missing supplier.vatID from DB using name '{inv.supplier.name}': {supplier_match.vatID}")
+                    inv.supplier.vatID = supplier_match.vat_id
+                    if "supplier.vatID" in missing: missing.remove("supplier.vatID")
+                    logger.info(f"Backfilled missing supplier.vatID from DB using name '{inv.supplier.name}': {supplier_match.vat_id}")
         except Exception as e:
             logger.error(f"Failed to query DB for supplier fallback: {e}")
 

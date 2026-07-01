@@ -91,6 +91,22 @@ export class ApiClient {
     return res.data;
   }
 
+  async updateInvoice(id: number, updateData: any): Promise<any> {
+    const res = await this.instance.put<any>(`/invoices/${id}`, updateData);
+    return res.data;
+  }
+
+  async deleteInvoice(id: number): Promise<void> {
+    await this.instance.delete(`/invoices/${id}`);
+  }
+
+  async deleteInvoiceLine(invoiceId: number, lineId: number): Promise<void> {
+    await this.instance.delete(`/invoices/${invoiceId}/lines/${lineId}`);
+  }
+
+  async bulkDeleteInvoices(invoiceIds: number[]): Promise<void> {
+    await this.instance.post('/invoices/bulk-delete', { invoice_ids: invoiceIds });
+  }
 
   // Recipes & Menu
   async getRecipes(): Promise<Recipe[]> {

@@ -108,6 +108,9 @@ async def async_save_ocr_invoice(
     invoice.document_type = ocr_invoice.type
     invoice.document_number = ocr_invoice.serialNumber
     invoice.document_date = ocr_invoice.date
+    invoice.ocr_time = getattr(ocr_invoice, 'ocr_time', None)
+    invoice.llm_time = getattr(ocr_invoice, 'llm_time', None)
+    invoice.extraction_method = getattr(ocr_invoice, 'extraction_method', None)
 
     # OCR supplier info (denormalized)
     invoice.supplier_display_name = supplier_name
@@ -134,6 +137,9 @@ async def async_save_ocr_invoice(
     invoice.llm_duration = getattr(ocr_invoice, 'llm_duration', None)
     invoice.needs_review = getattr(ocr_invoice, 'needs_review', False)
     invoice.review_reasons = json.dumps(getattr(ocr_invoice, 'review_reasons', [])) if getattr(ocr_invoice, 'review_reasons', []) else None
+    invoice.ocr_time = getattr(ocr_invoice, 'ocr_time', None)
+    invoice.llm_time = getattr(ocr_invoice, 'llm_time', None)
+    invoice.extraction_method = getattr(ocr_invoice, 'extraction_method', None)
     invoice.raw_ocr_json = ocr_invoice.to_json()
 
     db.add(invoice)

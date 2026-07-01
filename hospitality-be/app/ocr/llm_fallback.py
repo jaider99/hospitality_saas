@@ -118,7 +118,13 @@ SYSTEM_PROMPT = (
     "PRODUCT NAME CORRECTION: If the OCR text for a product description contains obvious spelling errors or garbled characters (e.g. 'Canon por oa rivada' instead of 'obra privada', or missing letters), you MUST gently correct the spelling to make it readable in the Markdown output.\n"
     "SUPPLIER NAME EXTRACTION: The supplier name is usually the largest text at the top, or explicitly labeled. DO NOT use abbreviations or truncate the name. Extract the FULL legal name.\n"
     "INVOICE SUBTOTAL VALIDATION: The sum of the 'Amount' column for all Line Items MUST strictly equal the Invoice Subtotal (within a few cents). If your extracted line items sum to 4155.30 but the Subtotal is 1658.00, YOU HAVE FAILED. You MUST re-read the OCR text and find the correct quantities and prices such that their sum matches the Subtotal.\n"
-    "VAT ID RULE: If the document contains any NIF/CIF/CIN ID (e.g. B-67019018 or B67019018), you MUST extract it as the Supplier's VAT ID (supplier.vatID). Do NOT redact or omit it from the Markdown or JSON. Even if it is under the customer section, if it is the only NIF/CIF found or if no other Supplier VAT ID is present, treat it as the Supplier's VAT ID.\n"
+    "CUSTOMER VAT ID RULE: You must NEVER include the Customer's VAT ID in the Markdown output. Simply omit it if you see it. DO NOT redact or omit the Supplier's name, Supplier's VAT ID, or the Customer's name—they MUST be explicitly extracted and included in the output.\n"
+    "=== SIDEWAYS SCANNED INVOICES (CRITICAL) ===\n"
+    "If the invoice was scanned sideways, the OCR may read down the columns instead of across rows. "
+    "You will see quantities and prices separated from their product descriptions. "
+    "For example, you might see '2.000' and '0.495' far away from 'MASCARPONE' and 'DESHUESADAS'. "
+    "You MUST logically reconstruct the rows by matching the correct quantity, description, and price together! "
+    "DO NOT merge separate products into a single line item. Keep them as distinct items in the JSON array!\n"
     "=== GENERAL INFO ===\n"
     "DATE PARSING: Spanish/Catalan dates are DD/MM/YY or DD/MM/YYYY. "
     "The LAST number is always the year, the FIRST is always the day. "
@@ -135,7 +141,8 @@ SYSTEM_PROMPT = (
     "CRITICAL: In Spanish invoices the label 'FACTURA:', 'NÚMERO' or 'NUMERO' directly introduces the document number. "
     "E.g. if you see 'FACTURA: 5122', then '5122' is the serialNumber. "
     "Similarly 'Nº Albarán: 12345' → '12345' and 'NUMERO ALV25173716' → 'ALV25173716'. "
-    "Phone numbers (e.g. 'T.916011440' or '93 319 52 06' or 9-digit numbers starting with 9, 8, 7, 6) are NEVER the document number! "
+    "If the OCR text is jumbled (e.g. rotated), the number might appear on a different line than the label. For example, if you see '4303950' and later 'FACTURA:', the document number is '4303950'. "
+    "Phone numbers (e.g. 'T.916011440' or '93 319 52 06' or '933195206-93' or any 9-digit numbers starting with 9, 8, 7, 6) are NEVER the document number! "
     "Look for labels: NUMERO, NÚMERO, FACTURA:, Nº FACTURA, Nº ALBARÁN, Document, Documento, Nº, No., Nº Factura, Nº Albarán, Invoice No. "
     "IMPORTANT: A 'Document' or 'Invoice' number is strictly preferred over a generic 'Reference' or 'Order' number. If both exist, ALWAYS pick the Document/Invoice number. If only an 'Order Number' or 'Pedido' is present, you MUST extract it as the `serialNumber`.\n"
     "If in doubt, prefer alphanumeric codes with a year component (e.g. 2026) or uppercase letters like 'LA/'.\n"
@@ -198,6 +205,21 @@ SYSTEM_PROMPT = (
     "If you see: 'Remolacha Fresca Amarilla / Mix' → Code: 'BverRemMIXkg', Product: 'Remolacha Fresca Amarilla / Mix Colores kg', Qty: 1.4, Gross: 2.54, IVA: 4, Base: 3.56.\n"
     "If you see: 'Puré Boiron Melón Cantalup' → Code: 'BpurMelonk1', Qty: 2, Gross: 12.7, IVA: 10, Base: 25.4.\n"
     "If you see: 'Hojas de Naranja tarr' → Code: 'HojDeNarTarr', Qty: 2, Gross: 3, IVA: 10, Base: 6.\n"
+    "If you see heavily jumbled rows like:\n"
+    "  6.90\n"
+    "  2.000 3.450\n"
+    "  7.950 3.94\n"
+    "  2148 ZANETTI MASCARPONE 0.495 10%\n"
+    "  5122 AC.DESHUESADAS\n"
+    "You must mathematically pair the stranded numbers with the stranded descriptions! 0.495 * 7.950 = 3.94 (ZANETTI). 2.000 * 3.450 = 6.90 (AC.DESHUESADAS). Extract BOTH items as separate rows.\n"
+    "=== SIDEWAYS INVOICE: MULTI-ITEM COUNTING RULE ===\n"
+    "For sideways/rotated scans the OCR may jumble product rows together. Before finalising the items array, count how many DISTINCT product descriptions you can identify in the raw text. "
+    "Your items array MUST contain exactly that many entries — one per product. "
+    "CRITICAL: Output the JSON IMMEDIATELY. DO NOT output any reasoning, thinking process, or explanation. "
+    "DO NOT output ```json ... ``` tags, just the raw JSON string.\n"
+    "Your entire response MUST be valid JSON and nothing else."
+    "Cross-check: sum of all item `base` values must be within ±0.15 € of the printed subtotal. "
+    "If they do not match, re-read the text to find the missing rows.\n"
     "If you see: 'PICOS DE METAL X 12 UDS' → Code: 'PIA-05321012', Qty: 1, Base: 0.0, IVA: 21.\n"
     "If you see: 'ALBARICOQUE RAVIFRUIT' → Code: 'RAV-08010', Qty: 1, Base: 3.31, IVA: 21.\n"
     "If you see: 'PUREE 1 KG.' → Code: 'TEG-N8012', Qty: 1, Base: 21.55, IVA: 21.\n"
@@ -239,7 +261,7 @@ def extract_with_llm(raw_text: str, missing_fields: Optional[list] = None) -> di
             {"role": "system", "content": dynamic_system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        max_tokens=8000,
+        max_tokens=4000,
     )
     
     message = response.choices[0].message
@@ -268,7 +290,7 @@ def extract_with_llm(raw_text: str, missing_fields: Optional[list] = None) -> di
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": repair_prompt},
             ],
-            max_tokens=8000,
+            max_tokens=4000,
         )
         repaired = repair_resp.choices[0].message.content.strip()
         if repaired.startswith("```"):
@@ -339,8 +361,8 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
         "Your task is to:\n"
         "1. Identify the ACTUAL PRODUCTS/SERVICES and reconstruct them into a proper Markdown table. The table MUST retain ALL columns present in the original text. For wine/spirits invoices, you MUST include columns like 'GRA.' (alcohol percentage/degree, e.g. 17.0, 16.0, 40.0) and 'U/M' (unit of measure / volume size in liters, e.g. 0.700, 1.000). Reconstruct columns for: Code, Description, Graduación (GRA.), Unit Liters (U/M), Quantity, Gross Price (PRECIO before discount), Net Price, Discount %, IVA %, Amount/Total.\n"
         "DISCOUNT PERCENTAGE: You MUST extract the discount percentage (DTO / % / Discount) for each line item if it exists. DO NOT output 0 or null if there is a discount applied! If Gross Price and Net Price differ, there is a discount, and you must find it in the text or calculate the percentage.\n"
-        "CRITICAL ARITHMETIC ALIGNMENT RULE: The Quantity multiplied by the Net Price (or Unit Price) should equal the Amount/Total. Use this to verify you have mapped the columns correctly! For example, if you see '0.495 10%' and 'AC.DESHUESADAS 7.950 3.94', Qty=0.495, Price=7.950, Total=3.94 (because 0.495 * 7.950 = 3.93525). If your chosen Qty * Price does not match the Total printed on the page, YOU HAVE MAPPED THE COLUMNS WRONG and must try a different mapping.\n"
-        "LINE ITEM QUANTITY RULE: If a table has multiple quantity-like columns (e.g. 'Cajas' vs 'BOT.'/'UDS'/'CANTIDAD'), prefer the 'BOT.' or 'UDS' or 'CANTIDAD' column for the actual quantity, not the 'Cajas' column. Extract Gross Price as the exact printed price per unit (PRECIO column). DO NOT back-calculate the price.\n"
+        "CRITICAL ARITHMETIC ALIGNMENT RULE: The Quantity multiplied by the Net Price (or Unit Price) should equal the Amount/Total. Use this to verify you have mapped the columns correctly! For example, if you see Qty=2 and Price=1.50, the Total must be 3.00. If your chosen Qty * Price does not match the Total printed on the page for that line item, YOU HAVE MAPPED THE COLUMNS WRONG and must try a different mapping. Ensure EVERY line item you extract is mathematically valid.\n"
+        "LINE ITEM QUANTITY RULE: If a table has multiple quantity-like columns (e.g. 'Cajas' vs 'UDS'/'CANTIDAD'), prefer the 'UDS' or 'CANTIDAD' column for the actual quantity, not the 'Cajas' column. Extract Gross Price as the exact printed price per that unit. DO NOT back-calculate the price.\n"
         "QUANTITY EXTRACTION: If a product description appears to end with a standalone number (e.g. 'MORITZ 7 1/3 24BOT RET 28'), that trailing number is almost always the QUANTITY column value that wrapped onto the same line as the description — extract it into 'quantity', not as part of the product name. Cross-check: quantity × gross_price - applied_discount should equal base (within 0.05). If it does not match with quantity=1, look for a wrapped/misplaced quantity digit in the description text and re-extract it.\n"
         "STRICT NO-INVENTION RULE: You MUST ONLY extract numbers that literally appear in the raw text! DO NOT perform calculations to generate/invent new numbers! If you invent a number like '31.32' that isn't in the text, you fail.\n"
         "LINE ITEM SEPARATION RULE: Do NOT merge multiple distinct products into a single row's description. Keep each line item separate on its own row just as they appear in the source.\n"
@@ -396,9 +418,14 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
             model=MODEL_NAME,
             temperature=0,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=8000,
+            max_tokens=4000,
         )
-        content = response.choices[0].message.content.strip()
+        content = response.choices[0].message.content
+        if not content:
+            logger.error("LLM returned empty content for markdown formatting.")
+            return raw_text
+        
+        content = content.strip()
         if content.startswith("```markdown"):
             content = content[11:]
         if content.startswith("```"):

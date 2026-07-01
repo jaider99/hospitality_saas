@@ -413,20 +413,22 @@ def _get_pp_structure():
     global _pp_structure_instance
     if _pp_structure_instance is None:
         try:
-            # paddleocr >= 3.0: class renamed, different constructor args
+            import os
+            in_docker = os.environ.get('IS_DOCKER', '0') == '1' or os.path.exists('/.dockerenv')
             from paddleocr import PPStructureV3
             _pp_structure_instance = PPStructureV3(
                 lang="en",
-                use_doc_orientation_classify=False,   # handles skewed scans/photos
-                use_doc_unwarping=False,               # handles photographed (non-flat) invoices
+                use_doc_orientation_classify=True,
+                use_doc_unwarping=False,
                 use_formula_recognition=False,
                 use_seal_recognition=False,
                 use_chart_recognition=False,
+                ocr_version="PP-OCRv4", # Latest open-source OCR models
+                use_onnx=in_docker, # Hardware acceleration
             )
         except ImportError:
-            # paddleocr < 3.0: old class/args
             from paddleocr import PPStructure
-            _pp_structure_instance = PPStructure(table=True, ocr=True, lang="en", show_log=False)
+            _pp_structure_instance = PPStructure(table=True, ocr=True, lang="en", show_log=False, ocr_version="PP-OCRv4", use_onnx=in_docker)
     return _pp_structure_instance
 
 
