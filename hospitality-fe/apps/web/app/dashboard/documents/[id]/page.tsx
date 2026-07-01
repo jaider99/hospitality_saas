@@ -13,7 +13,8 @@ import {
   FileText,
   AlertTriangle,
   ExternalLink,
-  RefreshCw
+  RefreshCw,
+  Trash2
 } from 'lucide-react';
 import { getApiClient } from '../../../../store/auth';
 
@@ -59,8 +60,12 @@ interface InvoiceDetail {
   document_number?: string;
   issue_date?: string;
   total_amount: number;
+  base_amount?: number;
+  iva_amount?: number;
+  discount?: number;
   status: string;
   supplier?: SupplierData;
+  supplier_display_name?: string;
   lines: InvoiceLineData[];
   tax_brackets: TaxBracketData[];
   payment_status?: string;
@@ -75,6 +80,8 @@ interface InvoiceDetail {
   tax_free_costs?: number;
   source_file?: string;
   review_reasons?: string;
+  ocr_time?: number;
+  llm_time?: number;
 }
 
 export default function DocumentDetailPage() {
@@ -99,6 +106,13 @@ export default function DocumentDetailPage() {
   const [docCategory] = useState('Marketing and communication');
 
   const [editTotals, setEditTotals] = useState(false);
+  const [editLines, setEditLines] = useState(false);
+  const [linesData, setLinesData] = useState<any[]>([]);
+
+  // VAT Breakdown state
+  const [editVat, setEditVat] = useState(false);
+  const [vatData, setVatData] = useState<any[]>([]);
+
   const [baseAmount, setBaseAmount] = useState(0);
   const [vatAmount, setVatAmount] = useState(0);
   const [discount, setDiscount] = useState(0);
@@ -136,6 +150,8 @@ export default function DocumentDetailPage() {
           setIbee(data.ibee || 0);
           setAttributableCost(data.attributable_cost || 0);
           setTaxFreeCosts(data.tax_free_costs || 0);
+          setLinesData(data.lines || []);
+          setVatData(data.tax_brackets || []);
         }
       } catch (err: any) {
         if (err.response?.status === 404) {
@@ -195,46 +211,131 @@ export default function DocumentDetailPage() {
   // Formatted display values
   const standardVatRates = [0, 2, 4, 5, 7.5, 10, 12, 21];
 
-  const handleSaveSupplier = () => {
+  const handleSaveSupplier = async () => {
     if (invoice) {
-      setInvoice({
-        ...invoice,
-        supplier: {
-          ...invoice.supplier,
-          name: supplierName,
-          legal_name: supplierLegalName,
-          vat_id: supplierVatId
-        }
-      });
+      try {
+        const client = getApiClient();
+        await client.updateInvoice(invoice.id, {
+          supplierName: supplierName,
+          supplier: {
+            ...invoice.supplier,
+            name: supplierName,
+            legal_name: supplierLegalName,
+            vat_id: supplierVatId
+          }
+        });
+        setInvoice({
+          ...invoice,
+          supplier_display_name: supplierName,
+          supplier: {
+            ...invoice.supplier,
+            name: supplierName,
+            legal_name: supplierLegalName,
+            vat_id: supplierVatId
+          }
+        } as any);
+      } catch (err) {
+        console.error('Failed to update supplier:', err);
+      }
     }
     setEditSupplier(false);
   };
 
-  const handleSaveGeneral = () => {
+  const handleSaveGeneral = async () => {
     if (invoice) {
-      setInvoice({
-        ...invoice,
-        document_number: docNum,
-        invoice_number: docNum,
-        issue_date: docDate
-      });
+      try {
+        const client = getApiClient();
+        await client.updateInvoice(invoice.id, {
+          documentNumber: docNum,
+          invoiceNumber: docNum,
+          date: docDate
+        });
+        setInvoice({
+          ...invoice,
+          document_number: docNum,
+          invoice_number: docNum,
+          issue_date: docDate
+        } as any);
+      } catch (err) {
+        console.error('Failed to update general info:', err);
+      }
     }
     setEditGeneral(false);
   };
 
-  const handleSaveTotals = () => {
+  const handleSaveTotals = async () => {
     if (invoice) {
-      setInvoice({
-        ...invoice,
-        total_amount:
-          baseAmount + vatAmount + greenPoint + ibee + attributableCost + taxFreeCosts - discount,
-        green_point: greenPoint,
-        ibee: ibee,
-        attributable_cost: attributableCost,
-        tax_free_costs: taxFreeCosts
-      });
+      try {
+        const total = baseAmount + vatAmount + greenPoint + ibee + attributableCost + taxFreeCosts - discount;
+        const client = getApiClient();
+        await client.updateInvoice(invoice.id, {
+          baseAmount: baseAmount,
+          ivaAmount: vatAmount,
+          discount: discount,
+          totalAmount: total,
+          taxFreeCosts: taxFreeCosts
+        });
+        setInvoice({
+          ...invoice,
+          total_amount: total,
+          base_amount: baseAmount,
+          iva_amount: vatAmount,
+          discount: discount,
+          green_point: greenPoint,
+          ibee: ibee,
+          attributable_cost: attributableCost,
+          tax_free_costs: taxFreeCosts
+        } as any);
+      } catch (err) {
+        console.error('Failed to update totals:', err);
+      }
     }
     setEditTotals(false);
+  };
+
+  const handleSaveLines = async () => {
+    if (invoice) {
+      try {
+        const client = getApiClient();
+        await client.updateInvoice(invoice.id, {
+          lines: linesData
+        });
+        setInvoice({
+          ...invoice,
+          lines: linesData
+        } as any);
+      } catch (e) {
+        console.error("Failed to update line items", e);
+        alert("Failed to update line items.");
+      }
+    }
+    setEditLines(false);
+  };
+
+  const handleLineChange = (index: number, field: string, value: string | number) => {
+    const updated = [...linesData];
+    updated[index] = { ...updated[index], [field]: value };
+    setLinesData(updated);
+  };
+
+  const handleSaveVat = async () => {
+    if (invoice) {
+      try {
+        const client = getApiClient();
+        await client.updateInvoice(invoice.id, { tax_brackets: vatData });
+        setInvoice({ ...invoice, tax_brackets: vatData } as any);
+      } catch (e) {
+        console.error("Failed to update VAT breakdown", e);
+        alert("Failed to update VAT breakdown.");
+      }
+    }
+    setEditVat(false);
+  };
+
+  const handleVatChange = (index: number, field: string, value: number) => {
+    const updated = [...vatData];
+    updated[index] = { ...updated[index], [field]: value };
+    setVatData(updated);
   };
 
   return (
@@ -263,7 +364,7 @@ export default function DocumentDetailPage() {
 
       {/* Needs Review Alert Panel */}
       {invoice.needs_review && (
-        <div className="bg-[#fbf1dd]/40 border border-[#fbf1dd] rounded-xl p-4 flex gap-3 shadow-xs">
+        <div className="bg-[#fbf1dd]/40 border border-[#fbf1dd] rounded-xl p-4 flex gap-3 shadow-xs relative">
           <AlertTriangle size={18} className="text-[#b07a1a] shrink-0 mt-0.5" />
           <div className="space-y-1">
             <h3 className="font-semibold text-foreground text-sm">Extraction Review Needed</h3>
@@ -300,6 +401,24 @@ export default function DocumentDetailPage() {
               })()}
             </div>
           </div>
+          <button
+            onClick={async () => {
+              try {
+                // Optimistically update UI first so badge changes immediately
+                setInvoice({ ...invoice, needs_review: false, status: 'PROCESSED' } as any);
+                const client = getApiClient();
+                await client.updateInvoice(invoice.id, { needs_review: false, status: 'PROCESSED' });
+              } catch (e) {
+                console.error(e);
+                // Revert on failure
+                setInvoice({ ...invoice } as any);
+                alert("Failed to update status");
+              }
+            }}
+            className="absolute top-4 right-4 bg-[#b07a1a] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[#8f6315] transition-colors"
+          >
+            Mark as Digitized
+          </button>
         </div>
       )}
 
@@ -510,6 +629,36 @@ export default function DocumentDetailPage() {
                       {docCategory}
                     </span>
                   </div>
+                  {invoice.ocr_time !== undefined && invoice.ocr_time !== null && (
+                    <div className="flex justify-between items-center py-0.5 border-t border-border/40 mt-1 pt-1">
+                      <span className="text-muted-foreground text-xs">OCR Time</span>
+                      <span className="font-medium text-foreground">{invoice.ocr_time.toFixed(2)}s</span>
+                    </div>
+                  )}
+                  {invoice.llm_time !== undefined && invoice.llm_time !== null && (
+                    <div className="flex justify-between items-center py-0.5">
+                      <span className="text-muted-foreground text-xs">LLM Time</span>
+                      <span className="font-medium text-foreground">{invoice.llm_time.toFixed(2)}s</span>
+                    </div>
+                  )}
+                  {invoice.extraction_method && (
+                    <div className="flex justify-between items-center py-0.5">
+                      <span className="text-muted-foreground text-xs">Method</span>
+                      <span className="font-medium text-foreground capitalize">{invoice.extraction_method}</span>
+                    </div>
+                  )}
+                  {invoice.ocr_confidence !== undefined && invoice.ocr_confidence !== null && (
+                    <div className="flex justify-between items-center py-0.5">
+                      <span className="text-muted-foreground text-xs">OCR Confidence</span>
+                      <span className={`font-medium text-xs px-2 py-0.5 rounded-full ${
+                        invoice.ocr_confidence >= 0.7 ? 'bg-[#e6f4ec] text-[#1f8f5c]' :
+                        invoice.ocr_confidence >= 0.4 ? 'bg-[#fbf1dd] text-[#b07a1a]' :
+                        'bg-[#fceaea] text-[#b23a3a]'
+                      }`}>
+                        {(invoice.ocr_confidence * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-2.5 pt-1">
@@ -749,6 +898,32 @@ export default function DocumentDetailPage() {
                 <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">
                   VAT breakdown
                 </h2>
+                {!editVat ? (
+                  <button
+                    onClick={() => setEditVat(true)}
+                    className="text-xs font-semibold border border-border hover:bg-muted px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    Edit
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={handleSaveVat}
+                      className="p-1 hover:bg-[#e6f4ec] text-[#1f8f5c] rounded-lg transition-colors"
+                    >
+                      <Check size={16} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditVat(false);
+                        setVatData(invoice.tax_brackets || []);
+                      }}
+                      className="p-1 hover:bg-[#fceaea] text-[#b23a3a] rounded-lg transition-colors"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="flex-1 overflow-x-auto">
                 <table className="w-full text-xs text-left">
@@ -765,9 +940,15 @@ export default function DocumentDetailPage() {
                   <tbody>
                     {standardVatRates.map((rate) => {
                       // Look up matching bracket
-                      const bracket = invoice.tax_brackets?.find(
-                        (b) => Math.round(b.rate_pct) === rate
-                      );
+                      let bracketIdx = -1;
+                      let bracket = null;
+                      
+                      if (editVat) {
+                        bracketIdx = vatData.findIndex((b) => Math.round(b.rate_pct) === rate);
+                        bracket = bracketIdx >= 0 ? vatData[bracketIdx] : null;
+                      } else {
+                        bracket = invoice.tax_brackets?.find((b) => Math.round(b.rate_pct) === rate);
+                      }
 
                       return (
                         <tr key={rate} className="border-b border-border/40 hover:bg-muted/10">
@@ -775,23 +956,29 @@ export default function DocumentDetailPage() {
                             {rate}%
                           </td>
                           <td className="px-3 py-2 text-right font-mono">
-                            {bracket ? formatCurrency(bracket.base) : '—'}
+                            {editVat && bracket ? (
+                              <input type="number" className="w-20 p-1 text-xs border rounded text-right" value={bracket.base || 0} onChange={(e) => handleVatChange(bracketIdx, 'base', Number(e.target.value))} />
+                            ) : (bracket ? formatCurrency(bracket.base) : '—')}
                           </td>
                           <td className="px-3 py-2 text-right font-mono">
-                            {bracket ? formatCurrency(bracket.iva_amount) : '—'}
+                            {editVat && bracket ? (
+                              <input type="number" className="w-20 p-1 text-xs border rounded text-right" value={bracket.iva_amount || 0} onChange={(e) => handleVatChange(bracketIdx, 'iva_amount', Number(e.target.value))} />
+                            ) : (bracket ? formatCurrency(bracket.iva_amount) : '—')}
                           </td>
                           <td className="px-3 py-2 text-center font-mono text-muted-foreground">
-                            {bracket?.equivalence_surcharge_rate !== undefined
-                              ? `${bracket.equivalence_surcharge_rate}%`
-                              : '—'}
+                            {editVat && bracket ? (
+                              <input type="number" className="w-16 p-1 text-xs border rounded text-center" value={bracket.equivalence_surcharge_rate || 0} onChange={(e) => handleVatChange(bracketIdx, 'equivalence_surcharge_rate', Number(e.target.value))} />
+                            ) : (bracket?.equivalence_surcharge_rate !== undefined && bracket?.equivalence_surcharge_rate !== null ? `${bracket.equivalence_surcharge_rate}%` : '—')}
                           </td>
                           <td className="px-3 py-2 text-right font-mono">
-                            {bracket?.equivalence_surcharge !== undefined
-                              ? formatCurrency(bracket.equivalence_surcharge)
-                              : '—'}
+                            {editVat && bracket ? (
+                              <input type="number" className="w-20 p-1 text-xs border rounded text-right" value={bracket.equivalence_surcharge || 0} onChange={(e) => handleVatChange(bracketIdx, 'equivalence_surcharge', Number(e.target.value))} />
+                            ) : (bracket?.equivalence_surcharge !== undefined && bracket?.equivalence_surcharge !== null ? formatCurrency(bracket.equivalence_surcharge) : '—')}
                           </td>
                           <td className="px-3 py-2 text-right font-mono font-bold text-foreground">
-                            {bracket ? formatCurrency(bracket.row_total || ((bracket.base || 0) + (bracket.iva_amount || 0) + (bracket.equivalence_surcharge || 0))) : '—'}
+                            {editVat && bracket ? (
+                              <input type="number" className="w-20 p-1 text-xs border rounded text-right" value={bracket.row_total || 0} onChange={(e) => handleVatChange(bracketIdx, 'row_total', Number(e.target.value))} />
+                            ) : (bracket ? formatCurrency(bracket.row_total || ((bracket.base || 0) + (bracket.iva_amount || 0) + (bracket.equivalence_surcharge || 0))) : '—')}
                           </td>
                         </tr>
                       );
@@ -806,10 +993,36 @@ export default function DocumentDetailPage() {
 
       {/* Invoice Line Items (Full Width Bottom) */}
       <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden mt-2">
-        <div className="px-5 py-4 border-b border-border">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
           <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">
             Line Items ({invoice.lines?.length || 0})
           </h2>
+          {!editLines ? (
+            <button
+              onClick={() => setEditLines(true)}
+              className="text-xs font-semibold border border-border hover:bg-muted px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Edit
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={handleSaveLines}
+                className="p-1 hover:bg-[#e6f4ec] text-[#1f8f5c] rounded-lg transition-colors"
+              >
+                <Check size={16} />
+              </button>
+              <button
+                onClick={() => {
+                  setEditLines(false);
+                  setLinesData(invoice.lines || []);
+                }}
+                className="p-1 hover:bg-[#fceaea] text-[#b23a3a] rounded-lg transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left">
@@ -826,67 +1039,111 @@ export default function DocumentDetailPage() {
                 <th className="px-5 py-3 whitespace-nowrap text-right">Nominal Price</th>
                 <th className="px-5 py-3 whitespace-nowrap text-center">IVA</th>
                 <th className="px-5 py-3 whitespace-nowrap text-right">Base</th>
-                <th className="px-5 py-3 whitespace-nowrap text-right">Total</th>
+                <th className="px-5 py-3 whitespace-nowrap text-center">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {invoice.lines && invoice.lines.length > 0 ? (
-                invoice.lines.map((line) => (
+              {linesData && linesData.length > 0 ? (
+                linesData.map((line, idx) => (
                   <tr
-                    key={line.id}
+                    key={line.id || idx}
                     className="border-b border-border/40 hover:bg-muted/20 transition-colors"
                   >
                     <td className="px-5 py-3 font-mono text-muted-foreground whitespace-nowrap">
-                      {line.provider_code || '—'}
+                      {editLines ? (
+                        <input type="text" className="w-24 p-1 text-xs border rounded" value={line.provider_code || ''} onChange={(e) => handleLineChange(idx, 'provider_code', e.target.value)} />
+                      ) : (line.provider_code || '—')}
                     </td>
                     <td className="px-5 py-3 font-semibold text-foreground min-w-[200px]">
-                      {line.description}
+                      {editLines ? (
+                        <input type="text" className="w-full p-1 text-xs border rounded" value={line.description || line.product || ''} onChange={(e) => handleLineChange(idx, 'description', e.target.value)} />
+                      ) : (line.description || line.product)}
                     </td>
                     <td className="px-5 py-3 text-right font-mono whitespace-nowrap">
-                      {line.quantity}
+                      {editLines ? (
+                        <input type="number" className="w-16 p-1 text-xs border rounded text-right" value={line.quantity || 0} onChange={(e) => handleLineChange(idx, 'quantity', Number(e.target.value))} />
+                      ) : (line.quantity)}
                     </td>
                     <td className="px-5 py-3 text-center font-mono text-muted-foreground whitespace-nowrap">
-                      {line.unit || '—'}
+                      {editLines ? (
+                        <input type="text" className="w-16 p-1 text-xs border rounded text-center" value={line.unit || ''} onChange={(e) => handleLineChange(idx, 'unit', e.target.value)} />
+                      ) : (line.unit || '—')}
                     </td>
                     <td className="px-5 py-3 text-right font-mono text-muted-foreground whitespace-nowrap">
-                      {line.gross_price !== undefined && line.gross_price !== null ? formatCurrency(line.gross_price) : formatCurrency(line.unit_price)}
+                      {editLines ? (
+                        <input type="number" className="w-20 p-1 text-xs border rounded text-right" value={line.gross_price || 0} onChange={(e) => handleLineChange(idx, 'gross_price', Number(e.target.value))} />
+                      ) : (line.gross_price !== undefined && line.gross_price !== null ? formatCurrency(line.gross_price) : formatCurrency(line.unit_price))}
                     </td>
                     <td className="px-5 py-3 text-center font-mono text-muted-foreground whitespace-nowrap">
-                      {line.discount_pct !== undefined && line.discount_pct !== null ? `${line.discount_pct}%` : '—'}
+                      {editLines ? (
+                        <input type="number" className="w-16 p-1 text-xs border rounded text-center" value={line.discount_pct || 0} onChange={(e) => handleLineChange(idx, 'discount_pct', Number(e.target.value))} />
+                      ) : (line.discount_pct !== undefined && line.discount_pct !== null ? `${line.discount_pct}%` : '—')}
                     </td>
                     <td className="px-5 py-3 text-right font-mono text-muted-foreground whitespace-nowrap">
-                      {line.applied_discount !== undefined && line.applied_discount !== null ? formatCurrency(line.applied_discount) : '—'}
+                      {editLines ? (
+                        <input type="number" className="w-20 p-1 text-xs border rounded text-right" value={line.applied_discount || 0} onChange={(e) => handleLineChange(idx, 'applied_discount', Number(e.target.value))} />
+                      ) : (line.applied_discount !== undefined && line.applied_discount !== null ? formatCurrency(line.applied_discount) : '—')}
                     </td>
                     <td className="px-5 py-3 text-right font-mono text-muted-foreground whitespace-nowrap">
-                      {line.other_fees !== undefined && line.other_fees !== null ? formatCurrency(line.other_fees) : '—'}
+                      {editLines ? (
+                        <input type="number" className="w-20 p-1 text-xs border rounded text-right" value={line.other_fees || 0} onChange={(e) => handleLineChange(idx, 'other_fees', Number(e.target.value))} />
+                      ) : (line.other_fees !== undefined && line.other_fees !== null ? formatCurrency(line.other_fees) : '—')}
                     </td>
                     <td className="px-5 py-3 text-right font-mono text-muted-foreground whitespace-nowrap">
-                      {line.nominal_price !== undefined && line.nominal_price !== null ? formatCurrency(line.nominal_price) : '—'}
+                      {editLines ? (
+                        <input type="number" className="w-20 p-1 text-xs border rounded text-right" value={line.nominal_price || line.unit_price || 0} onChange={(e) => handleLineChange(idx, 'nominal_price', Number(e.target.value))} />
+                      ) : (line.nominal_price !== undefined && line.nominal_price !== null ? formatCurrency(line.nominal_price) : '—')}
                     </td>
                     <td className="px-5 py-3 text-center font-mono text-muted-foreground whitespace-nowrap">
-                      {line.iva_pct !== undefined && line.iva_pct !== null
+                      {editLines ? (
+                        <input type="number" className="w-16 p-1 text-xs border rounded text-center" value={line.iva_pct || 0} onChange={(e) => handleLineChange(idx, 'iva_pct', Number(e.target.value))} />
+                      ) : (line.iva_pct !== undefined && line.iva_pct !== null
                         ? `${line.iva_pct}%`
-                        : '—'}
+                        : '—')}
                     </td>
                     <td className="px-5 py-3 text-right font-mono font-bold text-foreground whitespace-nowrap">
-                      {line.base !== undefined && line.base !== null 
+                      {editLines ? (
+                        <input type="number" className="w-20 p-1 text-xs border rounded text-right" value={line.base || line.total_price || 0} onChange={(e) => handleLineChange(idx, 'base', Number(e.target.value))} />
+                      ) : (line.base !== undefined && line.base !== null 
                         ? formatCurrency(line.base)
-                        : (line.gross_price !== undefined && line.gross_price !== null && line.iva_pct !== undefined && line.iva_pct !== null)
-                          ? formatCurrency((line.quantity * line.gross_price) / (1 + line.iva_pct / 100))
-                          : '—'}
+                        : (line.total_price !== undefined && line.total_price !== null && line.iva_pct !== undefined && line.iva_pct !== null)
+                          ? formatCurrency(line.total_price / (1 + line.iva_pct / 100))
+                          : (line.gross_price !== undefined && line.gross_price !== null)
+                            ? formatCurrency(line.gross_price)
+                            : '—')}
                     </td>
-                    <td className="px-5 py-3 text-right font-mono font-bold text-foreground whitespace-nowrap">
-                      {line.gross_price !== undefined && line.gross_price !== null 
-                        ? formatCurrency(line.quantity * line.gross_price) 
-                        : line.total_price !== undefined && line.total_price !== null 
-                          ? formatCurrency(line.total_price) 
-                          : '—'}
+                    <td className="px-5 py-3 text-center whitespace-nowrap">
+                      <button
+                        onClick={async () => {
+                          if (confirm("Are you sure you want to delete this line item?")) {
+                            if (line.id) {
+                              try {
+                                const client = getApiClient();
+                                await client.deleteInvoiceLine(invoice.id, line.id);
+                                const updated = linesData.filter((_, i) => i !== idx);
+                                setLinesData(updated);
+                                setInvoice({ ...invoice, lines: updated } as any);
+                              } catch (e) {
+                                console.error(e);
+                                alert("Failed to delete line item");
+                              }
+                            } else {
+                              const updated = linesData.filter((_, i) => i !== idx);
+                              setLinesData(updated);
+                            }
+                          }
+                        }}
+                        className="p-1.5 hover:bg-[#fceaea] text-[#b23a3a] rounded-lg transition-colors"
+                        title="Delete line"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-5 py-8 text-center text-muted-foreground">
+                  <td colSpan={13} className="px-5 py-8 text-center text-muted-foreground">
                     No line items found for this document.
                   </td>
                 </tr>

@@ -17,8 +17,9 @@ arq>=0.25.0
 greenlet>=3.0.0
 
 # OCR Invoice Pipeline dependencies
-paddleocr==2.8.1
-paddlepaddle>=2.5
+paddleocr>=2.8.1
+paddlepaddle>=2.5.0
+onnxruntime>=1.17.0
 pdfplumber>=0.10
 pymupdf>=1.23
 opencv-python-headless>=4.8

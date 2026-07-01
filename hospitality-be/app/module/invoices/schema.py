@@ -44,6 +44,9 @@ class InvoiceListResponse(BaseModel):
     attributable_cost: Optional[float] = None
     tax_free_costs: Optional[float] = None
     source_file: Optional[str] = None
+    ocr_time: Optional[float] = None
+    llm_time: Optional[float] = None
+
 
     class Config:
         from_attributes = True
@@ -148,6 +151,9 @@ class InvoiceDetailsResponse(BaseModel):
     tax_free_costs: Optional[float] = None
     source_file: Optional[str] = None
     review_reasons: Optional[str] = None
+    ocr_time: Optional[float] = None
+    llm_time: Optional[float] = None
+
     
     # Missing totals
     discount: Optional[float] = None

@@ -12,7 +12,7 @@ from app.core.translation import translate
 
 def get_invoices(db: Session) -> List[Invoice]:
     """Retrieves all invoices ordered by issue date descending."""
-    statement = select(Invoice).order_by(Invoice.issue_date.desc())
+    statement = select(Invoice).order_by(Invoice.created_at.desc())
     return db.exec(statement).all()
 
 def get_invoice_details(db: Session, invoice_id: int) -> Invoice:

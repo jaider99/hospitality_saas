@@ -108,6 +108,9 @@ class Invoice(SQLModel, table=True):
     ocr_confidence: Optional[float] = Field(default=None)       # 0-100
     needs_review: bool = Field(default=False, index=True)
     review_reasons: Optional[str] = Field(default=None)         # JSON list as string
+    ocr_time: Optional[float] = Field(default=None)             # Time taken for OCR processing
+    llm_time: Optional[float] = Field(default=None)             # Time taken for LLM extraction
+
 
     # Full raw OCR JSON (future-proof, never loses data)
     raw_ocr_json: Optional[str] = Field(default=None)

@@ -25,7 +25,8 @@ import {
   Check,
   MessageSquare,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Trash2
 } from 'lucide-react';
 import { documents } from '../mockData';
 import { Btn } from '../_components/ui';
@@ -89,6 +90,8 @@ export default function DocumentsPage() {
   const [uploadedDocs, setUploadedDocs] = useState<any[]>([]);
   const [uploadingIds, setUploadingIds] = useState<Set<number>>(new Set());
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  // Keep a stable ref to fetchInvoices so the SSE listener never closes over a stale version
+  const fetchInvoicesRef = React.useRef<() => void>(() => {});
 
   const fetchInvoices = React.useCallback(async () => {
     setLoading(true);
@@ -99,7 +102,7 @@ export default function DocumentsPage() {
         // Map backend invoices to table format using rich OCR fields
         const mapped = (data as any[]).map((inv: any) => ({
           id: inv.id || Math.random(),
-          supplier: inv.supplier_display_name || inv.supplier?.name || 'Unknown Supplier',
+          supplier: inv.supplier?.name || inv.supplier_display_name || 'Unknown Supplier',
           docNum: inv.document_number || inv.invoice_number || '—',
           date: inv.document_date
             ? new Date(inv.document_date).toLocaleDateString('en-US', {
@@ -114,6 +117,7 @@ export default function DocumentsPage() {
                   year: 'numeric'
                 })
               : '—',
+          rawDate: inv.document_date || inv.issue_date || null,
           uploadDate: inv.created_at
             ? new Date(inv.created_at).toLocaleDateString('en-US', {
                 month: '2-digit',
@@ -130,7 +134,7 @@ export default function DocumentsPage() {
           status:
             inv.needs_review
               ? 'flagged'
-              : inv.status === 'PROCESSED'
+              : (inv.status === 'PROCESSED' || inv.status === 'completed')
                 ? 'completed'
                 : inv.status === 'FAILED'
                   ? 'rejected'
@@ -167,6 +171,9 @@ export default function DocumentsPage() {
     }
   }, []);
 
+  // Keep ref always pointing to latest fetchInvoices
+  React.useEffect(() => { fetchInvoicesRef.current = fetchInvoices; }, [fetchInvoices]);
+
   useEffect(() => {
     fetchInvoices();
   }, [fetchInvoices]);
@@ -178,7 +185,7 @@ export default function DocumentsPage() {
     eventSource.onmessage = (event) => {
       if (event.data === 'reload') {
         console.log('Real-time reload event received from server webhook!');
-        fetchInvoices();
+        fetchInvoicesRef.current();
       }
     };
 
@@ -189,7 +196,8 @@ export default function DocumentsPage() {
     return () => {
       eventSource.close();
     };
-  }, [fetchInvoices]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const allDocuments = [...uploadedDocs, ...apiDocs];
 
@@ -278,7 +286,42 @@ export default function DocumentsPage() {
     }
     return new Date(dStr);
   };
+  // Dropdown state for rows
+  const [activeRowMenu, setActiveRowMenu] = useState<number | null>(null);
 
+  const handleDeleteInvoice = async (id: number) => {
+    try {
+      const client = getApiClient();
+      await client.deleteInvoice(id);
+      await fetchInvoices();
+      setActiveRowMenu(null);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to delete invoice');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    try {
+      const client = getApiClient();
+      await client.bulkDeleteInvoices(selectedIds);
+      setSelectedIds([]);
+      await fetchInvoices();
+    } catch (e) {
+      console.error(e);
+      alert('Failed to delete selected invoices');
+    }
+  };
+
+  const handleDownloadInvoice = (doc: any) => {
+    const fileExtension = (doc.source_file ? doc.source_file.split('.').pop()?.toLowerCase() : 'pdf') || 'pdf';
+    const objectName = `invoice_${doc.id}.${fileExtension}`;
+    window.open(`http://localhost:9012/invoices/${objectName}`, '_blank');
+    setActiveRowMenu(null);
+  };
+
+  // Sync docs
   const filtered = allDocuments.filter((d) => {
     // Applied dialog filters
     if (statusFilter !== 'All' && d.status !== statusFilter) return false;
@@ -289,7 +332,10 @@ export default function DocumentsPage() {
       return false;
 
     // Date Range Filter logic
-    const docTime = parseDate(d.date).getTime();
+    let docTime = d.rawDate ? new Date(d.rawDate).getTime() : parseDate(d.date).getTime();
+    if (docTime === 0 && d.uploadDate) {
+      docTime = parseDate(d.uploadDate).getTime();
+    }
     if (startDateFilter) {
       const startTime = new Date(startDateFilter).getTime();
       if (docTime < startTime) return false;
@@ -766,6 +812,17 @@ export default function DocumentsPage() {
               )}
             </div>
 
+            {/* Bulk Actions */}
+            {selectedIds.length > 0 && (
+              <button
+                onClick={handleBulkDelete}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 bg-[#fceaea] border border-[#ffb4ab] text-[#b23a3a] rounded-lg hover:bg-[#ffb4ab]/30 transition-colors"
+              >
+                <Trash2 size={13} />
+                <span>Delete selected ({selectedIds.length})</span>
+              </button>
+            )}
+
             {/* Upload Document button */}
             <button
               onClick={() => setUploadModalOpen(true)}
@@ -884,8 +941,8 @@ export default function DocumentsPage() {
       </div> */}
 
       {/* Documents Grid Table */}
-      <div className="bg-card border border-border rounded-xl shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-card border border-border rounded-xl shadow-xs overflow-visible">
+        <div className="overflow-x-visible">
           <table className="min-w-full divide-y divide-border text-left text-sm">
             <thead className="bg-[#fafaf8] dark:bg-[#1a1916]">
               <tr>
@@ -1065,15 +1122,50 @@ export default function DocumentsPage() {
                             </div>
                           )}
 
-                          {doc.paymentStatus && doc.status === 'completed' && (
-                            <button className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Download size={14} />
+                          <div className="relative">
+                            <button 
+                              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveRowMenu(activeRowMenu === doc.id ? null : doc.id);
+                              }}
+                            >
+                              <MoreVertical size={14} />
                             </button>
-                          )}
-
-                          <button className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted">
-                            <MoreVertical size={14} />
-                          </button>
+                            {activeRowMenu === doc.id && (
+                              <>
+                                <div 
+                                  className="fixed inset-0 z-20" 
+                                  onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    setActiveRowMenu(null); 
+                                  }} 
+                                />
+                                <div className="absolute right-0 mt-1 w-36 bg-card border border-border rounded-lg shadow-lg py-1 z-30">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDownloadInvoice(doc);
+                                    }}
+                                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors flex items-center gap-2 text-foreground"
+                                  >
+                                    <Download size={13} />
+                                    <span>Download</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteInvoice(doc.id);
+                                    }}
+                                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors flex items-center gap-2 text-[#b23a3a]"
+                                  >
+                                    <Trash2 size={13} />
+                                    <span>Delete</span>
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -1196,10 +1288,12 @@ export default function DocumentsPage() {
                   className="w-full p-2 bg-card border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/20"
                 >
                   <option value="All">All Suppliers</option>
-                  <option value="Re Pla Tres S.L.">Re Pla Tres S.L.</option>
-                  <option value="MAKRO">MAKRO DISTRIBUCION</option>
-                  <option value="Holaluz">Holaluz-clidom S.A.</option>
-                  <option value="La Tienda">La Tienda Del Barman</option>
+                  {Array.from(new Set(allDocuments.map(d => d.supplier)))
+                    .filter(s => s && s !== '—' && s !== 'Unknown Supplier')
+                    .sort()
+                    .map(supplier => (
+                    <option key={supplier} value={supplier}>{supplier}</option>
+                  ))}
                 </select>
               </div>
 

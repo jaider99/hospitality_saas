@@ -107,6 +107,10 @@ class Invoice:
     ocr_confidence: Optional[float] = None
     needs_review: bool = False
     review_reasons: List[str] = field(default_factory=list)
+    ocr_time: Optional[float] = None
+    llm_time: Optional[float] = None
+    extraction_method: Optional[str] = None
+
 
     def to_dict(self) -> dict:
         return asdict(self)

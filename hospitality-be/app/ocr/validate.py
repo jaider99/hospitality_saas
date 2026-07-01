@@ -14,11 +14,11 @@ from app.ocr.schema import Invoice
 TOLERANCE = 0.02  # EUR cents tolerance for floating point / rounding noise
 
 REQUIRED_FIELDS = [
-    ("serialNumber", lambda inv: inv.serialNumber),
-    ("date", lambda inv: inv.date),
-    ("supplier.name", lambda inv: inv.supplier.name),
-    ("supplier.vatID", lambda inv: inv.supplier.vatID),
-    ("total", lambda inv: inv.total if inv.total else None),
+    ("Document Number", lambda inv: inv.serialNumber),
+    ("Date", lambda inv: inv.date),
+    ("Supplier Name", lambda inv: inv.supplier.name),
+    ("Supplier VAT ID", lambda inv: inv.supplier.vatID),
+    ("Total Amount", lambda inv: inv.total if inv.total else None),
 ]
 
 
@@ -26,7 +26,7 @@ def check_required_fields(inv: Invoice) -> list:
     reasons = []
     for name, getter in REQUIRED_FIELDS:
         if not getter(inv):
-            reasons.append(f"missing_required_field:{name}")
+            reasons.append(f"Missing {name}")
     return reasons
 
 
@@ -45,8 +45,7 @@ def check_totals_arithmetic(inv: Invoice) -> list:
         )
         if abs(expected_total - inv.total) > TOLERANCE and expected_total != 0:
             reasons.append(
-                f"totals_mismatch: subtotal+tax+adjustments={expected_total:.2f} "
-                f"!= total={inv.total:.2f}"
+                f"Invoice totals do not add up correctly (Calculated: €{expected_total:.2f}, Printed: €{inv.total:.2f})"
             )
     return reasons
 
@@ -58,8 +57,7 @@ def check_line_items_sum(inv: Invoice) -> list:
     line_sum = sum(li.base for li in inv.items if li.base is not None)
     if abs(line_sum - inv.subtotal) > TOLERANCE and line_sum != 0:
         reasons.append(
-            f"line_items_base_sum_mismatch: sum={line_sum:.2f} "
-            f"!= subtotal={inv.subtotal:.2f}"
+            f"Line items sum (€{line_sum:.2f}) does not match Subtotal (€{inv.subtotal:.2f})"
         )
     return reasons
 
@@ -92,16 +90,13 @@ def check_line_item_internal_consistency(inv: Invoice) -> list:
         elif abs(expected_total_disc - li.base) <= TOLERANCE:
             continue
         elif expected_per_unit != 0 and expected_total_disc != 0:
-             reasons.append(f"line_item_{i}_inconsistent: expected_base={expected_per_unit:.2f} (or {expected_total_disc:.2f}) != base={li.base:.2f}")
+             reasons.append(f"Line item {i+1} arithmetic is inconsistent")
     return reasons
 
 
 def check_ocr_confidence(inv: Invoice, min_confidence: float = 70.0) -> list:
-    reasons = []
-    conf = inv.ocr_confidence
-    if conf is not None and conf < min_confidence:
-        reasons.append(f"low_ocr_confidence:{conf:.1f}")
-    return reasons
+    # User requested to remove confidence score from review reasons entirely
+    return []
 
 
 def check_date_sanity(inv: Invoice, raw_text: str) -> list:
@@ -115,7 +110,7 @@ def check_date_sanity(inv: Invoice, raw_text: str) -> list:
         try:
             day_in_parsed = int(inv.date.split("-")[2])
             if day_in_text != day_in_parsed:
-                reasons.append(f"date_day_mismatch: printed_day={day_in_text} != parsed_day={day_in_parsed}")
+                reasons.append(f"Parsed date day does not match printed text")
         except Exception:
             pass
     return reasons
@@ -130,7 +125,7 @@ def check_quantity_verbatim(inv: Invoice, raw_text: str) -> list:
             continue
         qty_str = str(int(li.quantity)) if li.quantity == int(li.quantity) else str(li.quantity)
         if qty_str not in raw_text:
-            reasons.append(f"quantity_not_found_verbatim_in_source:{qty_str}_at_item_{i}")
+            reasons.append(f"Quantity '{qty_str}' for item {i+1} not found in text")
     return reasons
 
 
@@ -139,7 +134,7 @@ def sanity_check_discount(inv: Invoice) -> list:
     if inv.discount and inv.discount > 0:
         for i, li in enumerate(inv.items):
             if li.discountPct == inv.discount:
-                reasons.append(f"possible_linelevel_discount_at_doc_level: discount={inv.discount}_matches_item_{i}_pct")
+                reasons.append(f"Discount value matches line item {i+1} percentage (possible misextraction)")
     return reasons
 
 
