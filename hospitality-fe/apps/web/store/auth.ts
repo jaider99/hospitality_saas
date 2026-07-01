@@ -50,6 +50,15 @@ export const useAuthStore = create<AuthState>((set, get) => {
       localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
       localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
       localStorage.removeItem(STORAGE_KEYS.USER_DATA);
+      
+      const currentPath = window.location.pathname;
+      if (
+        currentPath !== '/' &&
+        currentPath !== '/auth/register' &&
+        !currentPath.startsWith('/auth/reset-password')
+      ) {
+        window.location.href = '/';
+      }
     }
     set({ user: null, accessToken: null, refreshToken: null });
   };

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../../../store/auth';
 import { Mail, Lock, User as UserIcon, Phone, Eye, EyeOff, AlertTriangle, Zap, Shield, ChevronRight } from 'lucide-react';
 import EmailPassword from 'supertokens-web-js/recipe/emailpassword';
+import { getMeAction } from '../actions';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -87,8 +88,8 @@ export default function RegisterPage() {
       });
 
       if (response.status === 'OK') {
-        // 2. Fetch authenticated user profile details from PostgreSQL
-        const userProfile = await apiClient.getMe();
+        // 2. Fetch authenticated user profile details from PostgreSQL via Server Action
+        const userProfile = await getMeAction();
         
         // 3. Update Zustand Store with user profile
         login({

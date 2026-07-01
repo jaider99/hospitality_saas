@@ -40,12 +40,12 @@ class SupplierRecord(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255))
-    contactInfo = Column(String(255))
-    vatID = Column(String(50), unique=True, index=True)
-    legalName = Column(String(255))
+    contact_info = Column(String(255))
+    vat_id = Column(String(50), unique=True, index=True)
+    legal_name = Column(String(255))
     address = Column(Text)
     contacts = Column(Integer, default=0)
-    createdAt = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, server_default=func.now())
 
     invoices = relationship("InvoiceRecord", back_populates="supplier")
 
@@ -169,13 +169,13 @@ def save_invoice(inv: InvoiceDTO, session: Optional[Session] = None, invoice_id:
         # Resolve supplier
         supplier_record = None
         if inv.supplier.vatID:
-            supplier_record = session.query(SupplierRecord).filter_by(vatID=inv.supplier.vatID).first()
+            supplier_record = session.query(SupplierRecord).filter_by(vat_id=inv.supplier.vatID).first()
         
         if not supplier_record and (inv.supplier.name or inv.supplier.vatID):
             supplier_record = SupplierRecord(
                 name=inv.supplier.name,
-                vatID=inv.supplier.vatID,
-                legalName=inv.supplier.legalName,
+                vat_id=inv.supplier.vatID,
+                legal_name=inv.supplier.legalName,
                 address=inv.supplier.address,
                 contacts=inv.supplier.contacts or 0
             )
@@ -416,7 +416,7 @@ def update_invoice(invoice_id: int, inv: InvoiceDTO, session: Optional[Session] 
             if supplier_record:
                 record.supplierId = supplier_record.id
 
-        # Update line items (preserve IDs)
+        # Update line items (preserve IDs) - with proper deletion
         existing_lines = {li.id: li for li in record.lines}
         new_lines = []
         for li in inv.items:
@@ -448,8 +448,13 @@ def update_invoice(invoice_id: int, inv: InvoiceDTO, session: Optional[Session] 
                     otherFees=li.otherFees,
                     nominalPrice=li.nominalPrice
                 ))
+        
+        # Delete orphaned line items
         for db_line in existing_lines.values():
             session.delete(db_line)
+        
+        # Flush deletions to ensure they're processed
+        session.flush()
         record.lines = new_lines
 
         # Update tax brackets (preserve IDs)
@@ -458,8 +463,14 @@ def update_invoice(invoice_id: int, inv: InvoiceDTO, session: Optional[Session] 
         for tb in inv.taxBrackets:
             # We don't have id on TaxBracketDTO yet, but let's just recreate them
             pass
+        
+        # Delete old tax brackets
         for tb in list(record.taxBrackets):
             session.delete(tb)
+        
+        # Flush deletions
+        session.flush()
+        
         record.taxBrackets = [
             TaxBracketRecord(
                 subtotal=tb.subtotal,

@@ -142,6 +142,13 @@ _LEGAL_SUFFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Also catch header-only C.I.F. labels without a legal suffix on the same line
+# e.g. "Registre Mercantil de Barcelona ... C.I.F. - A 08064313"
+_HEADER_CIF_RE = re.compile(
+    r"(?:C\.I\.F\.?|N\.I\.F\.?)\s*[-·:·]?\s*([A-Z]{1,2}[\-\s]?\d{7,8}[A-Z0-9]?)",
+    re.IGNORECASE,
+)
+
 # Pattern: a VAT ID on a line that starts with (or is near) a customer keyword — these must be EXCLUDED
 _CUSTOMER_NIF_LINE_RE = re.compile(
     r"(?:NIF|D\.N\.I|CIF|NIE)[:\s]+([A-Z]{1,2}[\-\s]?\d{7,8}[A-Z0-9]?)",
@@ -158,7 +165,7 @@ def _extract_supplier_vat_from_header(raw_text: str) -> Optional[str]:
 
     Strategy (in priority order):
     1. Look for pattern: <LegalEntitySuffix> ... C.I.F. <VATID>  (strongest signal)
-    2. Look for a line that starts with C.I.F. or N.I.F. NOT in a customer context
+    2. Look for C.I.F./N.I.F. label anywhere in the first 20 lines NOT in a customer context
     3. Fallback: first TAX_ID_RE match that is NOT on a customer-NIF-labelled line
     """
 
@@ -167,17 +174,15 @@ def _extract_supplier_vat_from_header(raw_text: str) -> Optional[str]:
     if m:
         return m.group(1).replace(" ", "").replace("-", "").upper()
 
-    # Stage 2: Scan header lines for a C.I.F./N.I.F. that is NOT in a customer block
-    header_lines = raw_text.splitlines()[:30]
+    # Stage 2: Scan ALL header lines for a C.I.F./N.I.F. that is NOT in a customer block
+    header_lines = raw_text.splitlines()[:40]
     for i, line in enumerate(header_lines):
-        line_norm = _normalize(line)
         # Skip lines that clearly belong to the customer section
         context = "\n".join(header_lines[max(0, i-2):i+1])
         if _CUSTOMER_CONTEXT_KEYWORDS.search(context):
             continue
-        cm = _CUSTOMER_NIF_LINE_RE.search(line)
+        cm = _HEADER_CIF_RE.search(line)
         if cm:
-            # This line has a NIF label — check the surrounding context for customer keywords
             if not _CUSTOMER_CONTEXT_KEYWORDS.search(context):
                 return cm.group(1).replace(" ", "").replace("-", "").upper()
 
@@ -202,6 +207,11 @@ def _extract_supplier_vat_from_header(raw_text: str) -> Optional[str]:
 # main extraction
 # ---------------------------------------------------------------------------
 
+# Phone-number guard: reject a serial number candidate that looks like a phone.
+# Phones are purely numeric runs (possibly separated by spaces/dashes) with 9+
+# digits total and no letter prefix (e.g. '93 319 52 06' or '93 310 21 28').
+_PHONE_LIKE_RE = re.compile(r"^[\d\s\-]{9,}$")
+
 def extract_with_regex(raw_text: str) -> Invoice:
     text_norm = _normalize(raw_text)
     inv = Invoice()
@@ -213,7 +223,11 @@ def extract_with_regex(raw_text: str) -> Invoice:
     doc_num_match = _find_value_near_label(
         text_norm, raw_text, LABELS["serialNumber"], re.compile(r"([A-Za-z0-9/\-\s]*\d[A-Za-z0-9/\-\s]*)")
     )
-    inv.serialNumber = doc_num_match.group(1).strip() if doc_num_match else None
+    candidate_sn = doc_num_match.group(1).strip() if doc_num_match else None
+    # Reject phone-number-like candidates (e.g. '93 310 21 28')
+    if candidate_sn and _PHONE_LIKE_RE.match(candidate_sn):
+        candidate_sn = None
+    inv.serialNumber = candidate_sn
 
     for kw in LABELS["type"]:
         if _normalize(kw) in text_norm:

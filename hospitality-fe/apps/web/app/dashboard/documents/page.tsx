@@ -140,7 +140,8 @@ export default function DocumentsPage() {
           userInitials: (inv.uploaded_by || 'SYS').slice(0, 2).toUpperCase(),
           needsReview: inv.needs_review,
           ocrConfidence: inv.ocr_confidence,
-          currency: inv.currency || 'EUR'
+          currency: inv.currency || 'EUR',
+          reviewReasons: inv.review_reasons
         }));
         setApiDocs(mapped);
 
@@ -389,8 +390,8 @@ export default function DocumentsPage() {
     setFilterModalOpen(false);
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
+  const getStatusBadge = (doc: any) => {
+    switch (doc.status) {
       case 'completed':
         return (
           <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded bg-[#e6f4ec] text-[#1f8f5c]">
@@ -410,16 +411,33 @@ export default function DocumentsPage() {
             Review required
           </span>
         );
-      case 'rejected':
+      case 'rejected': {
+        let reasonStr = '';
+        if (doc.reviewReasons) {
+          try {
+            const parsed = JSON.parse(doc.reviewReasons);
+            reasonStr = Array.isArray(parsed) ? parsed.join(', ') : parsed;
+          } catch (e) {
+            reasonStr = doc.reviewReasons;
+          }
+        }
         return (
-          <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded bg-[#fceaea] text-[#b23a3a]">
-            Rejected
-          </span>
+          <div className="flex flex-col items-start gap-1">
+            <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded bg-[#fceaea] text-[#b23a3a]">
+              Rejected
+            </span>
+            {reasonStr && (
+              <span className="text-[10px] text-red-500 max-w-[150px] truncate" title={reasonStr}>
+                {reasonStr}
+              </span>
+            )}
+          </div>
         );
+      }
       default:
         return (
           <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded bg-muted text-muted-foreground">
-            {status}
+            {doc.status}
           </span>
         );
     }
@@ -1003,7 +1021,7 @@ export default function DocumentsPage() {
 
                       {/* Status */}
                       {visibleColumns.status && (
-                        <td className="px-4 py-3">{getStatusBadge(doc.status)}</td>
+                        <td className="px-4 py-3">{getStatusBadge(doc)}</td>
                       )}
 
                       {/* Document Date */}

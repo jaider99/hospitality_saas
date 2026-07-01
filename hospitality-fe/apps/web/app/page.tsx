@@ -6,6 +6,7 @@ import { useAuthStore } from '../store/auth';
 import { LoginSchema } from '@hospitality-saas/validation';
 import { Mail, Lock, Eye, EyeOff, AlertTriangle, Zap } from 'lucide-react';
 import EmailPassword from 'supertokens-web-js/recipe/emailpassword';
+import { getMeAction } from './auth/actions';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -72,8 +73,8 @@ export default function LoginPage() {
       });
 
       if (response.status === 'OK') {
-        // 2. Fetch authenticated user profile details from PostgreSQL database
-        const userProfile = await apiClient.getMe();
+        // 2. Fetch authenticated user profile details from PostgreSQL database via Server Action
+        const userProfile = await getMeAction();
         
         // 3. Update Zustand Store with user profile and dummy tokens (cookies manage actual auth)
         login({

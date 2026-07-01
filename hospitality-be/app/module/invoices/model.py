@@ -3,13 +3,16 @@ from datetime import datetime
 from typing import Optional, List
 
 class Supplier(SQLModel, table=True):
+    __tablename__ = "suppliers"  # Use snake_case plural to match migrations
+    
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
     legal_name: Optional[str] = Field(default=None)        # legalName from OCR schema
     vat_id: Optional[str] = Field(default=None, index=True)  # CIF/NIF/VAT from OCR schema
     address: Optional[str] = Field(default=None)
     contacts: int = Field(default=0)
-    contact_info: Optional[str] = Field(default=None, schema_extra={"name": "contactInfo"})
+    contact_info: Optional[str] = Field(default=None)      # Phone, email, etc.
+    contact_name: Optional[str] = Field(default=None)      # Main contact person name
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     # Relationships
@@ -17,12 +20,16 @@ class Supplier(SQLModel, table=True):
     invoices: List["Invoice"] = Relationship(back_populates="supplier", cascade_delete=True)
 
 class SuppliedProduct(SQLModel, table=True):
+    __tablename__ = "suppliedproduct"  # Match migration naming
+    
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     sku: Optional[str] = Field(default=None, unique=True, index=True)
-    supplier_id: int = Field(foreign_key="supplier.id", ondelete="CASCADE")
+    supplier_id: int = Field(foreign_key="suppliers.id", ondelete="CASCADE")
     current_price: float = Field(default=0.0)
     unit: str  # e.g., "kg", "litre", "case", "bottle"
+    product_type: Optional[str] = Field(default=None)  # Category like "Food", "Beverage", "Equipment"
+    category: Optional[str] = Field(default=None)  # Additional categorization
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -36,6 +43,8 @@ class SuppliedProduct(SQLModel, table=True):
     )
 
 class ProductCostHistory(SQLModel, table=True):
+    __tablename__ = "productcosthistory"
+    
     id: Optional[int] = Field(default=None, primary_key=True)
     product_id: int = Field(foreign_key="suppliedproduct.id", ondelete="CASCADE")
     price: float = Field(default=0.0)
@@ -45,14 +54,19 @@ class ProductCostHistory(SQLModel, table=True):
     product: SuppliedProduct = Relationship(back_populates="cost_history")
 
 class Invoice(SQLModel, table=True):
+    __tablename__ = "invoices"  # Use exact migration name
+    
     id: Optional[int] = Field(default=None, primary_key=True)
     invoice_number: Optional[str] = Field(default=None, index=True, nullable=True)
-    supplier_id: Optional[int] = Field(default=None, foreign_key="supplier.id", ondelete="CASCADE", nullable=True)
+    supplier_id: Optional[int] = Field(default=None, foreign_key="suppliers.id", ondelete="CASCADE", nullable=True)
     issue_date: Optional[datetime] = Field(default=None, nullable=True)
     total_amount: float = Field(default=0.0)
     status: str = Field(default="PENDING")  # PENDING, PROCESSED, FAILED
     raw_text: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    is_refund: bool = Field(default=False)
+    is_recurrent: bool = Field(default=False)
 
     # --- OCR-extracted fields (populated by background worker) ---
     # General info
@@ -68,6 +82,7 @@ class Invoice(SQLModel, table=True):
     supplier_tax_id: Optional[str] = Field(default=None, index=True)
     supplier_address: Optional[str] = Field(default=None)
     supplier_contact_count: Optional[int] = Field(default=None)
+    supplier_contact_info: Optional[str] = Field(default=None)  # Denormalized contact info
 
     # Totals
     base_amount: Optional[float] = Field(default=None)
@@ -86,7 +101,8 @@ class Invoice(SQLModel, table=True):
     currency: str = Field(default="EUR")
 
     # OCR pipeline metadata
-    source_file: Optional[str] = Field(default=None)
+    source_file: Optional[str] = Field(default=None)             # MinIO object key
+    file_url: Optional[str] = Field(default=None)                # Full public MinIO URL
     language_detected: Optional[str] = Field(default=None)      # en / es
     extraction_method: Optional[str] = Field(default=None)      # regex / llm / hybrid
     ocr_confidence: Optional[float] = Field(default=None)       # 0-100
@@ -105,8 +121,10 @@ class Invoice(SQLModel, table=True):
     tax_brackets: List["InvoiceTaxBracket"] = Relationship(back_populates="invoice", cascade_delete=True)
 
 class InvoiceLine(SQLModel, table=True):
+    __tablename__ = "invoice_lines"  # Match migration
+    
     id: Optional[int] = Field(default=None, primary_key=True)
-    invoice_id: int = Field(foreign_key="invoice.id", ondelete="CASCADE")
+    invoice_id: int = Field(foreign_key="invoices.id", ondelete="CASCADE")
     description: str = Field(default="")
     quantity: float = Field(default=0.0)
     unit_price: float = Field(default=0.0)
@@ -116,6 +134,7 @@ class InvoiceLine(SQLModel, table=True):
     # --- OCR-extracted line item fields ---
     provider_code: Optional[str] = Field(default=None)
     product: Optional[str] = Field(default=None)                # OCR-extracted product description/name
+    product_type: Optional[str] = Field(default=None)           # Product type/category
     unit: Optional[str] = Field(default=None)                  # kg, unit, hour ...
     gross_price: Optional[float] = Field(default=None)
     discount_pct: Optional[float] = Field(default=None)        # discount %
@@ -136,8 +155,10 @@ class InvoiceLine(SQLModel, table=True):
 
 class InvoiceTaxBracket(SQLModel, table=True):
     """Per-rate IVA breakdown row — matches TaxBracketRecord in OCR_invoice/storage.py."""
+    __tablename__ = "invoicetaxbracket"
+    
     id: Optional[int] = Field(default=None, primary_key=True)
-    invoice_id: int = Field(foreign_key="invoice.id", ondelete="CASCADE")
+    invoice_id: int = Field(foreign_key="invoices.id", ondelete="CASCADE")
     rate_pct: Optional[float] = Field(default=None)          # e.g. 4.0, 10.0, 21.0
     base: Optional[float] = Field(default=None)               # taxable base for this rate
     iva_amount: Optional[float] = Field(default=None)         # tax for this rate

@@ -29,9 +29,23 @@ async def async_main():
     await create_roles_if_not_exist()
 
     logger.info("Dropping existing tables...")
-    SQLModel.metadata.drop_all(engine)
-    Base.metadata.drop_all(engine)
+    if engine.dialect.name == 'postgresql':
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            result = conn.execute(text(
+                "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+            ))
+            for row in result.all():
+                table_name = row[0]
+                conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
+    else:
+        Base.metadata.drop_all(engine)
+        SQLModel.metadata.drop_all(engine)
     logger.info("Initializing database tables...")
+    from alembic.config import Config
+    from alembic import command
+    alembic_cfg = Config("alembic.ini")
+    command.upgrade(alembic_cfg, "head")
     SQLModel.metadata.create_all(engine)
     Base.metadata.create_all(engine)
 

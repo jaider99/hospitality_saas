@@ -22,6 +22,7 @@ export async function getRestaurantAction() {
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
+    console.error('getRestaurantAction error:', { status: res.status, errorData, headers });
     throw new Error(errorData.detail || 'Failed to fetch restaurant details');
   }
 
@@ -59,6 +60,7 @@ export async function getUsersAction(params?: { search?: string; page?: number; 
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
+    console.error('getUsersAction error:', { status: res.status, errorData, headers });
     throw new Error(errorData.detail || 'Failed to fetch team members');
   }
 

@@ -566,7 +566,7 @@ export default function DocumentDetailPage() {
                   <div className="flex justify-between items-center py-0.5 border-b border-border/40">
                     <span className="text-muted-foreground text-xs">Date</span>
                     <span className="font-medium text-foreground">
-                      {docDate ? new Date(docDate).toLocaleDateString('en-GB') : '—'}
+                      {docDate ? new Date(docDate).toLocaleDateString('en-GB', { timeZone: 'UTC' }) : '—'}
                     </span>
                   </div>
                   <div className={`flex justify-between items-center py-0.5 ${(invoice.ocr_duration !== undefined && invoice.ocr_duration !== null) || (invoice.llm_duration !== undefined && invoice.llm_duration !== null) ? 'border-b border-border/40' : ''}`}>
@@ -868,7 +868,7 @@ export default function DocumentDetailPage() {
                               : '—'}
                           </td>
                           <td className="px-3 py-2 text-right font-mono font-bold text-foreground">
-                            {bracket ? formatCurrency(bracket.row_total) : '—'}
+                            {bracket ? formatCurrency(bracket.row_total || ((bracket.base || 0) + (bracket.iva_amount || 0) + (bracket.equivalence_surcharge || 0))) : '—'}
                           </td>
                         </tr>
                       );
@@ -903,6 +903,7 @@ export default function DocumentDetailPage() {
                 <th className="px-5 py-3 whitespace-nowrap text-right">Nominal Price</th>
                 <th className="px-5 py-3 whitespace-nowrap text-center">IVA</th>
                 <th className="px-5 py-3 whitespace-nowrap text-right">Base</th>
+                <th className="px-5 py-3 whitespace-nowrap text-right">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -945,7 +946,18 @@ export default function DocumentDetailPage() {
                         : '—'}
                     </td>
                     <td className="px-5 py-3 text-right font-mono font-bold text-foreground whitespace-nowrap">
-                      {line.base !== undefined && line.base !== null ? formatCurrency(line.base) : formatCurrency(line.total_price)}
+                      {line.base !== undefined && line.base !== null 
+                        ? formatCurrency(line.base)
+                        : (line.gross_price !== undefined && line.gross_price !== null && line.iva_pct !== undefined && line.iva_pct !== null)
+                          ? formatCurrency((line.quantity * line.gross_price) / (1 + line.iva_pct / 100))
+                          : '—'}
+                    </td>
+                    <td className="px-5 py-3 text-right font-mono font-bold text-foreground whitespace-nowrap">
+                      {line.gross_price !== undefined && line.gross_price !== null 
+                        ? formatCurrency(line.quantity * line.gross_price) 
+                        : line.total_price !== undefined && line.total_price !== null 
+                          ? formatCurrency(line.total_price) 
+                          : '—'}
                     </td>
                   </tr>
                 ))

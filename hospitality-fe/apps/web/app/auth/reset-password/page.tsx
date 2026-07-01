@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Lock, Eye, EyeOff, AlertCircle, CheckCircle2, Zap, ArrowRight } from 'lucide-react';
 import EmailPassword from 'supertokens-web-js/recipe/emailpassword';
@@ -10,7 +10,7 @@ import { API_BASE_URL } from '@hospitality-saas/constants';
 // Run initialization in client environment
 initSuperTokens();
 
-export default function ResetPasswordPage() {
+function ResetPasswordPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
@@ -252,5 +252,13 @@ export default function ResetPasswordPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground text-sm font-sans">Loading invitation details...</div>}>
+      <ResetPasswordPageContent />
+    </Suspense>
   );
 }
