@@ -82,6 +82,8 @@ interface InvoiceDetail {
   review_reasons?: string;
   ocr_time?: number;
   llm_time?: number;
+  ocr_duration?: number;
+  llm_duration?: number;
 }
 
 export default function DocumentDetailPage() {
@@ -216,7 +218,7 @@ export default function DocumentDetailPage() {
   const fileExtension =
     (invoice.source_file ? invoice.source_file.split('.').pop()?.toLowerCase() : 'pdf') || 'pdf';
   const objectName = `invoice_${invoice.id}.${fileExtension}`;
-  const fileUrl = `http://localhost:9012/invoices/${objectName}?cb=${invoice.id}`;
+  const fileUrl = `http://localhost:9010/invoices/${objectName}?cb=${invoice.id}`;
 
   // Formatted display values
   const standardVatRates = [0, 2, 4, 5, 7.5, 10, 12, 21];
@@ -639,16 +641,16 @@ export default function DocumentDetailPage() {
                       {docCategory}
                     </span>
                   </div>
-                  {invoice.ocr_time !== undefined && invoice.ocr_time !== null && (
+                  {invoice.ocr_duration !== undefined && invoice.ocr_duration !== null && (
                     <div className="flex justify-between items-center py-0.5 border-t border-border/40 mt-1 pt-1">
                       <span className="text-muted-foreground text-xs">OCR Time</span>
-                      <span className="font-medium text-foreground">{invoice.ocr_time.toFixed(2)}s</span>
+                      <span className="font-medium text-foreground">{invoice.ocr_duration.toFixed(2)}s</span>
                     </div>
                   )}
-                  {invoice.llm_time !== undefined && invoice.llm_time !== null && (
-                    <div className="flex justify-between items-center py-0.5">
+                  {invoice.llm_duration !== undefined && invoice.llm_duration !== null && (
+                    <div className="flex justify-between items-center py-0.5 border-b border-border/40">
                       <span className="text-muted-foreground text-xs">LLM Time</span>
-                      <span className="font-medium text-foreground">{invoice.llm_time.toFixed(2)}s</span>
+                      <span className="font-medium text-foreground">{invoice.llm_duration.toFixed(2)}s</span>
                     </div>
                   )}
                   {invoice.extraction_method && (

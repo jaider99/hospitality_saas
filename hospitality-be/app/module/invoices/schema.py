@@ -46,6 +46,8 @@ class InvoiceListResponse(BaseModel):
     source_file: Optional[str] = None
     ocr_time: Optional[float] = None
     llm_time: Optional[float] = None
+    ocr_duration: Optional[float] = None
+    llm_duration: Optional[float] = None
 
 
     class Config:
@@ -157,6 +159,8 @@ class InvoiceDetailsResponse(BaseModel):
     review_reasons: Optional[str] = None
     ocr_time: Optional[float] = None
     llm_time: Optional[float] = None
+    ocr_duration: Optional[float] = None
+    llm_duration: Optional[float] = None
 
     
     # Missing totals

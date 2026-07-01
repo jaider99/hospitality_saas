@@ -91,10 +91,7 @@ export class ApiClient {
     return res.data;
   }
 
-  async updateInvoice(id: number, updateData: any): Promise<any> {
-    const res = await this.instance.put<any>(`/invoices/${id}`, updateData);
-    return res.data;
-  }
+
 
   async deleteInvoice(id: number): Promise<void> {
     await this.instance.delete(`/invoices/${id}`);

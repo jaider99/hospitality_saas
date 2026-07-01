@@ -415,6 +415,10 @@ def _get_pp_structure():
         try:
             import os
             in_docker = os.environ.get('IS_DOCKER', '0') == '1' or os.path.exists('/.dockerenv')
+            if in_docker:
+                # Enable ONNX runtime backend for speedup (requires onnxruntime package)
+                # PaddleOCR 3.x removed use_onnx constructor arg; backend is set via env var.
+                os.environ.setdefault('PADDLE_PDX_INFER_BACKEND', 'onnxruntime')
             from paddleocr import PPStructureV3
             _pp_structure_instance = PPStructureV3(
                 lang="en",
@@ -423,12 +427,11 @@ def _get_pp_structure():
                 use_formula_recognition=False,
                 use_seal_recognition=False,
                 use_chart_recognition=False,
-                ocr_version="PP-OCRv4", # Latest open-source OCR models
-                use_onnx=in_docker, # Hardware acceleration
+                ocr_version="PP-OCRv4",  # Latest open-source OCR models
             )
         except ImportError:
             from paddleocr import PPStructure
-            _pp_structure_instance = PPStructure(table=True, ocr=True, lang="en", show_log=False, ocr_version="PP-OCRv4", use_onnx=in_docker)
+            _pp_structure_instance = PPStructure(table=True, ocr=True, lang="en", show_log=False)
     return _pp_structure_instance
 
 

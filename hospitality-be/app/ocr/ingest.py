@@ -81,23 +81,26 @@ def _get_paddleocr():
                 logging.getLogger("invoice_pipeline").info(
                     "Loading PaddleOCR model into memory (one-time startup)..."
                 )
-                # NOTE: use_onnx=False — the installed paddleocr (PP-OCRv4) does NOT auto-download
-                # ONNX models. ONNX requires manual paddle2onnx conversion. Standard Paddle inference
-                # downloads models automatically on first run.
-                # Use standard PaddleOCR for lightweight text extraction (avoid OOM from PPStructure)
+                # NOTE: PaddleOCR 3.x API — parameter names were renamed.
+                # ONNX backend is enabled via the PADDLE_PDX_INFER_BACKEND env var
+                # (set to 'onnxruntime') instead of a constructor argument.
+                # This preserves the ONNX speedup on machines where onnxruntime is installed
+                # without crashing on machines where it is not available.
                 import os
                 in_docker = os.environ.get('IS_DOCKER', '0') == '1' or os.path.exists('/.dockerenv')
+                if in_docker:
+                    # Enable ONNX runtime backend for speedup (requires onnxruntime package)
+                    os.environ.setdefault('PADDLE_PDX_INFER_BACKEND', 'onnxruntime')
                 _paddleocr_instance = PaddleOCR(
-                    use_angle_cls=True,  # enabled to auto-correct sideways receipts
-                    ocr_version="PP-OCRv4", # Latest open-source OCR models
-                    use_onnx=in_docker, # Hardware acceleration (only in docker where it's converted)
+                    use_textline_orientation=True,  # replaces use_angle_cls — auto-corrects sideways receipts
+                    ocr_version="PP-OCRv4",         # Latest open-source OCR models
                     use_doc_unwarping=False,
-                    lang="es",
-                    det_limit_side_len=1536,
-                    det_limit_type="max",
-                    det_db_thresh=0.2,
-                    det_db_box_thresh=0.4,
-                    det_db_unclip_ratio=2.0
+                    lang="en",
+                    text_det_limit_side_len=1536,   # replaces det_limit_side_len
+                    text_det_limit_type="max",       # replaces det_limit_type
+                    text_det_thresh=0.2,             # replaces det_db_thresh
+                    text_det_box_thresh=0.4,         # replaces det_db_box_thresh
+                    text_det_unclip_ratio=2.0        # replaces det_db_unclip_ratio
                 )
                 logging.getLogger("invoice_pipeline").info(
                     "PaddleOCR model loaded successfully."

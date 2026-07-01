@@ -463,11 +463,12 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
 
     import time
     llm_total_time = 0.0
+    ocr_duration = 0.0  # safe default in case ingest raises
 
     # --- Stage 0: ingest ---
     _start_ocr = time.time()
     page_result = ingest(file_path)
-    _ocr_time = time.time() - _start_ocr
+    ocr_duration = time.time() - _start_ocr
     logger.info(f"OCR/text extraction done. avg_confidence={page_result.avg_confidence:.1f}")
 
     import os
@@ -506,7 +507,8 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     # --- Stage 1: Fast deterministic Regex ---
     inv = extract_with_regex(ocr_text)
     inv.ocr_confidence = page_result.avg_confidence
-    inv.ocr_time = _ocr_time
+    inv.ocr_time = round(ocr_duration, 2)
+    inv.ocr_duration = inv.ocr_time
 
 
     # --- Hard review floor: check BEFORE table extraction / LLM fallback ---
@@ -596,7 +598,7 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
             full_llm_input = ocr_text + "\n\n=== RAW OCR TEXT ===\n" + page_result.raw_text
             _start_llm = time.time()
             llm_result = extract_with_llm(full_llm_input, missing_fields=missing)
-            inv.llm_time = time.time() - _start_llm
+            llm_total_time += time.time() - _start_llm
             logger.info(f"LLM returned dict: {llm_result}")
             inv = merge_llm_result_into_invoice(inv, llm_result, force_fields=missing)
 
@@ -789,7 +791,9 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
             logger.error(f"Failed to query DB for supplier fallback: {e}")
 
     inv.ocr_duration = round(ocr_duration, 2)
-    inv.llm_duration = round(llm_total_time, 2)
+    inv.ocr_time = inv.ocr_duration
+    inv.llm_time = round(llm_total_time, 2)
+    inv.llm_duration = inv.llm_time
 
     if inv.needs_review:
         logger.warning(f"NEEDS REVIEW: {inv.review_reasons}")

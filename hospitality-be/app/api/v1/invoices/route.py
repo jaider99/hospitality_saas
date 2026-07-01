@@ -175,6 +175,8 @@ async def events_endpoint():
         queue = asyncio.Queue()
         active_connections.append(queue)
         try:
+            # Send initial ping to establish connection and flush headers
+            yield "data: connected\n\n"
             while True:
                 # Wait for broadcast event
                 message = await queue.get()
@@ -184,7 +186,15 @@ async def events_endpoint():
         finally:
             active_connections.remove(queue)
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 @router.get("/{invoice_id}", response_model=InvoiceDetailsResponse)
@@ -348,9 +358,10 @@ async def update_invoice_api(
                     if line_record and line_record.invoice_id == invoice_id:
                         if "description" in l_data:
                             line_record.description = l_data["description"]
-                        if "product" in l_data:
+                        if "product_name" in l_data and isinstance(l_data["product_name"], str):
+                            line_record.product = l_data["product_name"]
+                        elif "product" in l_data and isinstance(l_data["product"], str):
                             line_record.product = l_data["product"]
-                            line_record.description = l_data["product"]
                         if "provider_code" in l_data:
                             line_record.provider_code = l_data["provider_code"]
                         if "quantity" in l_data:
@@ -406,104 +417,7 @@ async def update_invoice_api(
         db.add(inv)
         db.commit()
             
-        # Synchronize with SQLModel tables
-        from app.module.invoices.model import InvoiceLine, InvoiceTaxBracket, Supplier
-        from datetime import datetime
-        from sqlmodel import select
-        sqlmodel_inv = db.get(Invoice, invoice_id)
-        if sqlmodel_inv:
-            sqlmodel_inv.invoice_number = new_inv.serialNumber
-            sqlmodel_inv.document_number = new_inv.serialNumber
-            sqlmodel_inv.document_type = new_inv.type
-            if new_inv.date:
-                try: sqlmodel_inv.issue_date = datetime.fromisoformat(new_inv.date)
-                except: pass
-            sqlmodel_inv.total_amount = new_inv.total or 0.0
-            sqlmodel_inv.base_amount = new_inv.subtotal
-            sqlmodel_inv.iva_amount = new_inv.tax
-            sqlmodel_inv.discount = new_inv.discount
-            sqlmodel_inv.paye = new_inv.payeAmount
-            sqlmodel_inv.green_point = new_inv.greenPointAmount
-            sqlmodel_inv.ibee = new_inv.ibeeAmount
-            sqlmodel_inv.attributable_cost = new_inv.taxableAdditionalCost
-            sqlmodel_inv.tax_free_costs = new_inv.netAdditionalCost
-            sqlmodel_inv.total_with_iva = new_inv.total
-            sqlmodel_inv.supplier_display_name = new_inv.supplier.name
-            sqlmodel_inv.supplier_tax_id = new_inv.supplier.vatID
-            
-            # Resolve/Update Supplier table in SQLModel
-            supplier_name = new_inv.supplier.name or "Unknown Supplier"
-            supplier_tax_id = new_inv.supplier.vatID
 
-            sqlmodel_supplier = None
-            if supplier_tax_id:
-                stmt = select(Supplier).where(Supplier.vat_id == supplier_tax_id)
-                sqlmodel_supplier = db.exec(stmt).first()
-            if not sqlmodel_supplier and supplier_name and supplier_name != "Unknown Supplier":
-                stmt = select(Supplier).where(Supplier.name.ilike(supplier_name))
-                sqlmodel_supplier = db.exec(stmt).first()
-
-            if not sqlmodel_supplier:
-                sqlmodel_supplier = Supplier(
-                    name=supplier_name,
-                    vat_id=supplier_tax_id,
-                    legal_name=new_inv.supplier.legalName,
-                    address=new_inv.supplier.address
-                )
-                db.add(sqlmodel_supplier)
-                db.flush()
-            else:
-                if supplier_name and supplier_name != "Unknown Supplier":
-                    sqlmodel_supplier.name = supplier_name
-                if supplier_tax_id:
-                    sqlmodel_supplier.vat_id = supplier_tax_id
-                if new_inv.supplier.legalName:
-                    sqlmodel_supplier.legal_name = new_inv.supplier.legalName
-                if new_inv.supplier.address:
-                    sqlmodel_supplier.address = new_inv.supplier.address
-                db.add(sqlmodel_supplier)
-                db.flush()
-
-            sqlmodel_inv.supplier_id = sqlmodel_supplier.id
-            
-            from sqlalchemy import delete
-            db.execute(delete(InvoiceLine).where(InvoiceLine.invoice_id == invoice_id))
-            db.execute(delete(InvoiceTaxBracket).where(InvoiceTaxBracket.invoice_id == invoice_id))
-            
-            db.add_all([
-                InvoiceLine(
-                    invoice_id=invoice_id,
-                    description=li.product or "Unknown Item",
-                    quantity=li.quantity or 0.0,
-                    unit_price=li.nominalPrice or li.grossPrice or 0.0,
-                    total_price=li.totalPrice or 0.0,
-                    provider_code=li.providerCode,
-                    unit=li.unit,
-                    gross_price=li.grossPrice,
-                    discount_pct=li.discountPct,
-                    applied_discount=li.appliedDiscount,
-                    other_fees=li.otherFees,
-                    nominal_price=li.nominalPrice,
-                    iva_pct=li.iva_pct or 0.0,
-                    base=li.base or 0.0
-                )
-                for li in new_inv.items
-            ])
-            
-            db.add_all([
-                InvoiceTaxBracket(
-                    invoice_id=invoice_id,
-                    rate_pct=tb.taxRate,
-                    base=tb.subtotal,
-                    iva_amount=tb.tax,
-                    row_total=tb.total,
-                    equivalence_surcharge_rate=tb.equivalenceSurchargeRate,
-                    equivalence_surcharge=tb.equivalenceSurcharge
-                )
-                for tb in new_inv.taxBrackets
-            ])
-            db.add(sqlmodel_inv)
-            db.commit()
             
         return {
             "status": "success",
