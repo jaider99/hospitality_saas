@@ -177,6 +177,56 @@ export default function DocumentDetailPage() {
     };
 
     fetchDetails();
+
+    // Polling if invoice is PENDING
+    const pollStatus = async (intervalId: NodeJS.Timeout) => {
+      try {
+        const client = getApiClient();
+        const statusData = await client.getInvoiceDetails(Number(id)); // Reuse details fetch to grab all data when ready
+        if (statusData.status === 'PROCESSED' || statusData.status === 'FAILED') {
+          clearInterval(intervalId);
+          setInvoice(statusData);
+          if (statusData) {
+            setSupplierName(statusData.supplier?.name || statusData.supplier_display_name || '');
+            setSupplierLegalName(statusData.supplier?.legal_name || statusData.supplier_legal_name || '');
+            setSupplierVatId(statusData.supplier?.vat_id || statusData.supplier_tax_id || '');
+            setDocNum(statusData.document_number || statusData.invoice_number || '');
+            setDocDate(statusData.issue_date ? new Date(statusData.issue_date).toISOString().split('T')[0] : '');
+            
+            if (statusData.document_type) {
+              const val = statusData.document_type.toLowerCase();
+              if (val === 'invoice') setDocType('Invoice');
+              else if (val === 'credit note' || val === 'credit_note') setDocType('Credit note');
+              else if (val === 'receipt') setDocType('Receipt');
+              else setDocType(statusData.document_type.charAt(0).toUpperCase() + statusData.document_type.slice(1));
+            } else {
+              setDocType('Invoice');
+            }
+            
+            setBaseAmount(statusData.base_amount !== undefined && statusData.base_amount !== null ? statusData.base_amount : (statusData.total_amount || 0));
+            setVatAmount(statusData.iva_amount || 0);
+            setDiscount(statusData.discount || 0);
+            setPaye(statusData.paye || 0);
+            setGreenPoint(statusData.green_point || 0);
+            setIbee(statusData.ibee || 0);
+            setAttributableCost(statusData.attributable_cost || 0);
+            setTaxFreeCosts(statusData.tax_free_costs || 0);
+            setLinesData(statusData.lines || []);
+            setVatData(statusData.tax_brackets || []);
+          }
+        }
+      } catch (err) {
+        console.warn('Error polling status:', err);
+      }
+    };
+
+    const interval = setInterval(() => {
+      // We check if the current state in ref or just naive interval
+      // Better to just fetch and see
+      pollStatus(interval);
+    }, 3000);
+
+    return () => clearInterval(interval);
   }, [id]);
 
 
@@ -218,7 +268,7 @@ export default function DocumentDetailPage() {
   const fileExtension =
     (invoice.source_file ? invoice.source_file.split('.').pop()?.toLowerCase() : 'pdf') || 'pdf';
   const objectName = `invoice_${invoice.id}.${fileExtension}`;
-  const fileUrl = `http://localhost:9010/invoices/${objectName}?cb=${invoice.id}`;
+  const fileUrl = `http://localhost:9012/invoices/${objectName}?cb=${Date.now()}`;
 
   // Formatted display values
   const standardVatRates = [0, 2, 4, 5, 7.5, 10, 12, 21];
@@ -1068,8 +1118,8 @@ export default function DocumentDetailPage() {
                     </td>
                     <td className="px-5 py-3 font-semibold text-foreground min-w-[200px]">
                       {editLines ? (
-                        <input type="text" className="w-full p-1 text-xs border rounded" value={line.description || line.product || ''} onChange={(e) => handleLineChange(idx, 'description', e.target.value)} />
-                      ) : (line.description || line.product)}
+                        <input type="text" className="w-full p-1 text-xs border rounded" value={line.description || line.product_name || line.product || ''} onChange={(e) => handleLineChange(idx, 'description', e.target.value)} />
+                      ) : (line.description || line.product_name || line.product)}
                     </td>
                     <td className="px-5 py-3 text-right font-mono whitespace-nowrap">
                       {editLines ? (

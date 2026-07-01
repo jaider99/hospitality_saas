@@ -150,8 +150,8 @@ export default function DocumentsPage() {
         setApiDocs(mapped);
 
         // Auto-remove any uploadedDocs that are now returned by the backend
-        const apiDocIds = new Set(mapped.map((d: any) => d.id));
-        setUploadedDocs((prev) => prev.filter((d) => !apiDocIds.has(d.id)));
+        const apiDocIds = new Set(mapped.map((d: any) => String(d.id)));
+        setUploadedDocs((prev) => prev.filter((d) => !apiDocIds.has(String(d.id))));
 
         // Update uploadingIds list (remove any that finished processing/failed)
         setUploadingIds((prev) => {
@@ -192,14 +192,17 @@ export default function DocumentsPage() {
       }
     };
 
-    eventSource.onerror = (err) => {
-      console.error('EventSource connection error:', err);
+    eventSource.onerror = () => {
+      // EventSource auto-reconnects on transient errors (CONNECTING state).
+      // Only log when the connection has been definitively closed.
+      if (eventSource.readyState === EventSource.CLOSED) {
+        console.warn('EventSource connection closed — real-time updates unavailable.');
+      }
     };
 
     return () => {
       eventSource.close();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const allDocuments = [...uploadedDocs, ...apiDocs];

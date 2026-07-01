@@ -44,6 +44,7 @@ class InvoiceListResponse(BaseModel):
     attributable_cost: Optional[float] = None
     tax_free_costs: Optional[float] = None
     source_file: Optional[str] = None
+    review_reasons: Optional[str] = None          # JSON list stored as string
     ocr_time: Optional[float] = None
     llm_time: Optional[float] = None
     ocr_duration: Optional[float] = None
@@ -91,12 +92,12 @@ class InvoiceLineDetails(BaseModel):
     quantity: float
     unit_price: float
     total_price: float
-    product_id: Optional[int]
+    product_id: Optional[int] = None
     product: Optional[ProductBase] = Field(default=None, validation_alias="product_rel")
     # OCR fields
     provider_code: Optional[str] = None
-    product_name: Optional[str] = Field(default=None, validation_alias="product")            # OCR product name/description
-    product_type: Optional[str] = None                                                       # Product type/category
+    product_name: Optional[str] = Field(default=None, validation_alias="product")   # OCR product name string
+    product_type: Optional[str] = None                                               # Product type/category
     unit: Optional[str] = None
     gross_price: Optional[float] = None
     discount_pct: Optional[float] = None
@@ -110,6 +111,7 @@ class InvoiceLineDetails(BaseModel):
 
     class Config:
         from_attributes = True
+        populate_by_name = True
 
 
 class InvoiceTaxBracketResponse(BaseModel):
