@@ -30,3 +30,25 @@ class AuditLog(SQLModel, table=True):
     details: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
+
+from sqlalchemy import UniqueConstraint
+
+class RolePermission(SQLModel, table=True):
+    __tablename__ = "role_permissions"
+    __table_args__ = (
+        UniqueConstraint("restaurant_id", "role_name", "module", name="uq_role_permission_module"),
+    )
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    restaurant_id: int = Field(foreign_key="restaurant.id", index=True, ondelete="CASCADE")
+    role_name: str = Field(index=True)
+    module: str = Field(index=True)
+    view: str = Field(default="None")  # None, Own, All
+    create: bool = Field(default=False)
+    edit: bool = Field(default=False)
+    delete: bool = Field(default=False)
+    export: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+

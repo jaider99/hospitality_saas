@@ -39,6 +39,7 @@ class UserResponse(BaseModel):
     invitation_sent_at: Optional[datetime] = None
     invitation_expires_at: Optional[datetime] = None
     last_login_at: Optional[datetime] = None
+    permissions: Optional[dict] = None
 
     class Config:
         from_attributes = True

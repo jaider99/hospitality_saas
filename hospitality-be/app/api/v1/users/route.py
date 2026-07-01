@@ -75,17 +75,26 @@ async def invite_user(
     3. Emails the invite link so the user can set their own password.
     4. Saves the profile in PostgreSQL.
     """
-    role_upper = dto.role.upper()
-    if role_upper not in ["ADMIN", "MANAGER"]:
+    valid_roles_map = {
+        "administrator": "Administrator",
+        "document management": "Document Management",
+        "chef & kitchen": "Chef & Kitchen",
+        "management view": "Management View",
+        "admin": "Administrator",
+        "manager": "Management View"
+    }
+    role_key = dto.role.strip().lower()
+    if role_key not in valid_roles_map:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid role. Must be 'ADMIN' or 'MANAGER'."
+            detail="Invalid role. Must be 'Administrator', 'Document Management', 'Chef & Kitchen', or 'Management View'."
         )
+    role_name = valid_roles_map[role_key]
 
-    if current_user.role == "ADMIN" and role_upper != "MANAGER":
+    if current_user.role == "Administrator" and role_name in ["Administrator", "SUPER_ADMIN"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Restaurant Admins can only invite Team Managers."
+            detail="Forbidden: Restaurant Administrators cannot invite other Administrators or Owners."
         )
 
     # 1. Check if user already exists in local DB
@@ -129,7 +138,7 @@ async def invite_user(
 
     # 3. Assign role in SuperTokens
     try:
-        await add_role_to_user("public", st_user_id, role_upper)
+        await add_role_to_user("public", st_user_id, role_name)
     except Exception as role_err:
         logger.error(f"Failed to assign role to invited user: {role_err}")
 
@@ -165,7 +174,7 @@ async def invite_user(
         existing_profile.last_name = dto.last_name
         existing_profile.name = f"{dto.first_name} {dto.last_name}".strip()
         existing_profile.phone = dto.phone
-        existing_profile.role = role_upper
+        existing_profile.role = role_name
         existing_profile.restaurant_id = current_user.restaurant_id
         existing_profile.status = "INVITED"
         existing_profile.invitation_sent_at = sent_at
@@ -182,7 +191,7 @@ async def invite_user(
             last_name=dto.last_name,
             name=f"{dto.first_name} {dto.last_name}".strip(),
             phone=dto.phone,
-            role=role_upper,
+            role=role_name,
             restaurant_id=current_user.restaurant_id,
             status="INVITED",          # distinct status until they set password
             invitation_sent_at=sent_at,
@@ -197,7 +206,7 @@ async def invite_user(
         actor_id=current_user.id,
         action="INVITE",
         target_user_id=new_user.id,
-        details=f"Admin {current_user.email} invited {new_user.email} as {role_upper}."
+        details=f"Admin {current_user.email} invited {new_user.email} as {role_name}."
     )
     db.add(invite_log)
     db.commit()
@@ -212,7 +221,7 @@ async def invite_user(
         send_invite_email(
             to_email=dto.email,
             first_name=dto.first_name,
-            role=role_upper,
+            role=role_name,
             invite_link=invite_link,
             inviter_name=inviter_name,
         )
@@ -246,10 +255,10 @@ async def resend_invite(
             detail="Forbidden: You cannot modify users from another restaurant."
         )
 
-    if current_user.role == "ADMIN" and user.role != "MANAGER":
+    if current_user.role == "Administrator" and user.role in ["Administrator", "SUPER_ADMIN"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Restaurant Admins can only manage status and invites of Team Managers."
+            detail="Forbidden: Restaurant Administrators cannot manage other Administrators or Owners."
         )
     
     # Generate new token (which invalidates any previous tokens in SuperTokens Core)
@@ -340,10 +349,10 @@ def update_status(
             detail="Forbidden: You cannot modify users from another restaurant."
         )
 
-    if current_user.role == "ADMIN" and user.role != "MANAGER":
+    if current_user.role == "Administrator" and user.role in ["Administrator", "SUPER_ADMIN"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Restaurant Admins can only manage status of Team Managers."
+            detail="Forbidden: Restaurant Administrators cannot manage other Administrators or Owners."
         )
         
     old_status = user.status

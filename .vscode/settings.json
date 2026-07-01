@@ -2,5 +2,8 @@
   "python.defaultInterpreterPath": "${workspaceFolder}/hospitality-be/venv/bin/python",
   "python.analysis.extraPaths": [
     "${workspaceFolder}/hospitality-be"
+  ],
+  "python.autoComplete.extraPaths": [
+    "${workspaceFolder}/hospitality-be"
   ]
 }

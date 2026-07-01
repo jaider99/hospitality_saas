@@ -171,4 +171,15 @@ export class ApiClient {
     const res = await this.instance.put<any>('/restaurant', data);
     return res.data;
   }
+
+  // Roles & Permissions
+  async getRolePermissions(): Promise<any> {
+    const res = await this.instance.get<any>('/roles/permissions');
+    return res.data;
+  }
+
+  async updateRolePermissions(data: any[]): Promise<any> {
+    const res = await this.instance.put<any>('/roles/permissions', data);
+    return res.data;
+  }
 }

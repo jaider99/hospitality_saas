@@ -58,8 +58,14 @@ def login(
     payload = {"email": user.email, "sub": str(user.id), "role": user.role}
     token = create_access_token(payload)
     
+    from app.module.auth.service import get_user_permissions
+    from app.module.auth.schema import UserResponse
+    perms = get_user_permissions(db, user)
+    user_data = UserResponse.model_validate(user).model_dump()
+    user_data["permissions"] = perms
+    
     return {
-        "user": user,
+        "user": user_data,
         "accessToken": token
     }
 
@@ -106,4 +112,10 @@ def get_me(
     db.add(current_user)
     db.commit()
     db.refresh(current_user)
-    return current_user
+    
+    from app.module.auth.service import get_user_permissions
+    from app.module.auth.schema import UserResponse
+    perms = get_user_permissions(db, current_user)
+    user_data = UserResponse.model_validate(current_user).model_dump()
+    user_data["permissions"] = perms
+    return user_data

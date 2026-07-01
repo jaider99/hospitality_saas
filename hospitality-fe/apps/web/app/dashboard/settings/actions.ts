@@ -1,35 +1,52 @@
 'use server';
 
 import { cookies } from 'next/headers';
+import type {
+  UpdateRestaurantPayload,
+  CreateUserPayload,
+  RolePermissionPayload,
+} from '@hospitality-saas/shared-types';
 
-const API_BASE = 'http://localhost:8000/api/v1';
+const API_BASE = process.env.NEXT_PRIVATE_API_URL ?? 'http://localhost:8000/api/v1';
 
-async function getAuthHeaders() {
+// ─── Auth helpers ─────────────────────────────────────────────────────────────
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
   const cookieStore = await cookies();
-  const cookieHeader = cookieStore.toString();
   return {
     'Content-Type': 'application/json',
-    'Cookie': cookieHeader,
+    Cookie: cookieStore.toString(),
   };
 }
 
+/**
+ * Validates the session by calling the backend /auth/me endpoint.
+ * Throws an error if the session cookie is missing or invalid.
+ */
+async function requireSession(): Promise<void> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/auth/me`, { headers, cache: 'no-store' });
+  if (!res.ok) {
+    throw new Error('Unauthorized: valid session required.');
+  }
+}
+
+// ─── Restaurant ───────────────────────────────────────────────────────────────
+
 export async function getRestaurantAction() {
   const headers = await getAuthHeaders();
-  const res = await fetch(`${API_BASE}/restaurant`, {
-    headers,
-    cache: 'no-store',
-  });
+  const res = await fetch(`${API_BASE}/restaurant`, { headers, cache: 'no-store' });
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    console.error('getRestaurantAction error:', { status: res.status, errorData, headers });
     throw new Error(errorData.detail || 'Failed to fetch restaurant details');
   }
 
   return res.json();
 }
 
-export async function updateRestaurantAction(data: any) {
+export async function updateRestaurantAction(data: UpdateRestaurantPayload) {
+  await requireSession();
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/restaurant`, {
     method: 'PUT',
@@ -45,29 +62,35 @@ export async function updateRestaurantAction(data: any) {
   return res.json();
 }
 
-export async function getUsersAction(params?: { search?: string; page?: number; limit?: number }) {
+// ─── Users / Team ─────────────────────────────────────────────────────────────
+
+export async function getUsersAction(params?: {
+  search?: string;
+  page?: number;
+  limit?: number;
+}) {
   const headers = await getAuthHeaders();
   const query = new URLSearchParams();
   if (params?.search) query.append('search', params.search);
   if (params?.page) query.append('page', String(params.page));
   if (params?.limit) query.append('limit', String(params.limit));
 
-  const url = `${API_BASE}/users${query.toString() ? `?${query.toString()}` : ''}`;
-  const res = await fetch(url, {
+  const qs = query.toString();
+  const res = await fetch(`${API_BASE}/users${qs ? `?${qs}` : ''}`, {
     headers,
     cache: 'no-store',
   });
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    console.error('getUsersAction error:', { status: res.status, errorData, headers });
     throw new Error(errorData.detail || 'Failed to fetch team members');
   }
 
   return res.json();
 }
 
-export async function createUserAction(data: any) {
+export async function createUserAction(data: CreateUserPayload) {
+  await requireSession();
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/users`, {
     method: 'POST',
@@ -84,6 +107,7 @@ export async function createUserAction(data: any) {
 }
 
 export async function resendInviteAction(id: number) {
+  await requireSession();
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/users/${id}/resend-invite`, {
     method: 'POST',
@@ -99,6 +123,7 @@ export async function resendInviteAction(id: number) {
 }
 
 export async function updateUserStatusAction(id: number, status: 'ACTIVE' | 'INACTIVE') {
+  await requireSession();
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/users/${id}/status`, {
     method: 'PATCH',
@@ -109,6 +134,40 @@ export async function updateUserStatusAction(id: number, status: 'ACTIVE' | 'INA
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.detail || 'Failed to update user status');
+  }
+
+  return res.json();
+}
+
+// ─── Role Permissions ─────────────────────────────────────────────────────────
+
+export async function getRolePermissionsAction() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/roles/permissions`, {
+    headers,
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to fetch role permissions');
+  }
+
+  return res.json();
+}
+
+export async function updateRolePermissionsAction(payload: RolePermissionPayload[]) {
+  await requireSession();
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/roles/permissions`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to update role permissions');
   }
 
   return res.json();

@@ -24,6 +24,7 @@ from app.api.v1.labor.route import router as labor_router
 from app.api.v1.incidents.route import router as incidents_router
 from app.api.v1.ai.route import router as ai_router
 from app.api.v1.restaurant.route import router as restaurant_router
+from app.api.v1.roles.route import router as roles_router
 
 # Setup logger
 logging.basicConfig(level=logging.INFO)
@@ -96,6 +97,7 @@ app.include_router(labor_router, prefix="/api/v1/labor", tags=["Labor Cost Audit
 app.include_router(incidents_router, prefix="/api/v1/incidents", tags=["Operational Incidents"])
 app.include_router(ai_router, prefix="/api/v1/ai", tags=["Decision AI & Chatbot"])
 app.include_router(restaurant_router, prefix="/api/v1/restaurant", tags=["Restaurant Management"])
+app.include_router(roles_router, prefix="/api/v1/roles", tags=["Roles & Permissions"])
 
 if __name__ == "__main__":
     import uvicorn

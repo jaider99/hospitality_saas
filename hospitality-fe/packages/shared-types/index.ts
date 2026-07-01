@@ -2,7 +2,7 @@ export type UserRole = 'owner' | 'gm' | 'chef' | 'accountant';
 export type UserStatus = 'pending' | 'active';
 
 export interface User {
-  id: string;
+  id: number;
   supertokens_id?: string;
   first_name?: string;
   last_name?: string;
@@ -13,6 +13,16 @@ export interface User {
   restaurant_id?: number;
   status: string;
   createdAt?: string;
+  invitation_sent_at?: string;
+  invitation_expires_at?: string;
+  last_login_at?: string;
+  permissions?: Record<string, {
+    view: 'None' | 'Own' | 'All';
+    create: boolean;
+    edit: boolean;
+    delete: boolean;
+    export: boolean;
+  }>;
 }
 
 export interface Supplier {
@@ -148,3 +158,55 @@ export interface AuthResponse {
   accessToken: string;
   refreshToken: string;
 }
+
+// ─── Settings / Staff Management Payloads ──────────────────────────────────
+
+export type SystemRole = 'Administrator' | 'Document Management' | 'Chef & Kitchen' | 'Management View';
+
+export interface UpdateRestaurantPayload {
+  name?: string;
+  cuisine_type?: string;
+  address?: string;
+  city?: string;
+  country?: string;
+  currency?: string;
+  timezone?: string;
+  vat_number?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  description?: string;
+  tax_id?: string;
+  operational_status?: string;
+}
+
+export interface CreateUserPayload {
+  first_name: string;
+  last_name: string;
+  email: string;
+  role: SystemRole;
+  phone?: string;
+  restaurant_id?: number;
+}
+
+export type ViewLevel = 'None' | 'Own' | 'All';
+
+export interface ModulePermission {
+  view: ViewLevel;
+  create: boolean;
+  edit: boolean;
+  delete: boolean;
+  export: boolean;
+}
+
+export interface RolePermissionPayload {
+  role_name: SystemRole;
+  module: string;
+  view: ViewLevel;
+  create: boolean;
+  edit: boolean;
+  delete: boolean;
+  export: boolean;
+}
+
+export type RolePermissionsMap = Record<SystemRole, Record<string, ModulePermission>>;

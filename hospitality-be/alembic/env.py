@@ -18,7 +18,7 @@ from app.core.setting import settings
 from sqlmodel import SQLModel
 
 # Import all models here so they are registered with SQLModel.metadata
-from app.module.auth.model import User
+from app.module.auth.model import User, RolePermission
 from app.module.invoices.model import Supplier, SuppliedProduct, ProductCostHistory, Invoice, InvoiceLine, InvoiceTaxBracket
 from app.module.recipes.model import Recipe, RecipeIngredient
 from app.module.incidents.model import OperationalIncident

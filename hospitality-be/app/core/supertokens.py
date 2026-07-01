@@ -306,6 +306,13 @@ async def create_roles_if_not_exist():
         await create_new_role_or_add_permissions("ADMIN", ["read", "write", "manage"])
         # Create SUPER_ADMIN role
         await create_new_role_or_add_permissions("SUPER_ADMIN", ["read", "write", "manage", "configure_restaurant"])
+        
+        # Predefined System Roles
+        await create_new_role_or_add_permissions("Administrator", ["read", "write", "manage"])
+        await create_new_role_or_add_permissions("Document Management", ["read", "write"])
+        await create_new_role_or_add_permissions("Chef & Kitchen", ["read"])
+        await create_new_role_or_add_permissions("Management View", ["read"])
+        
         logger.info("Successfully configured default roles and permissions in SuperTokens.")
     except Exception as e:
         logger.error(f"Error configuring default roles in SuperTokens: {e}")

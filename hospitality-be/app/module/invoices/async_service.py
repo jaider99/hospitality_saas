@@ -151,11 +151,6 @@ async def async_save_ocr_invoice(
     await db.execute(delete(InvoiceTaxBracket).where(InvoiceTaxBracket.invoice_id == current_invoice_id))
     await db.commit()
 
-    # Clear any existing lines and brackets to support reprocessing
-    from sqlalchemy import delete
-    await db.execute(delete(InvoiceLine).where(InvoiceLine.invoice_id == invoice.id))
-    await db.execute(delete(InvoiceTaxBracket).where(InvoiceTaxBracket.invoice_id == invoice.id))
-    await db.commit()
 
     processed_lines = []
 

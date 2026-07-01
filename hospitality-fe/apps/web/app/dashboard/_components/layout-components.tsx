@@ -8,6 +8,7 @@ import {
   Bot, Mic, Send, Volume2, Pause
 } from 'lucide-react';
 import { useLayoutStore } from '../../../store/layout';
+import { useAuthStore } from '../../../store/auth';
 import { navItems, chatInit } from '../mockData';
 import { ChatMsg, VoiceState } from '../types';
 
@@ -234,12 +235,33 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
 export function Sidebar({ logoutAction, userName }: { logoutAction: () => void; userName: string }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { user } = useAuthStore();
   const {
     sidebarCollapsed, setSidebarCollapsed,
     sidebarOpen, setSidebarOpen
   } = useLayoutStore();
 
   const activeScreen = pathname === '/dashboard' ? 'dashboard' : pathname.replace('/dashboard/', '');
+
+  const itemModuleMap: Record<string, string> = {
+    'dashboard': 'dashboard',
+    'documents': 'documents',
+    'invoice-matching': 'reconciliation',
+    'review': 'incidents',
+    'products': 'products',
+    'recipes': 'recipes',
+    'labor': 'staff_costs',
+    'settings': 'restaurant_settings'
+  };
+
+  const filteredNavItems = navItems.filter((item) => {
+    if (!user) return false;
+    if (user.role?.toUpperCase() === 'SUPER_ADMIN') return true;
+    const moduleName = itemModuleMap[item.id];
+    if (!moduleName) return true;
+    const modPerm = (user.permissions?.[moduleName] || {}) as any;
+    return modPerm.view && modPerm.view !== 'None';
+  });
 
   return (
     <>
@@ -259,7 +281,7 @@ export function Sidebar({ logoutAction, userName }: { logoutAction: () => void; 
         </button>
 
         <nav className="flex-1 py-3 space-y-0.5 px-2 overflow-y-auto scrollbar-thin">
-          {navItems.map((item) => (
+          {filteredNavItems.map((item) => (
             <button key={item.id} onClick={() => {
               router.push(item.id === 'dashboard' ? '/dashboard' : `/dashboard/${item.id}`);
               setSidebarOpen(false);
@@ -320,6 +342,7 @@ export function TopBar() {
 export function MobileNav() {
   const pathname = usePathname();
   const router = useRouter();
+  const { user } = useAuthStore();
   const { fabOpen, setFabOpen } = useLayoutStore();
 
   const activeScreen = pathname === '/dashboard' ? 'dashboard' : pathname.replace('/dashboard/', '');
@@ -331,10 +354,32 @@ export function MobileNav() {
     { id: 'review', label: 'Alert', icon: AlertCircle },
   ];
 
+  const itemModuleMap: Record<string, string> = {
+    'dashboard': 'dashboard',
+    'recipes': 'recipes',
+    'documents': 'documents',
+    'review': 'incidents'
+  };
+
+  const filteredItems = items.filter((item) => {
+    if (!user) return false;
+    if (user.role?.toUpperCase() === 'SUPER_ADMIN') return true;
+    const moduleName = itemModuleMap[item.id];
+    if (!moduleName) return true;
+    const modPerm = (user.permissions?.[moduleName] || {}) as any;
+    return modPerm.view && modPerm.view !== 'None';
+  });
+
+  const half = Math.ceil(filteredItems.length / 2);
+  const leftItems = filteredItems.slice(0, half);
+  const rightItems = filteredItems.slice(half);
+
+  const canUpload = user?.role?.toUpperCase() === 'SUPER_ADMIN' || user?.permissions?.documents?.create === true;
+
   return (
     <div className="fixed bottom-5 left-4 right-4 md:hidden z-30 font-sans">
       <div className="bg-card rounded-full shadow-xl border border-border flex items-center justify-between px-4 py-2 relative">
-        {items.slice(0, 2).map((item) => (
+        {leftItems.map((item) => (
           <button key={item.id} onClick={() => router.push(item.id === 'dashboard' ? '/dashboard' : `/dashboard/${item.id}`)}
             className={`flex flex-col items-center gap-0.5 p-1.5 transition-colors ${activeScreen === item.id ? 'text-[#151515] dark:text-[#efede7]' : 'text-muted-foreground'}`}>
             <item.icon size={20} />
@@ -342,17 +387,21 @@ export function MobileNav() {
           </button>
         ))}
 
-        {/* Center FAB */}
-        <div className="relative -mt-8">
-          <button onClick={() => setFabOpen(!fabOpen)}
-            className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg ring-4 ring-[#fafaf8] dark:ring-[#14130f] transition-all duration-200 ${
-              fabOpen ? 'bg-[#b23a3a] rotate-45' : 'bg-primary hover:opacity-90'
-            }`}>
-            <Plus size={24} className="text-primary-foreground transition-transform duration-200" />
-          </button>
-        </div>
+        {/* Center FAB - only show if can upload */}
+        {canUpload ? (
+          <div className="relative -mt-8">
+            <button onClick={() => setFabOpen(!fabOpen)}
+              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg ring-4 ring-[#fafaf8] dark:ring-[#14130f] transition-all duration-200 ${
+                fabOpen ? 'bg-[#b23a3a] rotate-45' : 'bg-primary hover:opacity-90'
+              }`}>
+              <Plus size={24} className="text-primary-foreground transition-transform duration-200" />
+            </button>
+          </div>
+        ) : (
+          <div className="w-1" /> // spacer
+        )}
 
-        {items.slice(2).map((item) => (
+        {rightItems.map((item) => (
           <button key={item.id} onClick={() => router.push(`/dashboard/${item.id}`)}
             className={`flex flex-col items-center gap-0.5 p-1.5 transition-colors relative ${activeScreen === item.id ? 'text-[#151515] dark:text-[#efede7]' : 'text-muted-foreground'}`}>
             <item.icon size={20} />

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from sqlmodel import Session, SQLModel, select
 
 from app.db.session import engine
-from app.module.auth.model import User
+from app.module.auth.model import User, RolePermission
 from app.module.auth.service import get_password_hash
 from app.module.invoices.model import Supplier, SuppliedProduct, ProductCostHistory, Invoice, InvoiceLine
 from app.module.recipes.model import Recipe, RecipeIngredient
@@ -69,6 +69,7 @@ async def async_main():
         session.query(SuppliedProduct).delete()
         session.query(Supplier).delete()
         session.query(User).delete()
+        session.query(RolePermission).delete()
         session.query(Restaurant).delete()
         session.commit()
 
@@ -89,6 +90,11 @@ async def async_main():
         session.commit()
         session.refresh(bistro)
         logger.info("Created default Restaurant")
+
+        # Seed default permissions for restaurant
+        from app.module.auth.service import seed_default_permissions_for_restaurant
+        seed_default_permissions_for_restaurant(session, bistro.id)
+        logger.info("Seeded default role permissions")
 
         # 1. Create Users
         from supertokens_python.recipe.emailpassword.asyncio import sign_up as st_sign_up

@@ -30,12 +30,14 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
     """
     logger.info(f"Task process_invoice_task started for Invoice ID: {invoice_id}, Object Key: {object_key}")
 
-    # Retrieve created_at to compute duration
+    # Retrieve created_at to compute duration and ensure invoice exists
     created_at = None
     async with async_session_maker() as db:
         invoice = await db.get(Invoice, invoice_id)
-        if invoice:
-            created_at = invoice.created_at
+        if not invoice:
+            logger.warning(f"Aborting task: Invoice ID {invoice_id} not found in database. It may have been deleted or the database reset.")
+            return
+        created_at = invoice.created_at
 
     import tempfile
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
@@ -53,7 +55,7 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
 
         # Run in threadpool — PaddleOCR is CPU-bound and blocks the event loop
         base_name = os.path.splitext(object_key)[0]
-        ocr_invoice = await asyncio.to_thread(process_invoice, local_path, True, base_name)
+        ocr_invoice = await asyncio.to_thread(process_invoice, local_path, False, base_name)
 
         logger.info(
             f"OCR pipeline complete for invoice {invoice_id}: "

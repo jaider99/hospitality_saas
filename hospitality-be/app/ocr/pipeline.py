@@ -457,7 +457,7 @@ def _is_below_review_floor(inv: Invoice, page_result) -> bool:
     return False
 
 
-def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = "") -> Invoice:
+def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = "", invoice_id: int | None = None) -> Invoice:
     logger.info(f"Processing: {file_path}")
 
     import time
@@ -483,6 +483,7 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     else:
         raw_md = f"# Invoice (Scanned OCR)\n\n{page_result.raw_text}"
 
+    llm_start_1 = time.time()
     structured_md = format_ocr_markdown_with_llm(raw_md)
     llm_total_time += time.time() - llm_start_1
 
