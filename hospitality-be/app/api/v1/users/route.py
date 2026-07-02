@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from app.db.session import get_db
 from app.module.auth.model import User, AuditLog
+from app.module.restaurant.model import Restaurant
 from app.module.auth.schema import UserCreate, UserResponse, UserStatusUpdate, PaginatedUsersResponse
 from app.core.authz import check_permission
 from app.core.setting import settings
@@ -24,6 +25,7 @@ logger = logging.getLogger("users_router")
 @router.get("", response_model=PaginatedUsersResponse)
 def list_users(
     search: Optional[str] = None,
+    restaurant_id: Optional[int] = None,
     page: int = 1,
     limit: int = 10,
     db: Session = Depends(get_db),
@@ -31,7 +33,17 @@ def list_users(
 ):
     """Lists users with search filtering and server-side pagination."""
     stmt = select(User)
-    if current_user.restaurant_id:
+    if restaurant_id and current_user.role == "SUPER_ADMIN":
+        # Verify ownership
+        restaurant = db.get(Restaurant, restaurant_id)
+        if restaurant and restaurant.owner_id == current_user.id:
+            stmt = stmt.where(User.restaurant_id == restaurant_id)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You do not own the requested restaurant."
+            )
+    elif current_user.restaurant_id:
         stmt = stmt.where(User.restaurant_id == current_user.restaurant_id)
     
     # Apply search filter
@@ -97,13 +109,32 @@ async def invite_user(
             detail="Forbidden: Restaurant Administrators cannot invite other Administrators or Owners."
         )
 
+    # Resolve target restaurant_id
+    target_restaurant_id = current_user.restaurant_id
+    if current_user.role == "SUPER_ADMIN" and dto.restaurant_id:
+        restaurant = db.get(Restaurant, dto.restaurant_id)
+        if restaurant and restaurant.owner_id == current_user.id:
+            target_restaurant_id = dto.restaurant_id
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: You do not own the target restaurant."
+            )
+
     # 1. Check if user already exists in local DB
     stmt_exists = select(User).where(User.email == dto.email)
-    if db.exec(stmt_exists).first():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A user with this email already exists."
-        )
+    existing_user = db.exec(stmt_exists).first()
+    if existing_user:
+        if existing_user.role == "SUPER_ADMIN":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A Super Admin account already exists with this email."
+            )
+        if existing_user.restaurant_id == target_restaurant_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A user with this email is already a staff member of this restaurant."
+            )
 
     # 2. Register user in SuperTokens with a secure random temp password
     #    (they will replace it via the invite link)
@@ -122,7 +153,6 @@ async def invite_user(
             users = await list_users_by_account_info("public", AccountInfoInput(email=dto.email))
             if users:
                 st_user_id = users[0].id
-                logger.info(f"User with email {dto.email} already exists in SuperTokens. Recovered ST ID: {st_user_id}")
             else:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -157,7 +187,6 @@ async def invite_user(
             logger.error(f"Failed to generate invite token: Unknown error response {type(token_result)}")
     except Exception as token_err:
         logger.error(f"Failed to generate invite token: {token_err}")
-        # Non-fatal: user is created, just no email sent
 
     # 5. Save user profile in PostgreSQL
     # Check if user already exists in local DB (e.g. created by SuperTokens sign_up hook)
@@ -175,7 +204,7 @@ async def invite_user(
         existing_profile.name = f"{dto.first_name} {dto.last_name}".strip()
         existing_profile.phone = dto.phone
         existing_profile.role = role_name
-        existing_profile.restaurant_id = current_user.restaurant_id
+        existing_profile.restaurant_id = target_restaurant_id
         existing_profile.status = "INVITED"
         existing_profile.invitation_sent_at = sent_at
         existing_profile.invitation_expires_at = expires_at
@@ -192,7 +221,7 @@ async def invite_user(
             name=f"{dto.first_name} {dto.last_name}".strip(),
             phone=dto.phone,
             role=role_name,
-            restaurant_id=current_user.restaurant_id,
+            restaurant_id=target_restaurant_id,
             status="INVITED",          # distinct status until they set password
             invitation_sent_at=sent_at,
             invitation_expires_at=expires_at
@@ -200,6 +229,7 @@ async def invite_user(
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
+
 
     # 6. Log invite event in AuditLog
     invite_log = AuditLog(

@@ -62,16 +62,63 @@ export async function updateRestaurantAction(data: UpdateRestaurantPayload) {
   return res.json();
 }
 
+export async function getAllRestaurantsAction() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/restaurant/all`, { headers, cache: 'no-store' });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to fetch restaurants');
+  }
+  return res.json();
+}
+
+export async function createRestaurantAction(data: {
+  name: string;
+  address?: string;
+  phone?: string;
+  currency?: string;
+}) {
+  await requireSession();
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/restaurant`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to create restaurant');
+  }
+  return res.json();
+}
+
+export async function switchRestaurantAction(restaurantId: number) {
+  await requireSession();
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/restaurant/switch`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ restaurant_id: restaurantId }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to switch restaurant');
+  }
+  return res.json();
+}
+
 // ─── Users / Team ─────────────────────────────────────────────────────────────
 
 export async function getUsersAction(params?: {
   search?: string;
+  restaurant_id?: number;
   page?: number;
   limit?: number;
 }) {
   const headers = await getAuthHeaders();
   const query = new URLSearchParams();
   if (params?.search) query.append('search', params.search);
+  if (params?.restaurant_id) query.append('restaurant_id', String(params.restaurant_id));
   if (params?.page) query.append('page', String(params.page));
   if (params?.limit) query.append('limit', String(params.limit));
 

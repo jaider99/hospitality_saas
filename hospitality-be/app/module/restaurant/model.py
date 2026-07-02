@@ -13,5 +13,7 @@ class Restaurant(SQLModel, table=True):
     timezone: str = Field(default="UTC")
     operational_status: str = Field(default="OPEN") # OPEN, CLOSED, MAINTENANCE
     settings_json: Optional[str] = Field(default=None)
+    owner_id: Optional[int] = Field(default=None, foreign_key="user.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+

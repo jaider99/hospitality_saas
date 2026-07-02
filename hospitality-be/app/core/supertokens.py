@@ -69,6 +69,21 @@ def sync_user_to_db(
                     status="ACTIVE"
                 )
                 db_session.add(user)
+                db_session.commit()
+                db_session.refresh(user)
+                
+                # Assign owner_id and seed permissions for newly created restaurant
+                if role.upper() == "SUPER_ADMIN" and resolved_restaurant_id:
+                    restaurant = db_session.get(Restaurant, resolved_restaurant_id)
+                    if restaurant and not restaurant.owner_id:
+                        restaurant.owner_id = user.id
+                        db_session.add(restaurant)
+                        db_session.commit()
+                    try:
+                        from app.module.auth.service import seed_default_permissions_for_restaurant
+                        seed_default_permissions_for_restaurant(db_session, resolved_restaurant_id)
+                    except Exception as seed_err:
+                        logger.error(f"Error seeding default permissions: {seed_err}")
             else:
                 logger.info(f"Updating synchronized user: {email} with ST ID: {supertokens_id}")
                 user.supertokens_id = supertokens_id
@@ -84,11 +99,20 @@ def sync_user_to_db(
                 if resolved_restaurant_id:
                     user.restaurant_id = resolved_restaurant_id
                 db_session.add(user)
+                db_session.commit()
 
-            db_session.commit()
+                # Also ensure owner_id matches if this is the super admin updating
+                if role.upper() == "SUPER_ADMIN" and resolved_restaurant_id:
+                    restaurant = db_session.get(Restaurant, resolved_restaurant_id)
+                    if restaurant and not restaurant.owner_id:
+                        restaurant.owner_id = user.id
+                        db_session.add(restaurant)
+                        db_session.commit()
+
             logger.info(f"Successfully synchronized user {email} to PostgreSQL.")
     except Exception as e:
         logger.error(f"Error synchronizing user to PostgreSQL: {e}", exc_info=True)
+
 
 
 def override_emailpassword_functions(original_implementation: EPInterface) -> EPInterface:

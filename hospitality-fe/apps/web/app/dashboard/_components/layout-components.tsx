@@ -1,16 +1,222 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Zap, TrendingDown, LogOut, Menu, MessageSquare, Plus, Home,
   BarChart2, Upload, AlertCircle, Camera, Pencil, ArrowUpRight, X,
-  Bot, Mic, Send, Volume2, Pause
+  Bot, Mic, Send, Volume2, Pause, ChevronDown, Building2, Check,
+  Utensils,
 } from 'lucide-react';
 import { useLayoutStore } from '../../../store/layout';
 import { useAuthStore } from '../../../store/auth';
 import { navItems, chatInit } from '../mockData';
 import { ChatMsg, VoiceState } from '../types';
+import {
+  getAllRestaurantsAction,
+  createRestaurantAction,
+  switchRestaurantAction,
+  getRestaurantAction,
+} from '../settings/actions';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface Restaurant {
+  id: number;
+  name: string;
+  address?: string;
+  currency?: string;
+  operational_status?: string;
+}
+
+// ─── Add Restaurant Modal (portal — renders outside sidebar) ─────────────────
+
+function AddRestaurantModal({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (r: Restaurant) => void;
+}) {
+  const [name, setName] = useState('');
+  const [address, setAddress] = useState('');
+  const [phone, setPhone] = useState('');
+  const [currency, setCurrency] = useState('EUR');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  // Reset form on open
+  useEffect(() => {
+    if (open) { setName(''); setAddress(''); setPhone(''); setCurrency('EUR'); setError(null); }
+  }, [open]);
+
+  // Keyboard close
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open, onClose]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) { setError('Restaurant name is required.'); return; }
+    setError(null);
+    setSubmitting(true);
+    try {
+      const created = await createRestaurantAction({
+        name: name.trim(),
+        address: address.trim() || undefined,
+        phone: phone.trim() || undefined,
+        currency,
+      });
+      onCreated(created);
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'Failed to create restaurant.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!mounted || !open) return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Add Restaurant"
+    >
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      {/* Card */}
+      <div className="relative bg-card border border-border w-full max-w-md rounded-2xl shadow-2xl overflow-hidden z-10 font-sans">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-border px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-sm">
+              <Building2 size={18} className="text-primary-foreground" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-foreground leading-tight">New Restaurant</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Add a new venue to your platform</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-muted rounded-xl text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && (
+            <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800/40 rounded-xl px-4 py-3 text-xs text-red-700 dark:text-red-400 font-medium">
+              {error}
+            </div>
+          )}
+
+          {/* Name */}
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-bold text-foreground/70 uppercase tracking-widest">
+              Restaurant Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Bistro Élite Barcelona"
+              required
+              autoFocus
+              className="w-full bg-muted/60 border border-border hover:border-border/80 focus:border-primary/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/50"
+            />
+          </div>
+
+          {/* Address */}
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-bold text-foreground/70 uppercase tracking-widest">Address</label>
+            <input
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Street, City, Country"
+              className="w-full bg-muted/60 border border-border hover:border-border/80 focus:border-primary/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/50"
+            />
+          </div>
+
+          {/* Phone + Currency */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-foreground/70 uppercase tracking-widest">Phone</label>
+              <input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+1 234 567 890"
+                className="w-full bg-muted/60 border border-border hover:border-border/80 focus:border-primary/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/50"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-foreground/70 uppercase tracking-widest">Currency</label>
+              <select
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className="w-full bg-muted/60 border border-border hover:border-border/80 focus:border-primary/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer"
+              >
+                <option value="EUR">EUR €</option>
+                <option value="USD">USD $</option>
+                <option value="GBP">GBP £</option>
+                <option value="INR">INR ₹</option>
+                <option value="AED">AED د.إ</option>
+                <option value="CAD">CAD $</option>
+                <option value="AUD">AUD $</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-3 text-sm font-semibold border border-border rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex-1 py-3 text-sm font-semibold bg-primary text-primary-foreground rounded-xl hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {submitting ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                  Creating…
+                </>
+              ) : (
+                <>
+                  <Plus size={14} />
+                  Create Restaurant
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 // ─── Upload FAB Sheet ────────────────────────────────────────────────────────
 
@@ -48,7 +254,7 @@ export function UploadSheet({ open, onClose }: { open: boolean; onClose: () => v
   );
 }
 
-// ─── Siri Voice Chat Panel ───────────────────────────────────────────────────
+// ─── AI Chat Panel ───────────────────────────────────────────────────────────
 
 export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [input, setInput] = useState('');
@@ -158,7 +364,6 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
             </div>
           ))}
 
-          {/* Streaming draft text */}
           {voice === 'streaming' && streamText && (
             <div className="flex justify-end">
               <div className="max-w-[85%] bg-muted/70 border border-dashed border-border rounded-2xl rounded-br-sm px-3.5 py-2.5 text-sm text-foreground/50 leading-relaxed">
@@ -177,7 +382,7 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
           )}
         </div>
 
-        {/* Listening state — waveform */}
+        {/* Listening waveform */}
         {voice === 'listening' && (
           <div className="px-4 pt-4 pb-2 border-t border-border flex flex-col items-center gap-4 flex-shrink-0">
             <div className="flex items-center justify-center gap-1 h-10">
@@ -194,7 +399,7 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
         )}
 
-        {/* Quick suggestions + input */}
+        {/* Suggestions + input */}
         {voice !== 'listening' && (
           <>
             <div className="px-4 pb-2 flex-shrink-0">
@@ -230,28 +435,185 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
   );
 }
 
-// ─── Sidebar component ───────────────────────────────────────────────────────
+// ─── Restaurant Switcher (sidebar widget) ────────────────────────────────────
+
+function RestaurantSwitcher({
+  collapsed,
+}: {
+  collapsed: boolean;
+}) {
+  const { user, login, accessToken, apiClient } = useAuthStore();
+  // Only SUPER_ADMIN can switch restaurants
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+
+  const [open, setOpen] = useState(false);
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [loadingList, setLoadingList] = useState(false);
+  const [switching, setSwitching] = useState<number | null>(null);
+  const [activeRestaurantName, setActiveRestaurantName] = useState<string>('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Load the current restaurant name once on mount, and also prefetch the restaurants list if SUPER_ADMIN
+  useEffect(() => {
+    if (!user?.restaurant_id) return;
+    getRestaurantAction()
+      .then((r) => setActiveRestaurantName(r.name))
+      .catch(() => setActiveRestaurantName('My Restaurant'));
+
+    if (isSuperAdmin) {
+      setLoadingList(true);
+      getAllRestaurantsAction()
+        .then((data) => setRestaurants(data))
+        .catch(() => setRestaurants([]))
+        .finally(() => setLoadingList(false));
+    }
+  }, [user?.restaurant_id, isSuperAdmin]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Only allow opening if the user is SUPER_ADMIN and owns multiple restaurants
+  const canSwitch = isSuperAdmin && restaurants.length > 1;
+
+  const handleOpen = () => {
+    if (!canSwitch) return;
+    setOpen(!open);
+  };
+
+  const handleSwitch = async (r: Restaurant) => {
+    if (r.id === user?.restaurant_id) { setOpen(false); return; }
+    setSwitching(r.id);
+    try {
+      await switchRestaurantAction(r.id);
+      const profile = await apiClient.getMe();
+      login({ accessToken: accessToken || 'supertokens-active', refreshToken: 'supertokens-active', user: profile });
+      setActiveRestaurantName(r.name);
+      setOpen(false);
+      window.location.reload();
+    } catch (err: any) {
+      console.error('Failed to switch restaurant', err);
+    } finally {
+      setSwitching(null);
+    }
+  };
+
+  const displayName = activeRestaurantName || 'Loading…';
+
+  // ── Collapsed: icon only ──────────────────────────────────────────────────
+  if (collapsed) {
+    return (
+      <div className="px-2 py-2.5 flex justify-center">
+        <div
+          title={displayName}
+          onClick={canSwitch ? handleOpen : undefined}
+          className={`w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center transition-colors ${
+            canSwitch ? 'cursor-pointer hover:bg-white/20' : 'cursor-default'
+          }`}
+        >
+          <Utensils size={16} className="text-white/80" />
+        </div>
+      </div>
+    );
+  }
+
+  // ── Expanded ──────────────────────────────────────────────────────────────
+  return (
+    <div className="relative px-3 py-2.5" ref={dropdownRef}>
+      {/* Trigger */}
+      <button
+        onClick={canSwitch ? handleOpen : undefined}
+        disabled={!canSwitch}
+        className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all duration-150 bg-white/8 border border-white/10 ${
+          canSwitch
+            ? 'cursor-pointer hover:bg-white/12 hover:border-white/20 active:scale-[0.98]'
+            : 'cursor-default'
+        }`}
+      >
+        <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center flex-shrink-0">
+          <Utensils size={14} className="text-white" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] text-white/40 font-semibold leading-none mb-0.5 uppercase tracking-widest">Active Restaurant</p>
+          <p className="text-sm font-semibold text-white truncate leading-tight">{displayName}</p>
+        </div>
+        {canSwitch && (
+          <ChevronDown
+            size={14}
+            className={`text-white/40 flex-shrink-0 transition-transform duration-200 ${open ? 'rotate-180 text-white/70' : ''}`}
+          />
+        )}
+      </button>
+
+      {/* Dropdown */}
+      {canSwitch && open && (
+        <div className="absolute left-3 right-3 top-full mt-1.5 z-[100] bg-[#1c1c1e] border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+          <div className="px-3 py-2.5 border-b border-white/8">
+            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Your Restaurants</p>
+          </div>
+
+          <div className="max-h-52 overflow-y-auto py-1">
+            {restaurants.map((r) => {
+              const isActive = r.id === user?.restaurant_id;
+              const isSwitching = switching === r.id;
+              return (
+                <button
+                  key={r.id}
+                  onClick={() => handleSwitch(r)}
+                  disabled={isSwitching}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
+                    isActive ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/6 hover:text-white'
+                  }`}
+                >
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${isActive ? 'bg-white/20' : 'bg-white/8'}`}>
+                    <Building2 size={12} className={isActive ? 'text-white' : 'text-white/40'} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{r.name}</p>
+                    {r.address && <p className="text-[10px] text-white/30 truncate mt-0.5">{r.address}</p>}
+                  </div>
+                  {isSwitching ? (
+                    <div className="w-3.5 h-3.5 border border-white/30 border-t-white rounded-full animate-spin flex-shrink-0" />
+                  ) : isActive ? (
+                    <Check size={13} className="text-white/60 flex-shrink-0" />
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Sidebar ─────────────────────────────────────────────────────────────────
 
 export function Sidebar({ logoutAction, userName }: { logoutAction: () => void; userName: string }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useAuthStore();
-  const {
-    sidebarCollapsed, setSidebarCollapsed,
-    sidebarOpen, setSidebarOpen
-  } = useLayoutStore();
+  const { sidebarCollapsed, setSidebarCollapsed, sidebarOpen, setSidebarOpen } = useLayoutStore();
 
   const activeScreen = pathname === '/dashboard' ? 'dashboard' : pathname.replace('/dashboard/', '');
 
   const itemModuleMap: Record<string, string> = {
-    'dashboard': 'dashboard',
-    'documents': 'documents',
+    dashboard: 'dashboard',
+    documents: 'documents',
     'invoice-matching': 'reconciliation',
-    'review': 'incidents',
-    'products': 'products',
-    'recipes': 'recipes',
-    'labor': 'staff_costs',
-    'settings': 'restaurant_settings'
+    review: 'incidents',
+    products: 'products',
+    recipes: 'recipes',
+    labor: 'staff_costs',
+    settings: 'restaurant_settings',
   };
 
   const filteredNavItems = navItems.filter((item) => {
@@ -265,52 +627,98 @@ export function Sidebar({ logoutAction, userName }: { logoutAction: () => void; 
 
   return (
     <>
-      {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setSidebarOpen(false)} />}
-      <aside className={`fixed md:relative top-0 left-0 h-full z-50 flex flex-col bg-primary text-primary-foreground transition-all duration-300 flex-shrink-0 ${
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-      } ${sidebarCollapsed ? 'md:w-[72px]' : 'w-[240px]'}`}>
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
 
-        <div className={`flex items-center gap-3 border-b border-white/10 flex-shrink-0 ${sidebarCollapsed ? 'px-4 py-5 justify-center' : 'px-5 py-5'}`}>
-          <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center flex-shrink-0"><Zap size={15} className="text-white" /></div>
-          {!sidebarCollapsed && <span className="text-white font-semibold text-base leading-none">Hospitality Elite</span>}
+      <aside
+        className={`fixed md:relative top-0 left-0 h-full z-50 flex flex-col bg-primary text-primary-foreground transition-all duration-300 flex-shrink-0 ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        } ${sidebarCollapsed ? 'md:w-[72px]' : 'w-[240px]'}`}
+      >
+        {/* ── Brand ── */}
+        <div className={`flex items-center gap-3 border-b border-white/10 flex-shrink-0 ${sidebarCollapsed ? 'px-4 py-4 justify-center' : 'px-5 py-4'}`}>
+          <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center flex-shrink-0">
+            <Zap size={15} className="text-white" />
+          </div>
+          {!sidebarCollapsed && (
+            <span className="text-white font-semibold text-base leading-none">Hospitality Elite</span>
+          )}
         </div>
 
-        <button className="hidden md:flex absolute -right-3 top-[72px] w-6 h-6 bg-primary border border-white/20 rounded-full items-center justify-center hover:opacity-95 transition-all"
-          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>
+        {/* ── Collapse toggle ── */}
+        <button
+          className="hidden md:flex absolute -right-3 top-[60px] w-6 h-6 bg-primary border border-white/20 rounded-full items-center justify-center hover:opacity-95 transition-all"
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        >
           <TrendingDown size={11} className={`text-white/65 transition-transform ${sidebarCollapsed ? '' : 'rotate-180'}`} />
         </button>
 
+        {/* ── Restaurant Switcher ── */}
+        <div className="border-b border-white/10 flex-shrink-0">
+          <RestaurantSwitcher
+            collapsed={sidebarCollapsed}
+          />
+        </div>
+
+        {/* ── Nav ── */}
         <nav className="flex-1 py-3 space-y-0.5 px-2 overflow-y-auto scrollbar-thin">
           {filteredNavItems.map((item) => (
-            <button key={item.id} onClick={() => {
-              router.push(item.id === 'dashboard' ? '/dashboard' : `/dashboard/${item.id}`);
-              setSidebarOpen(false);
-            }} title={sidebarCollapsed ? item.label : undefined}
+            <button
+              key={item.id}
+              onClick={() => {
+                router.push(item.id === 'dashboard' ? '/dashboard' : `/dashboard/${item.id}`);
+                setSidebarOpen(false);
+              }}
+              title={sidebarCollapsed ? item.label : undefined}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left ${
                 activeScreen === item.id ? 'bg-white/15 text-white' : 'text-white/55 hover:text-white hover:bg-white/8'
-              } ${sidebarCollapsed && 'justify-center'}`}>
+              } ${sidebarCollapsed ? 'justify-center' : ''}`}
+            >
               <item.icon size={17} className="flex-shrink-0" />
               {!sidebarCollapsed && (
                 <>
                   <span className="text-sm font-medium flex-1">{item.label}</span>
-                  {item.badge != null && <span className="text-[10px] bg-accent text-white px-1.5 py-0.5 rounded-full font-bold">{item.badge > 9 ? '9+' : item.badge}</span>}
+                  {item.badge != null && (
+                    <span className="text-[10px] bg-accent text-white px-1.5 py-0.5 rounded-full font-bold">
+                      {item.badge > 9 ? '9+' : item.badge}
+                    </span>
+                  )}
                 </>
               )}
             </button>
           ))}
         </nav>
 
-        <div className="border-t border-white/10 px-3 py-4 space-y-1 flex-shrink-0">
-          {!sidebarCollapsed && (
-            <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/8 transition-colors cursor-pointer" onClick={logoutAction}>
-              <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+        {/* ── User footer ── */}
+        <div className="border-t border-white/10 px-3 py-3 flex-shrink-0">
+          {sidebarCollapsed ? (
+            <button
+              title="Logout"
+              onClick={logoutAction}
+              className="w-full flex items-center justify-center p-2.5 rounded-lg hover:bg-white/10 transition-colors"
+            >
+              <LogOut size={16} className="text-white/50" />
+            </button>
+          ) : (
+            <div className="flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-white/8 transition-colors group">
+              <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
                 {userName.split(' ').map((n) => n[0]).join('').slice(0, 2)}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-white text-sm font-medium truncate leading-tight">{userName}</div>
-                <div className="text-white/40 text-xs truncate mt-0.5">Logout</div>
+                <div className="text-white text-xs font-semibold truncate leading-tight">{userName}</div>
+                <div className="text-white/35 text-[10px] truncate mt-0.5 capitalize">
+                  {user?.role?.replace(/_/g, ' ').toLowerCase() || 'Staff'}
+                </div>
               </div>
-              <LogOut size={15} className="text-white/30 flex-shrink-0" />
+              <button
+                onClick={logoutAction}
+                title="Logout"
+                className="p-1.5 rounded-lg hover:bg-white/15 transition-colors opacity-0 group-hover:opacity-100"
+              >
+                <LogOut size={14} className="text-white/50" />
+              </button>
             </div>
           )}
         </div>
@@ -319,25 +727,29 @@ export function Sidebar({ logoutAction, userName }: { logoutAction: () => void; 
   );
 }
 
-// ─── TopBar component ────────────────────────────────────────────────────────
+// ─── TopBar ──────────────────────────────────────────────────────────────────
 
 export function TopBar() {
   const { setSidebarOpen, chatOpen, setChatOpen } = useLayoutStore();
   return (
     <div className="md:hidden flex items-center justify-between px-4 py-3 bg-card border-b border-border flex-shrink-0 font-sans">
-      <button onClick={() => setSidebarOpen(true)} className="p-1.5 hover:bg-muted rounded-lg transition-colors"><Menu size={20} className="text-foreground" /></button>
+      <button onClick={() => setSidebarOpen(true)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
+        <Menu size={20} className="text-foreground" />
+      </button>
       <div className="flex items-center gap-2">
         <div className="w-6 h-6 bg-accent rounded-md flex items-center justify-center"><Zap size={11} className="text-white" /></div>
         <span className="text-sm font-semibold text-foreground">Hospitality Elite</span>
       </div>
       <div className="flex items-center gap-1">
-        <button onClick={() => setChatOpen(!chatOpen)} className="p-1.5 hover:bg-muted rounded-lg transition-colors"><MessageSquare size={19} className="text-foreground" /></button>
+        <button onClick={() => setChatOpen(!chatOpen)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
+          <MessageSquare size={19} className="text-foreground" />
+        </button>
       </div>
     </div>
   );
 }
 
-// ─── MobileNav component ─────────────────────────────────────────────────────
+// ─── MobileNav ───────────────────────────────────────────────────────────────
 
 export function MobileNav() {
   const pathname = usePathname();
@@ -355,10 +767,10 @@ export function MobileNav() {
   ];
 
   const itemModuleMap: Record<string, string> = {
-    'dashboard': 'dashboard',
-    'recipes': 'recipes',
-    'documents': 'documents',
-    'review': 'incidents'
+    dashboard: 'dashboard',
+    recipes: 'recipes',
+    documents: 'documents',
+    review: 'incidents',
   };
 
   const filteredItems = items.filter((item) => {
@@ -387,7 +799,6 @@ export function MobileNav() {
           </button>
         ))}
 
-        {/* Center FAB - only show if can upload */}
         {canUpload ? (
           <div className="relative -mt-8">
             <button onClick={() => setFabOpen(!fabOpen)}
@@ -398,7 +809,7 @@ export function MobileNav() {
             </button>
           </div>
         ) : (
-          <div className="w-1" /> // spacer
+          <div className="w-1" />
         )}
 
         {rightItems.map((item) => (

@@ -12,6 +12,7 @@ class RestaurantCreate(BaseModel):
     timezone: Optional[str] = "UTC"
     operational_status: Optional[str] = "OPEN"
     settings_json: Optional[str] = None
+    owner_id: Optional[int] = None
 
 class RestaurantUpdate(BaseModel):
     name: Optional[str] = None
@@ -23,6 +24,7 @@ class RestaurantUpdate(BaseModel):
     timezone: Optional[str] = None
     operational_status: Optional[str] = None
     settings_json: Optional[str] = None
+    owner_id: Optional[int] = None
 
 class RestaurantResponse(BaseModel):
     id: int
@@ -35,8 +37,10 @@ class RestaurantResponse(BaseModel):
     timezone: str
     operational_status: str
     settings_json: Optional[str] = None
+    owner_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+
 
     class Config:
         from_attributes = True

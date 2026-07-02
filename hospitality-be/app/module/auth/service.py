@@ -101,7 +101,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         for m in ALL_MODULES
     },
     "Document Management": {
-        "restaurant_settings": {"view": "None", "create": False, "edit": False, "delete": False, "export": False},
+        "restaurant_settings": {"view": "All", "create": False, "edit": False, "delete": False, "export": False},
         "dashboard": {"view": "All", "create": False, "edit": False, "delete": False, "export": False},
         "documents": {"view": "All", "create": True, "edit": True, "delete": True, "export": True},
         "suppliers": {"view": "All", "create": True, "edit": True, "delete": True, "export": True},
@@ -162,6 +162,12 @@ def seed_default_permissions_for_restaurant(db: Session, restaurant_id: int):
                     export=perms["export"]
                 )
                 db.add(rp)
+            else:
+                # Self-healing check: if the default system role settings have changed, update them.
+                # Specifically update 'Document Management' role's view on 'restaurant_settings' from 'None' to 'All'
+                if role_name == "Document Management" and module == "restaurant_settings" and existing.view == "None":
+                    existing.view = perms["view"]
+                    db.add(existing)
     db.commit()
 
 def get_user_permissions(db: Session, user: User) -> dict:

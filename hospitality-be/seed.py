@@ -46,8 +46,19 @@ async def async_main():
     from alembic import command
     alembic_cfg = Config("alembic.ini")
     command.upgrade(alembic_cfg, "head")
+    
+    # Ensure owner_id column is created
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        try:
+            conn.execute(text('ALTER TABLE restaurant ADD COLUMN owner_id INTEGER REFERENCES "user"(id);'))
+            logger.info("Added owner_id column to restaurant table.")
+        except Exception as e:
+            logger.info(f"Alter table note/warning: {e}")
+            
     SQLModel.metadata.create_all(engine)
     Base.metadata.create_all(engine)
+
 
     with Session(engine) as session:
         logger.info("Clearing existing data...")
@@ -153,6 +164,15 @@ async def async_main():
             owner.restaurant_id = bistro.id
             owner.status = "ACTIVE"
             session.add(owner)
+        
+        session.commit()
+        session.refresh(owner)
+        
+        # Link bistro's owner_id
+        bistro.owner_id = owner.id
+        session.add(bistro)
+        session.commit()
+
 
         # Create Admin (Venue Manager)
         email = "manager@venue.com"
