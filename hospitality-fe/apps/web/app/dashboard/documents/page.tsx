@@ -102,7 +102,7 @@ export default function DocumentsPage() {
         // Map backend invoices to table format using rich OCR fields
         const mapped = (data as any[]).map((inv: any) => ({
           id: inv.id || Math.random(),
-          supplier: inv.supplier?.name || inv.supplier_display_name || 'Unknown Supplier',
+          supplier: inv.supplier_display_name || inv.supplier?.name || 'Unknown Supplier',
           docNum: inv.document_number || inv.invoice_number || '—',
           date: inv.document_date
             ? new Date(inv.document_date).toLocaleDateString('en-US', {
@@ -145,13 +145,14 @@ export default function DocumentsPage() {
           needsReview: inv.needs_review,
           ocrConfidence: inv.ocr_confidence,
           currency: inv.currency || 'EUR',
-          reviewReasons: inv.review_reasons
+          reviewReasons: inv.review_reasons,
+          isDuplicate: inv.is_duplicate,
         }));
         setApiDocs(mapped);
 
         // Auto-remove any uploadedDocs that are now returned by the backend
-        const apiDocIds = new Set(mapped.map((d: any) => d.id));
-        setUploadedDocs((prev) => prev.filter((d) => !apiDocIds.has(d.id)));
+        const apiDocIds = new Set(mapped.map((d: any) => String(d.id)));
+        setUploadedDocs((prev) => prev.filter((d) => !apiDocIds.has(String(d.id))));
 
         // Update uploadingIds list (remove any that finished processing/failed)
         setUploadingIds((prev) => {
@@ -192,14 +193,17 @@ export default function DocumentsPage() {
       }
     };
 
-    eventSource.onerror = (err) => {
-      console.error('EventSource connection error:', err);
+    eventSource.onerror = () => {
+      // EventSource auto-reconnects on transient errors (CONNECTING state).
+      // Only log when the connection has been definitively closed.
+      if (eventSource.readyState === EventSource.CLOSED) {
+        console.warn('EventSource connection closed — real-time updates unavailable.');
+      }
     };
 
     return () => {
       eventSource.close();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const allDocuments = [...uploadedDocs, ...apiDocs];
@@ -455,10 +459,17 @@ export default function DocumentsPage() {
           </span>
         );
       case 'flagged':
+        if (doc.isDuplicate) {
+          return (
+            <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded bg-[#fbf1dd] text-[#b07a1a]">
+              Duplicate
+            </span>
+          );
+        }
         return (
-          <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded bg-[#fbf1dd] text-[#b07a1a]">
-            Review required
-          </span>
+            <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded bg-[#fbf1dd] text-[#b07a1a]">
+              Review required
+            </span>
         );
       case 'rejected': {
         let reasonStr = '';
@@ -922,26 +933,31 @@ export default function DocumentsPage() {
       </div>
 
       {/* Duplicate detection panel */}
-      {/* <div className="bg-[#fceaea] border border-[#ffb4ab] rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
-        <div className="flex items-start gap-2.5">
-          <AlertTriangle size={17} className="text-[#b23a3a] shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <span className="text-sm font-bold text-[#7a2828]">Duplicate detected on Invoice #5865</span>
-            <p className="text-xs text-[#7a2828] opacity-90">This document matches: Invoice #5865 from Vendo lo que tengo S.L.</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button 
-            onClick={() => router.push('/dashboard/invoice-matching')}
-            className="flex items-center gap-1 text-xs font-bold text-white bg-[#b23a3a] px-3.5 py-2 rounded-lg hover:opacity-90 transition-opacity"
-          >
-            <FileCheck size={13} /> Review OCR Matching →
-          </button>
-          <button className="text-xs text-[#7a2828] font-semibold hover:underline px-2.5 py-2">
-            View original
-          </button>
-        </div>
-      </div> */}
+      {(() => {
+        const doc = allDocuments.find((d) => d.isDuplicate);
+        if (doc) {
+          return (
+            <div key="duplicate-panel" className="bg-[#fceaea] border border-[#ffb4ab] rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs mb-4">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle size={17} className="text-[#b23a3a] shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="text-sm font-bold text-[#7a2828]">Duplicate detected on {doc.docNum}</span>
+                  <p className="text-xs text-[#7a2828] opacity-90">This document matches an existing invoice from the same supplier.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button 
+                  onClick={() => router.push(`/dashboard/documents/${doc.id}`)}
+                  className="flex items-center gap-1 text-xs font-bold text-white bg-[#b23a3a] px-3.5 py-2 rounded-lg hover:opacity-90 transition-opacity"
+                >
+                  <FileCheck size={13} /> Review Document →
+                </button>
+              </div>
+            </div>
+          );
+        }
+        return null;
+      })()}
 
       {/* Documents Grid Table */}
       <div className="bg-card border border-border rounded-xl shadow-xs overflow-visible">

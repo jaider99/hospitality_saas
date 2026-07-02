@@ -417,6 +417,7 @@ from app.ocr.ingest import ingest, build_invoice_markdown
 from app.ocr.regex_extract import extract_with_regex
 from app.ocr.table_extract import extract_line_items
 from app.ocr.llm_fallback import extract_with_llm, merge_llm_result_into_invoice
+from app.ocr.vl_fallback import should_trigger_vl_fallback, extract_with_vl_model
 from app.ocr.validate import validate, REQUIRED_FIELDS
 from app.ocr.triage import looks_handwritten, log_to_review_queue
 
@@ -428,9 +429,10 @@ OCR_CONFIDENCE_THRESHOLD = 0.70
 # Below this (0.0-1.0 scale, matching page_result.avg_confidence), OCR text
 # is unreliable enough that asking an LLM to "read" it just produces a
 # confident-sounding guess on bad input. Flag for human review instead of
-# calling extract_with_llm at all. Starting point — tune against labeled
-# samples once you have some.
-HARD_REVIEW_FLOOR = 0.40
+# calling extract_with_llm at all. Kept very low (0.01) so that sideways /
+# rotated scans (which get near-zero OCR confidence despite readable text)
+# still get LLM processing. Only truly blank / garbled pages are blocked.
+HARD_REVIEW_FLOOR = 0.01
 
 
 def _missing_required_field_names(inv: Invoice) -> list:
@@ -450,10 +452,17 @@ def _needs_llm_fallback(inv: Invoice) -> bool:
 def _is_below_review_floor(inv: Invoice, page_result) -> bool:
     """Hard cutoff distinct from _needs_llm_fallback's moderate threshold:
     this is the point where we stop trying to extract at all and flag for
-    review instead of calling the LLM on text we don't trust."""
-    if inv.ocr_confidence is not None and inv.ocr_confidence < HARD_REVIEW_FLOOR:
+    review instead of calling the LLM on text we don't trust.
+    
+    NOTE: Rotated/sideways scans have near-zero OCR confidence despite
+    containing fully readable text. We therefore only block when the raw
+    text is also very short (< 20 tokens) — i.e. truly blank or garbled.
+    """
+    token_count = getattr(page_result, 'token_count', None) or 0
+    if inv.ocr_confidence is not None and inv.ocr_confidence < HARD_REVIEW_FLOOR and token_count < 20:
         return True
-    if looks_handwritten(page_result.avg_confidence, page_result.low_conf_ratio, page_result.token_count):
+    # Never flag as handwritten if there is actually a decent amount of text
+    if token_count < 20 and looks_handwritten(page_result.avg_confidence, page_result.low_conf_ratio, page_result.token_count):
         return True
     return False
 
@@ -485,24 +494,14 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     else:
         raw_md = f"# Invoice (Scanned OCR)\n\n{page_result.raw_text}"
 
-    llm_start_1 = time.time()
-    structured_md = format_ocr_markdown_with_llm(raw_md)
-    llm_total_time += time.time() - llm_start_1
-
+    # Save raw OCR text to markdown for debug inspection
     try:
-        combined_md = (
-            f"# Reconstructed Invoice (LLM Output)\n\n"
-            f"{structured_md}\n\n"
-            f"---\n\n"
-            f"# Raw OCR Text (PaddleOCR Output)\n\n"
-            f"{raw_md}"
-        )
         with open(md_path, "w", encoding="utf-8") as f:
-            f.write(combined_md)
+            f.write(f"# Raw OCR Text (PaddleOCR Output)\n\n{raw_md}")
     except Exception as e:
         logger.warning(f"Could not save markdown: {e}")
 
-    ocr_text = structured_md
+    ocr_text = page_result.raw_text
 
     # --- Stage 1: Fast deterministic Regex ---
     inv = extract_with_regex(ocr_text)
@@ -597,8 +596,10 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
 
             full_llm_input = ocr_text + "\n\n=== RAW OCR TEXT ===\n" + page_result.raw_text
             _start_llm = time.time()
-            llm_result = extract_with_llm(full_llm_input, missing_fields=missing)
-            llm_total_time += time.time() - _start_llm
+            try:
+                llm_result = extract_with_llm(full_llm_input, missing_fields=missing)
+            finally:
+                llm_total_time += time.time() - _start_llm
             logger.info(f"LLM returned dict: {llm_result}")
             inv = merge_llm_result_into_invoice(inv, llm_result, force_fields=missing)
 
@@ -623,6 +624,50 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     else:
         inv.extraction_method = "pdfplumber + regex" if page_result.is_native_text else "paddleocr + regex"
         logger.info("Regex stage sufficient — skipping LLM call.")
+
+    # --- Stage 2.5: VL Fallback ---
+    if should_trigger_vl_fallback(inv.ocr_confidence, inv):
+        logger.info("Triggering VL Fallback (Stage 2.5)...")
+        try:
+            image_bytes = None
+            if page_result.page_images and len(page_result.page_images) > 0:
+                import cv2
+                success, encoded_img = cv2.imencode('.jpg', page_result.page_images[0])
+                if success:
+                    image_bytes = encoded_img.tobytes()
+            elif page_result.is_native_text:
+                from app.ocr.ingest import _rasterize_pdf
+                images = _rasterize_pdf(file_path, dpi=200)
+                if images:
+                    image_bytes = images[0]
+            elif file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                with open(file_path, "rb") as f:
+                    image_bytes = f.read()
+
+            if image_bytes:
+                missing = _missing_required_field_names(inv)
+                if not inv.items:
+                    missing.append("items")
+                
+                _start_vl = time.time()
+                try:
+                    vl_result = extract_with_vl_model(image_bytes, missing_fields=missing)
+                finally:
+                    llm_total_time += time.time() - _start_vl
+                
+                logger.info(f"VL model returned dict: {vl_result}")
+                inv = merge_llm_result_into_invoice(inv, vl_result, force_fields=missing)
+                inv.extraction_method = "vision_model_fallback"
+                
+                if "AI extraction failed (requires manual review)" in inv.review_reasons:
+                    inv.review_reasons.remove("AI extraction failed (requires manual review)")
+                
+                if not _missing_required_field_names(inv) and inv.items:
+                    inv.needs_review = False
+            else:
+                logger.warning("Could not get image bytes for VL fallback.")
+        except Exception as e:
+            logger.warning(f"VL fallback failed: {e}")
 
     # Auto-heal minor OCR typos in line item base amounts
     if inv.items:
@@ -767,6 +812,16 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
 
     # --- Stage 3: validate ---
     inv = validate(inv, raw_text=page_result.raw_text)
+    
+    # Recalculate final LLM confidence score based on the FINAL extracted data
+    total_required = len(REQUIRED_FIELDS)
+    if total_required > 0:
+        found_count = sum(1 for _, getter in REQUIRED_FIELDS if getter(inv))
+        success_rate = found_count / total_required
+        num_reasons = len(inv.review_reasons)
+        penalty = min(num_reasons * 0.25, 0.50)
+        inv.llm_confidence = round(max(success_rate - penalty, 0.0), 3)
+
 
     if inv.supplier.name and not re.search(
         r"\b(S\.?[LA]\.?U?|S\.?à\s*r\.?l\.?|INC\.?|CORP\.?|LTD\.?|GMBH)\b", inv.supplier.name, re.IGNORECASE
@@ -789,6 +844,31 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
                     logger.info(f"Backfilled missing supplier.vatID from DB using name '{inv.supplier.name}': {supplier_match.vat_id}")
         except Exception as e:
             logger.error(f"Failed to query DB for supplier fallback: {e}")
+
+    # --- Duplicate Invoice Check ---
+    if inv.serialNumber:
+        try:
+            import os, re
+            raw_url = os.getenv("DATABASE_URL", "").strip().strip('"').strip("'")
+            # psycopg2 doesn't accept ?schema=..., strip it; also replace asyncpg driver
+            sync_url = re.sub(r'\?.*$', '', raw_url).replace("postgresql+asyncpg", "postgresql")
+            engine = create_engine(sync_url)
+            SyncSessionLocal = sessionmaker(bind=engine)
+            
+            with SyncSessionLocal() as session:
+                # The DB column is document_number or invoice_number. Let's check both or just document_number.
+                duplicate_match = session.query(DBInvoice).filter(
+                    (DBInvoice.document_number == inv.serialNumber) | (DBInvoice.invoice_number == inv.serialNumber),
+                    DBInvoice.id != invoice_id
+                ).first()
+                
+                if duplicate_match:
+                    inv.isDuplicate = True
+                    inv.review_reasons.append(f"duplicate_invoice: matches #{duplicate_match.id}")
+                    inv.needs_review = True
+                    logger.warning(f"Duplicate invoice detected: {inv.serialNumber} matches invoice ID {duplicate_match.id}")
+        except Exception as e:
+            logger.error(f"Failed to query DB for duplicate invoice check: {e}")
 
     inv.ocr_duration = round(ocr_duration, 2)
     inv.ocr_time = inv.ocr_duration
@@ -828,6 +908,20 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
         f"  │  Confidence: {(inv.ocr_confidence or 0):.0f}%{review_str}\n"
         f"  └──────────────────────────────────────────────────────────┘"
     )
+    # ────────────────────────────────────────────────────────────────────────
+    
+    # Update the markdown file so it reflects the FINAL extraction (including Vision Fallback fixes)
+    try:
+        import os
+        import json
+        md_outputs_dir = os.path.join(os.getcwd(), "ocr_results")
+        md_path = os.path.join(md_outputs_dir, f"{base_name}_ocr.md")
+        if os.path.exists(md_path):
+            with open(md_path, "a", encoding="utf-8") as f:
+                f.write("\n\n# Final AI Extraction (JSON)\n\n")
+                f.write(f"```json\n{inv.to_json(indent=2)}\n```\n")
+    except Exception as e:
+        logger.error(f"Failed to append final JSON to markdown file: {e}")
     # ────────────────────────────────────────────────────────────────────────
 
     return inv

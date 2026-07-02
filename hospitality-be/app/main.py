@@ -47,7 +47,8 @@ app.add_middleware(
         settings.WEBSITE_DOMAIN,
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "http://192.168.29.73:3000"
+        "http://192.168.1.26:3000",   # Local network (current dev machine)
+        "http://192.168.29.73:3000",  # Legacy local network fallback
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],

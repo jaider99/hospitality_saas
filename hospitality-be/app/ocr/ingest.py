@@ -92,15 +92,16 @@ def _get_paddleocr():
                     # Enable ONNX runtime backend for speedup (requires onnxruntime package)
                     os.environ.setdefault('PADDLE_PDX_INFER_BACKEND', 'onnxruntime')
                 _paddleocr_instance = PaddleOCR(
-                    use_textline_orientation=True,  # replaces use_angle_cls — auto-corrects sideways receipts
+                    use_angle_cls=True,             # properly initializes the angle classifier for rotated receipts
+                    show_log=False,                 # Suppress verbose paddleocr warnings
                     ocr_version="PP-OCRv4",         # Latest open-source OCR models
                     use_doc_unwarping=False,
-                    lang="en",
+                    lang="latin",                    # 'latin' provides better support for Spanish accents, € signs, etc.
                     text_det_limit_side_len=1536,   # replaces det_limit_side_len
                     text_det_limit_type="max",       # replaces det_limit_type
                     text_det_thresh=0.2,             # replaces det_db_thresh
                     text_det_box_thresh=0.4,         # replaces det_db_box_thresh
-                    text_det_unclip_ratio=2.0        # replaces det_db_unclip_ratio
+                    text_det_unclip_ratio=1.4        # 1.4 (down from 1.6) prevents tight tabular columns from bleeding into a single box
                 )
                 logging.getLogger("invoice_pipeline").info(
                     "PaddleOCR model loaded successfully."
@@ -145,6 +146,14 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
 
     # Calculate aspect ratio
     h_init, w_init = img.shape[:2]
+
+    # Receipts are almost always portrait. If width > height, it's rotated 90 or 270 degrees.
+    # PaddleOCR's angle_cls only detects 0/180 degrees. By rotating it 90 degrees clockwise here, 
+    # it becomes either upright (0) or upside-down (180). PaddleOCR will then auto-fix the 180!
+    if w_init > h_init:
+        img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+        h_init, w_init = img.shape[:2]
+
     aspect_ratio = max(h_init, w_init) / float(min(h_init, w_init)) if min(h_init, w_init) > 0 else 1.0
 
     # Save the raw image BEFORE sharpening — the binary boost pass in
@@ -401,7 +410,8 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
     # Detect rotation first (mostly-vertical bboxes = rotated scan)
     horizontal_count = sum(1 for l in lines if (max(pt[0] for pt in l[0]) - min(pt[0] for pt in l[0])) > (max(pt[1] for pt in l[0]) - min(pt[1] for pt in l[0])))
     vertical_count = len(lines) - horizontal_count
-    is_rotated = vertical_count > horizontal_count
+    # Require 70% supermajority to avoid flipping on borderline cases (old: >50%, very flaky)
+    is_rotated = len(lines) > 0 and (vertical_count / len(lines)) > 0.70
 
     h_img, w_img = img.shape[:2]
 
@@ -424,13 +434,108 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
         bucket_size = max(10, median_font_size * 0.7) # 70% of font size for safe grouping
 
     if is_rotated:
-        # Rotated 90 degrees — group by X axis (each X group = one visual line)
-        lines.sort(key=lambda x: (round(x[0][0][0] / bucket_size) * bucket_size, x[0][0][1]))
+        # The image is portrait, but the text inside it is sideways.
+        # PaddleOCR returns upright vertical boxes for sideways text, making it impossible 
+        # to determine clockwise vs counter-clockwise reliably from coordinates alone.
+        # The foolproof solution: rotate the image 90 degrees clockwise and rerun OCR.
+        # This makes the text either 0 degrees (upright) or 180 degrees (upside down).
+        # PaddleOCR's use_angle_cls=True sometimes fails to auto-correct 180-degree cases on sparse receipts.
+        # So we must determine if it's clockwise or counter-clockwise BEFORE we rotate it!
+        # We can do this by looking at the X coordinates of common header vs footer words.
+        top_words = ["factura", "fecha", "cliente", "cif", "nif", "nombre", "s.a.", "s.l.", "tel", "tlf", "www"]
+        bottom_words = ["total", "importe", "iva", "efectivo", "tarjeta", "cambio", "gracias", "visita"]
+        
+        top_x = []
+        bottom_x = []
+        for line in lines:
+            text = line[1][0].lower()
+            x_center = _get_x_center(line)
+            if any(w in text for w in top_words):
+                top_x.append(x_center)
+            if any(w in text for w in bottom_words):
+                bottom_x.append(x_center)
+        
+        avg_top = sum(top_x) / len(top_x) if top_x else (w_img / 2)
+        avg_bottom = sum(bottom_x) / len(bottom_x) if bottom_x else (w_img / 2)
+        
+        import logging
+        if avg_top > avg_bottom:
+            # Top of receipt is on the right (max X). Rotate counter-clockwise to bring it to the top.
+            logging.getLogger("invoice_pipeline").info("Detected sideways text (Clockwise). Rotating counter-clockwise to upright...")
+            img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        else:
+            # Top of receipt is on the left (min X). Rotate clockwise to bring it to the top.
+            logging.getLogger("invoice_pipeline").info("Detected sideways text (Counter-clockwise). Rotating clockwise to upright...")
+            img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+
+        res = _do_ocr(ocr, img)
+        
+        # Unpack the new result
+        if not res or not res[0]:
+            return None
+        lines = [line for line in res[0] if line]
+        
+        # Calculate new median font size
+        font_sizes = []
+        for line in lines:
+            pts = line[0]
+            font_sizes.append(max(pt[1] for pt in pts) - min(pt[1] for pt in pts))
+        font_sizes.sort()
+        median_font_size = font_sizes[len(font_sizes)//2] if font_sizes else 25
+        bucket_size = max(10, median_font_size * 0.7)
+        
+        # Image is now definitely horizontal
+        w_img, h_img = h_img, w_img  # swap dimensions since we rotated
+        
+    # --- Universal Horizontal Sorting ---
+    # By this point, the image is guaranteed to be horizontal (either natively, 
+    # or because we just reran OCR after a 90-degree rotation).
+    split_x = _detect_column_gap(lines, w_img)
+
+    if split_x is not None:
+        # Two-column layout detected: separate Left and Right
+        # To avoid splitting line items in half, we only apply the left/right split
+        # to the top section of the page (where Supplier and Customer headers are).
+        # The rest of the page (where line items are) is sorted as a single horizontal block.
+        header_threshold = h_img * 0.45
+        
+        header_lines = [l for l in lines if _get_y_center(l) <= header_threshold]
+        body_lines = [l for l in lines if _get_y_center(l) > header_threshold]
+
+        left_header  = [l for l in header_lines if _get_x_center(l) <= split_x]
+        right_header = [l for l in header_lines if _get_x_center(l) >  split_x]
+
+        def _sort_and_join(chunk):
+            chunk.sort(key=lambda l: (round(_get_y_center(l) / bucket_size) * bucket_size, _get_x_center(l)))
+            text_lines = []
+            current_line = []
+            current_y = None
+            for line in chunk:
+                y_val = round((_get_y_center(line) - border_size) / bucket_size) * bucket_size
+                if current_y is None:
+                    current_y = y_val
+                if y_val != current_y:
+                    text_lines.append(" ".join(current_line))
+                    current_line = []
+                    current_y = y_val
+                current_line.append(line[1][0])
+            if current_line:
+                text_lines.append(" ".join(current_line))
+            return "\n".join(text_lines)
+
+        left_text  = _sort_and_join(left_header)
+        right_text = _sort_and_join(right_header)
+        body_text  = _sort_and_join(body_lines)
+        
+        raw_text = f"{left_text}\n\n--- DOCUMENT INFO COLUMN ---\n{right_text}\n\n--- INVOICE BODY ---\n{body_text}"
+    else:
+        # Single-column layout — standard top-to-bottom, left-to-right sort
+        lines.sort(key=lambda l: (round(_get_y_center(l) / bucket_size) * bucket_size, _get_x_center(l)))
         text_lines = []
         current_line = []
         current_axis = None
         for line in lines:
-            axis_val = round((line[0][0][0] - border_size) / bucket_size) * bucket_size
+            axis_val = round((_get_y_center(line) - border_size) / bucket_size) * bucket_size
             if current_axis is None:
                 current_axis = axis_val
             if axis_val != current_axis:
@@ -440,56 +545,7 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
             current_line.append(line[1][0])
         if current_line:
             text_lines.append(" ".join(current_line))
-        text_lines.reverse()
         raw_text = "\n".join(text_lines)
-    else:
-        # Normal orientation — check for two-column layout
-        split_x = _detect_column_gap(lines, w_img)
-
-        if split_x is not None:
-            # Two-column layout detected: separate Left and Right
-            left_lines  = [l for l in lines if _get_x_center(l) <= split_x]
-            right_lines = [l for l in lines if _get_x_center(l) >  split_x]
-
-            def _sort_and_join(chunk):
-                chunk.sort(key=lambda l: (round(_get_y_center(l) / bucket_size) * bucket_size, _get_x_center(l)))
-                text_lines = []
-                current_line = []
-                current_y = None
-                for line in chunk:
-                    y_val = round((_get_y_center(line) - border_size) / bucket_size) * bucket_size
-                    if current_y is None:
-                        current_y = y_val
-                    if y_val != current_y:
-                        text_lines.append(" ".join(current_line))
-                        current_line = []
-                        current_y = y_val
-                    current_line.append(line[1][0])
-                if current_line:
-                    text_lines.append(" ".join(current_line))
-                return "\n".join(text_lines)
-
-            left_text  = _sort_and_join(left_lines)
-            right_text = _sort_and_join(right_lines)
-            raw_text = f"{left_text}\n\n--- DOCUMENT INFO COLUMN ---\n{right_text}"
-        else:
-            # Single-column layout — standard top-to-bottom, left-to-right sort
-            lines.sort(key=lambda x: (round(x[0][0][1] / bucket_size) * bucket_size, x[0][0][0]))
-            text_lines = []
-            current_line = []
-            current_axis = None
-            for line in lines:
-                axis_val = round((line[0][0][1] - border_size) / bucket_size) * bucket_size
-                if current_axis is None:
-                    current_axis = axis_val
-                if axis_val != current_axis:
-                    text_lines.append(" ".join(current_line))
-                    current_line = []
-                    current_axis = axis_val
-                current_line.append(line[1][0])
-            if current_line:
-                text_lines.append(" ".join(current_line))
-            raw_text = "\n".join(text_lines)
     
     # Append the marginal text at the end so the LLM doesn't miss the tiny headers/footers
     if margin_text:
@@ -575,7 +631,7 @@ def extract_text_pdf_native(pdf_path: str) -> PageResult:
                       low_conf_ratio=0.0, token_count=len(tokens))
 
 
-def _rasterize_pdf(pdf_path: str, dpi: int = 150) -> List["bytes"]:
+def _rasterize_pdf(pdf_path: str, dpi: int = 200) -> List["bytes"]:
     """Render each PDF page to a PNG image (in-memory) for OCR input.
 
     If a page has an embedded rotation transform (e.g. landscape Apple receipts
