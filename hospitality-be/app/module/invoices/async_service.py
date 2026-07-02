@@ -69,6 +69,9 @@ async def async_save_ocr_invoice(
         # Update existing supplier with new info if available
         if supplier_tax_id and not supplier.vat_id:
             supplier.vat_id = supplier_tax_id
+        # Always update name when found by VAT ID — fixes stale/hallucinated names
+        if supplier_name and supplier_name != "Unknown Supplier":
+            supplier.name = supplier_name
         if supplier_address and not supplier.address:
             supplier.address = supplier_address
         if supplier_contact_info and not supplier.contact_info:
@@ -117,7 +120,7 @@ async def async_save_ocr_invoice(
     invoice.extraction_method = getattr(ocr_invoice, 'extraction_method', None)
 
     # OCR supplier info (denormalized)
-    invoice.supplier_display_name = supplier_name
+    invoice.supplier_display_name = supplier_name or "Unknown"
     invoice.supplier_tax_id = supplier_tax_id
     invoice.supplier_address = supplier_address
     invoice.supplier_contact_count = supplier_contacts_count
@@ -137,6 +140,8 @@ async def async_save_ocr_invoice(
 
     # OCR meta
     invoice.ocr_confidence = getattr(ocr_invoice, 'ocr_confidence', None)
+    invoice.llm_confidence = getattr(ocr_invoice, 'llm_confidence', None)
+    invoice.is_duplicate = getattr(ocr_invoice, 'isDuplicate', False)
     
 
 
@@ -177,12 +182,29 @@ async def async_save_ocr_invoice(
         product_query = select(SuppliedProduct).where(
             SuppliedProduct.supplier_id == current_supplier_id
         )
-        if sku:
+        if sku and description:
             product_query = product_query.where(
                 (SuppliedProduct.sku == sku) | (SuppliedProduct.name.ilike(description))
             )
-        else:
+        elif sku:
+            product_query = product_query.where(SuppliedProduct.sku == sku)
+        elif description:
             product_query = product_query.where(SuppliedProduct.name.ilike(description))
+        else:
+            # No usable identifier — skip product matching entirely
+            product = None
+            processed_lines.append({
+                'description': description or 'Unknown Item',
+                'quantity': quantity,
+                'unit_price': unit_price,
+                'total_price': total_price,
+                'sku': sku,
+                'product_id': None,
+                'price_increased': False,
+                'increase_pct': 0.0,
+                'old_price': 0.0,
+            })
+            continue
 
         result = await db.execute(product_query)
         product = result.scalars().first()
@@ -224,7 +246,7 @@ async def async_save_ocr_invoice(
                     sku = f"{sku}-{current_supplier_id}"
 
             product = SuppliedProduct(
-                name=description,
+                name=description or "Unknown Product",
                 sku=sku,
                 supplier_id=current_supplier_id,
                 current_price=unit_price,

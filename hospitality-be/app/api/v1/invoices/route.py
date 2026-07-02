@@ -123,6 +123,7 @@ def list_invoices(
             "tax_free_costs": inv.tax_free_costs,
             "source_file": inv.source_file,
             "review_reasons": inv.review_reasons,
+            "is_duplicate": inv.is_duplicate,
         })
     return result
 
@@ -229,6 +230,7 @@ def get_invoice_status(
         "total_amount": invoice.total_with_iva or invoice.total_amount,
         "extraction_method": invoice.extraction_method,
         "ocr_confidence": invoice.ocr_confidence,
+        "llm_confidence": invoice.llm_confidence,
         "ocr_duration": invoice.ocr_duration,
         "llm_duration": invoice.llm_duration,
     }
@@ -328,25 +330,12 @@ async def update_invoice_api(
             
         if "supplier" in update_data and isinstance(update_data["supplier"], dict):
             s_data = update_data["supplier"]
-            
-            if inv.supplier_id:
-                from app.module.invoices.model import Supplier
-                supplier = db.get(Supplier, inv.supplier_id)
-                if supplier:
-                    if "name" in s_data:
-                        supplier.name = s_data["name"]
-                    if "legal_name" in s_data:
-                        supplier.legal_name = s_data["legal_name"]
-                        inv.supplier_legal_name = s_data["legal_name"]
-                    if "vat_id" in s_data:
-                        supplier.vat_id = s_data["vat_id"]
-                        inv.supplier_tax_id = s_data["vat_id"]
-                    db.add(supplier)
-            else:
-                if "legal_name" in s_data:
-                    inv.supplier_legal_name = s_data["legal_name"]
-                if "vat_id" in s_data:
-                    inv.supplier_tax_id = s_data["vat_id"]
+            if "name" in s_data:
+                inv.supplier_display_name = s_data["name"]
+            if "legal_name" in s_data:
+                inv.supplier_legal_name = s_data["legal_name"]
+            if "vat_id" in s_data:
+                inv.supplier_tax_id = s_data["vat_id"]
 
         # Lines Info
         if "lines" in update_data and isinstance(update_data["lines"], list):

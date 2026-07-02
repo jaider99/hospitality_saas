@@ -34,6 +34,7 @@ class InvoiceListResponse(BaseModel):
     reconciliation_status: Optional[str] = None   # Unreconciled / Reconciled
     needs_review: bool = False
     ocr_confidence: Optional[float] = None
+    llm_confidence: Optional[float] = None
     extraction_method: Optional[str] = None
     currency: str = "EUR"
 
@@ -49,6 +50,7 @@ class InvoiceListResponse(BaseModel):
     llm_time: Optional[float] = None
     ocr_duration: Optional[float] = None
     llm_duration: Optional[float] = None
+    is_duplicate: Optional[bool] = False
 
 
     class Config:
@@ -67,6 +69,7 @@ class InvoiceStatusResponse(BaseModel):
     total_amount: Optional[float] = None
     extraction_method: Optional[str] = None
     ocr_confidence: Optional[float] = None
+    llm_confidence: Optional[float] = None
     ocr_duration: Optional[float] = None
     llm_duration: Optional[float] = None
 
@@ -142,6 +145,7 @@ class InvoiceDetailsResponse(BaseModel):
     issue_date: Optional[datetime] = None
     total_amount: float = 0.0
     status: str
+    is_duplicate: Optional[bool] = False
     supplier: Optional[SupplierBase] = None
     lines: List[InvoiceLineDetails] = []
     tax_brackets: List[InvoiceTaxBracketResponse] = []
@@ -149,6 +153,7 @@ class InvoiceDetailsResponse(BaseModel):
     reconciliation_status: Optional[str] = None
     needs_review: bool = False
     ocr_confidence: Optional[float] = None
+    llm_confidence: Optional[float] = None
     extraction_method: Optional[str] = None
 
     # New fields replicated from OCR_invoice
@@ -163,7 +168,7 @@ class InvoiceDetailsResponse(BaseModel):
     llm_time: Optional[float] = None
     ocr_duration: Optional[float] = None
     llm_duration: Optional[float] = None
-
+    is_duplicate: Optional[bool] = None
     
     # Missing totals
     discount: Optional[float] = None

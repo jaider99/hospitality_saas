@@ -98,6 +98,7 @@ class Invoice:
     serialNumber: Optional[str] = None
     taxBrackets: List[TaxBracket] = field(default_factory=list)
     isReconciled: bool = False
+    isDuplicate: bool = False
     documentInboxEmail: Optional[str] = None
     observations: Optional[str] = None
     
@@ -108,6 +109,9 @@ class Invoice:
 
     # Adding a place for confidence and review notes so pipeline can still use them
     ocr_confidence: Optional[float] = None
+    # Meta fields
+    confidence: Optional[float] = None
+    llm_confidence: Optional[float] = None
     needs_review: bool = False
     review_reasons: List[str] = field(default_factory=list)
     ocr_duration: Optional[float] = None
@@ -127,7 +131,7 @@ LABELS = {
     "type":            ["invoice", "factura", "credit note", "nota de credito", "receipt", "recibo", "albarán", "albaran", "albarán copia", "delivery note", "nota de entrega", "ticket", "orden de compra"],
     "serialNumber":    ["factura:", "n\u00ba factura:", "factura n\u00ba", "factura no.", "factura num", "n\u00ba albar\u00e1n", "number:", "number", "invoice number", "document number", "n\u00ba factura", "no. factura",
                          "factura n", "n\u00ba documento", "num. factura", "documento n\u00famero", "documento numero",
-                         "nota de pago", "comprobante", "n\u00ba:", "n\u00b0:", "n\u00ba", "n\u00b0", "document:", "albar\u00e1n", "albaran", "pedido"],
+                         "nota de pago", "comprobante", "n\u00ba:", "n\u00b0:", "n\u00ba", "n\u00b0", "document:", "albar\u00e1n", "albaran", "albarà", "albara", "pedido"],
     "date":            ["date", "fecha", "fecha factura", "invoice date", "data"],
     "categoryID":      ["category", "categoria"],
     "uploaderID":      ["uploaded by", "subido por"],

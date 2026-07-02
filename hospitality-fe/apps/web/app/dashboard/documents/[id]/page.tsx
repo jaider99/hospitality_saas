@@ -14,7 +14,9 @@ import {
   AlertTriangle,
   ExternalLink,
   RefreshCw,
-  Trash2
+  Trash2,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react';
 import { getApiClient } from '../../../../store/auth';
 
@@ -60,6 +62,7 @@ interface InvoiceDetail {
   document_number?: string;
   issue_date?: string;
   total_amount: number;
+  total_with_iva?: number;
   base_amount?: number;
   iva_amount?: number;
   discount?: number;
@@ -74,6 +77,7 @@ interface InvoiceDetail {
   ocr_confidence?: number;
   extraction_method?: string;
   supplier_contact_count?: number;
+  paye?: number;
   green_point?: number;
   ibee?: number;
   attributable_cost?: number;
@@ -84,6 +88,8 @@ interface InvoiceDetail {
   llm_time?: number;
   ocr_duration?: number;
   llm_duration?: number;
+  is_duplicate?: boolean;
+  llm_confidence?: number;
 }
 
 export default function DocumentDetailPage() {
@@ -124,6 +130,11 @@ export default function DocumentDetailPage() {
   const [attributableCost, setAttributableCost] = useState(0);
   const [taxFreeCosts, setTaxFreeCosts] = useState(0);
 
+  // Zoom state for image preview
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.5, 4));
+  const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.5, 0.5));
+
   // Load Invoice Details from Backend
   useEffect(() => {
     if (!id) return;
@@ -137,9 +148,9 @@ export default function DocumentDetailPage() {
 
         // Initialize editing inputs
         if (data) {
-          setSupplierName(data.supplier?.name || data.supplier_display_name || '');
-          setSupplierLegalName(data.supplier?.legal_name || data.supplier_legal_name || '');
-          setSupplierVatId(data.supplier?.vat_id || data.supplier_tax_id || '');
+          setSupplierName(data.supplier_display_name || data.supplier?.name || '');
+          setSupplierLegalName(data.supplier_legal_name || data.supplier?.legal_name || '');
+          setSupplierVatId(data.supplier_tax_id || data.supplier?.vat_id || '');
 
           setDocNum(data.document_number || data.invoice_number || '');
           setDocDate(data.issue_date ? new Date(data.issue_date).toISOString().split('T')[0] : '');
@@ -187,9 +198,9 @@ export default function DocumentDetailPage() {
           clearInterval(intervalId);
           setInvoice(statusData);
           if (statusData) {
-            setSupplierName(statusData.supplier?.name || statusData.supplier_display_name || '');
-            setSupplierLegalName(statusData.supplier?.legal_name || statusData.supplier_legal_name || '');
-            setSupplierVatId(statusData.supplier?.vat_id || statusData.supplier_tax_id || '');
+            setSupplierName(statusData.supplier_display_name || statusData.supplier?.name || '');
+            setSupplierLegalName(statusData.supplier_legal_name || statusData.supplier?.legal_name || '');
+            setSupplierVatId(statusData.supplier_tax_id || statusData.supplier?.vat_id || '');
             setDocNum(statusData.document_number || statusData.invoice_number || '');
             setDocDate(statusData.issue_date ? new Date(statusData.issue_date).toISOString().split('T')[0] : '');
             
@@ -265,10 +276,14 @@ export default function DocumentDetailPage() {
   };
 
   // MinIO preview URL
-  const fileExtension =
-    (invoice.source_file ? invoice.source_file.split('.').pop()?.toLowerCase() : 'pdf') || 'pdf';
+  const backendFileUrl = invoice.source_file || '';
+  const fileExtension = backendFileUrl.split('.').pop()?.toLowerCase() || 'pdf';
+  
+  // If backend didn't provide a full URL, fallback to local minio construct
   const objectName = `invoice_${invoice.id}.${fileExtension}`;
-  const fileUrl = `http://localhost:9012/invoices/${objectName}?cb=${Date.now()}`;
+  const fileUrl = backendFileUrl.startsWith('http') 
+    ? backendFileUrl 
+    : `http://localhost:9012/invoices/${objectName}?cb=${Date.now()}`;
 
   // Formatted display values
   const standardVatRates = [0, 2, 4, 5, 7.5, 10, 12, 21];
@@ -289,6 +304,8 @@ export default function DocumentDetailPage() {
         setInvoice({
           ...invoice,
           supplier_display_name: supplierName,
+          supplier_legal_name: supplierLegalName,
+          supplier_tax_id: supplierVatId,
           supplier: {
             ...invoice.supplier,
             name: supplierName,
@@ -418,11 +435,30 @@ export default function DocumentDetailPage() {
               Review required
             </span>
           )}
+          {invoice.is_duplicate && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#fceaea] text-[#b23a3a] text-xs font-semibold">
+              <AlertTriangle size={14} />
+              Duplicate
+            </span>
+          )}
           <span className="inline-flex items-center px-3 py-1 rounded-full bg-[#e6f4ec] text-[#1f8f5c] text-xs font-semibold capitalize">
             {invoice.status.toLowerCase()}
           </span>
         </div>
       </div>
+
+      {/* Duplicate Alert Panel */}
+      {invoice.is_duplicate && (
+        <div className="bg-[#fceaea] border border-[#ffb4ab] rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle size={17} className="text-[#b23a3a] shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <span className="text-sm font-bold text-[#7a2828]">Duplicate Detected</span>
+              <p className="text-xs text-[#7a2828] opacity-90">This document is a duplicate of another invoice with the same document number from this supplier.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Needs Review Alert Panel */}
       {invoice.needs_review && (
@@ -514,16 +550,29 @@ export default function DocumentDetailPage() {
             </div>
           </div>
 
-          <div className="relative flex-1 bg-muted/30 rounded-lg flex items-center justify-center border border-dashed border-border p-2 overflow-hidden min-h-[400px]">
-            {fileExtension === 'pdf' ? (
-              <embed src={fileUrl} type="application/pdf" className="w-full h-[500px] rounded-md" />
-            ) : ['png', 'jpg', 'jpeg', 'webp'].includes(fileExtension) ? (
-              <img
-                src={fileUrl}
-                alt="Document preview"
-                className="max-w-full max-h-[500px] object-contain rounded-md"
-              />
-            ) : (
+          <div className="relative flex-1 bg-muted/30 rounded-lg border border-dashed border-border p-2 overflow-auto min-h-[500px]">
+            {['png', 'jpg', 'jpeg', 'webp'].includes(fileExtension) && (
+              <div className="sticky top-2 float-right z-10 flex flex-col gap-2 bg-background/80 backdrop-blur-sm border border-border p-1 rounded-lg shadow-sm mr-2 mb-2">
+                <button onClick={handleZoomIn} className="p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground rounded-md transition-colors" title="Zoom In">
+                  <ZoomIn size={18} />
+                </button>
+                <div className="h-px bg-border/50 mx-1"></div>
+                <button onClick={handleZoomOut} className="p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground rounded-md transition-colors" title="Zoom Out">
+                  <ZoomOut size={18} />
+                </button>
+              </div>
+            )}
+            <div className="flex items-center justify-center min-h-full">
+              {fileExtension === 'pdf' ? (
+                <embed src={fileUrl} type="application/pdf" className="w-full h-[500px] rounded-md" />
+              ) : ['png', 'jpg', 'jpeg', 'webp'].includes(fileExtension) ? (
+                <img
+                  src={fileUrl}
+                  alt="Document preview"
+                  className="max-w-none transition-all duration-200 ease-in-out rounded-md"
+                  style={{ height: `${zoomLevel * 500}px` }}
+                />
+              ) : (
               <div className="text-center space-y-2 p-8">
                 <FileText size={48} className="text-muted-foreground/40 mx-auto" />
                 <p className="text-xs text-muted-foreground">
@@ -539,6 +588,7 @@ export default function DocumentDetailPage() {
                 </a>
               </div>
             )}
+            </div>
           </div>
         </div>
 
@@ -718,6 +768,18 @@ export default function DocumentDetailPage() {
                         'bg-[#fceaea] text-[#b23a3a]'
                       }`}>
                         {(invoice.ocr_confidence * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
+                  {invoice.llm_confidence !== undefined && invoice.llm_confidence !== null && (
+                    <div className="flex justify-between items-center py-0.5 mt-1">
+                      <span className="text-muted-foreground text-xs">LLM Confidence</span>
+                      <span className={`font-medium text-xs px-2 py-0.5 rounded-full ${
+                        invoice.llm_confidence >= 0.7 ? 'bg-[#e6f4ec] text-[#1f8f5c]' :
+                        invoice.llm_confidence >= 0.4 ? 'bg-[#fbf1dd] text-[#b07a1a]' :
+                        'bg-[#fceaea] text-[#b23a3a]'
+                      }`}>
+                        {(invoice.llm_confidence * 100).toFixed(1)}%
                       </span>
                     </div>
                   )}
@@ -1118,8 +1180,8 @@ export default function DocumentDetailPage() {
                     </td>
                     <td className="px-5 py-3 font-semibold text-foreground min-w-[200px]">
                       {editLines ? (
-                        <input type="text" className="w-full p-1 text-xs border rounded" value={line.description || line.product_name || line.product || ''} onChange={(e) => handleLineChange(idx, 'description', e.target.value)} />
-                      ) : (line.description || line.product_name || line.product)}
+                        <input type="text" className="w-full p-1 text-xs border rounded" value={line.description || line.product_name || (typeof line.product === 'object' ? line.product?.name : line.product) || ''} onChange={(e) => handleLineChange(idx, 'description', e.target.value)} />
+                      ) : (line.description || line.product_name || (typeof line.product === 'object' ? line.product?.name : line.product))}
                     </td>
                     <td className="px-5 py-3 text-right font-mono whitespace-nowrap">
                       {editLines ? (

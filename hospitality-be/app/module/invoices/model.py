@@ -67,6 +67,7 @@ class Invoice(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     is_refund: bool = Field(default=False)
     is_recurrent: bool = Field(default=False)
+    is_duplicate: bool = Field(default=False)
 
     # --- OCR-extracted fields (populated by background worker) ---
     # General info
@@ -94,6 +95,10 @@ class Invoice(SQLModel, table=True):
     attributable_cost: Optional[float] = Field(default=None)
     tax_free_costs: Optional[float] = Field(default=None)
     total_with_iva: Optional[float] = Field(default=None)
+
+    # Extraction confidence metrics
+    ocr_confidence: Optional[float] = Field(default=None)
+    llm_confidence: Optional[float] = Field(default=None)
 
     # Status from invoice document
     reconciliation_status: Optional[str] = Field(default=None)  # Unreconciled / Reconciled

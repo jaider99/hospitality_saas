@@ -101,7 +101,7 @@ def _get_paddleocr():
                     text_det_limit_type="max",       # replaces det_limit_type
                     text_det_thresh=0.2,             # replaces det_db_thresh
                     text_det_box_thresh=0.4,         # replaces det_db_box_thresh
-                    text_det_unclip_ratio=1.6        # 1.6 is safer than 2.0 for preventing adjacent column bleed
+                    text_det_unclip_ratio=1.4        # 1.4 (down from 1.6) prevents tight tabular columns from bleeding into a single box
                 )
                 logging.getLogger("invoice_pipeline").info(
                     "PaddleOCR model loaded successfully."
@@ -494,8 +494,16 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
 
     if split_x is not None:
         # Two-column layout detected: separate Left and Right
-        left_lines  = [l for l in lines if _get_x_center(l) <= split_x]
-        right_lines = [l for l in lines if _get_x_center(l) >  split_x]
+        # To avoid splitting line items in half, we only apply the left/right split
+        # to the top section of the page (where Supplier and Customer headers are).
+        # The rest of the page (where line items are) is sorted as a single horizontal block.
+        header_threshold = h_img * 0.45
+        
+        header_lines = [l for l in lines if _get_y_center(l) <= header_threshold]
+        body_lines = [l for l in lines if _get_y_center(l) > header_threshold]
+
+        left_header  = [l for l in header_lines if _get_x_center(l) <= split_x]
+        right_header = [l for l in header_lines if _get_x_center(l) >  split_x]
 
         def _sort_and_join(chunk):
             chunk.sort(key=lambda l: (round(_get_y_center(l) / bucket_size) * bucket_size, _get_x_center(l)))
@@ -515,17 +523,19 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
                 text_lines.append(" ".join(current_line))
             return "\n".join(text_lines)
 
-        left_text  = _sort_and_join(left_lines)
-        right_text = _sort_and_join(right_lines)
-        raw_text = f"{left_text}\n\n--- DOCUMENT INFO COLUMN ---\n{right_text}"
+        left_text  = _sort_and_join(left_header)
+        right_text = _sort_and_join(right_header)
+        body_text  = _sort_and_join(body_lines)
+        
+        raw_text = f"{left_text}\n\n--- DOCUMENT INFO COLUMN ---\n{right_text}\n\n--- INVOICE BODY ---\n{body_text}"
     else:
         # Single-column layout — standard top-to-bottom, left-to-right sort
-        lines.sort(key=lambda x: (round(x[0][0][1] / bucket_size) * bucket_size, x[0][0][0]))
+        lines.sort(key=lambda l: (round(_get_y_center(l) / bucket_size) * bucket_size, _get_x_center(l)))
         text_lines = []
         current_line = []
         current_axis = None
         for line in lines:
-            axis_val = round((line[0][0][1] - border_size) / bucket_size) * bucket_size
+            axis_val = round((_get_y_center(line) - border_size) / bucket_size) * bucket_size
             if current_axis is None:
                 current_axis = axis_val
             if axis_val != current_axis:
