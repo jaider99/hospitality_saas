@@ -142,6 +142,7 @@ export const navItems: NavItem[] = [
   { id: 'products', label: 'Extracted Items', icon: Package },
   { id: 'recipes', label: 'Recipes', icon: Utensils },
   { id: 'labor', label: 'Staff & Labor', icon: Users },
+  { id: 'staff-costs', label: 'Staff costs', icon: Users },
   { id: 'incidents', label: 'Incidents Board', icon: AlertTriangle, badge: 4 },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];

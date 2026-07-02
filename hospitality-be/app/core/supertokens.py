@@ -205,6 +205,34 @@ def override_emailpassword_functions(original_implementation: EPInterface) -> EP
     return original_implementation
 
 
+def override_emailpassword_apis(original_implementation):
+    original_sign_up_post = original_implementation.sign_up_post
+
+    async def sign_up_post(
+        form_fields,
+        tenant_id,
+        session,
+        should_try_linking_with_session_user,
+        api_options,
+        user_context
+    ):
+        for field in form_fields:
+            if field.id in ["first_name", "last_name", "phone", "restaurant_name"]:
+                user_context[field.id] = field.value
+
+        return await original_sign_up_post(
+            form_fields,
+            tenant_id,
+            session,
+            should_try_linking_with_session_user,
+            api_options,
+            user_context
+        )
+
+    original_implementation.sign_up_post = sign_up_post
+    return original_implementation
+
+
 def override_thirdparty_functions(original_implementation: TPInterface) -> TPInterface:
     original_sign_in_up = original_implementation.sign_in_up
 
@@ -305,8 +333,17 @@ def init_supertokens():
         framework="fastapi",
         recipe_list=[
             emailpassword.init(
+                sign_up_feature=emailpassword.InputSignUpFeature(
+                    form_fields=[
+                        emailpassword.InputFormField('first_name'),
+                        emailpassword.InputFormField('last_name'),
+                        emailpassword.InputFormField('phone', optional=True),
+                        emailpassword.InputFormField('restaurant_name')
+                    ]
+                ),
                 override=emailpassword.InputOverrideConfig(
-                    functions=override_emailpassword_functions
+                    functions=override_emailpassword_functions,
+                    apis=override_emailpassword_apis
                 )
             ),
             thirdparty.init(

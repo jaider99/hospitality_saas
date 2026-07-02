@@ -45,10 +45,15 @@ export async function getRestaurantAction() {
   return res.json();
 }
 
-export async function updateRestaurantAction(data: UpdateRestaurantPayload) {
+export async function updateRestaurantAction(data: UpdateRestaurantPayload, restaurantId?: number) {
   await requireSession();
   const headers = await getAuthHeaders();
-  const res = await fetch(`${API_BASE}/restaurant`, {
+  
+  const url = restaurantId 
+    ? `${API_BASE}/restaurant/${restaurantId}`
+    : `${API_BASE}/restaurant`;
+
+  const res = await fetch(url, {
     method: 'PUT',
     headers,
     body: JSON.stringify(data),

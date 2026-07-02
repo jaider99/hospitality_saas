@@ -76,15 +76,12 @@ export default function RegisterPage() {
       const response = await EmailPassword.signUp({
         formFields: [
           { id: 'email', value: email },
-          { id: 'password', value: password }
-        ],
-        userContext: {
-          role: 'SUPER_ADMIN',
-          first_name: firstName,
-          last_name: lastName,
-          phone: phone || undefined,
-          restaurant_name: restaurantName
-        }
+          { id: 'password', value: password },
+          { id: 'first_name', value: firstName },
+          { id: 'last_name', value: lastName },
+          { id: 'phone', value: phone || '' },
+          { id: 'restaurant_name', value: restaurantName }
+        ]
       });
 
       if (response.status === 'OK') {

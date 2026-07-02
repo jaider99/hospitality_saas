@@ -140,3 +140,36 @@ def update_restaurant(
     db.commit()
     db.refresh(restaurant)
     return restaurant
+
+
+@router.put("/{restaurant_id}", response_model=RestaurantResponse)
+def update_specific_restaurant(
+    restaurant_id: int,
+    dto: RestaurantUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Updates the details and configuration of a specific restaurant (requires SUPER_ADMIN and ownership)."""
+    if current_user.role != "SUPER_ADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Only restaurant owners can configure specific restaurants."
+        )
+
+    restaurant = db.get(Restaurant, restaurant_id)
+    if not restaurant or restaurant.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Restaurant not found or you do not have permission to access it."
+        )
+
+    # Update fields
+    update_data = dto.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(restaurant, key, value)
+
+    restaurant.updated_at = datetime.utcnow()
+    db.add(restaurant)
+    db.commit()
+    db.refresh(restaurant)
+    return restaurant

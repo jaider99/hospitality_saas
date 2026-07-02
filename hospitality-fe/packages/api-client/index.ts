@@ -195,4 +195,58 @@ export class ApiClient {
     const res = await this.instance.put<any>('/roles/permissions', data);
     return res.data;
   }
+
+  // Payrolls & Staff Costs
+  async getStaffPositions(propertyId: number): Promise<any[]> {
+    const res = await this.instance.get<any[]>('/payrolls/positions', { params: { property_id: propertyId } });
+    return res.data;
+  }
+
+  async createStaffPosition(propertyId: number, data: any): Promise<any> {
+    const res = await this.instance.post<any>('/payrolls/positions', data, { params: { property_id: propertyId } });
+    return res.data;
+  }
+
+  async getStaffEmployees(propertyId: number): Promise<any[]> {
+    const res = await this.instance.get<any[]>('/payrolls/employees', { params: { property_id: propertyId } });
+    return res.data;
+  }
+
+  async createStaffEmployee(propertyId: number, data: any): Promise<any> {
+    const res = await this.instance.post<any>('/payrolls/employees', data, { params: { property_id: propertyId } });
+    return res.data;
+  }
+
+  async updateStaffEmployee(propertyId: number, employeeId: number, data: any): Promise<any> {
+    const res = await this.instance.put<any>(`/payrolls/employees/${employeeId}`, data, { params: { property_id: propertyId } });
+    return res.data;
+  }
+
+  async getMonthlyPayrolls(propertyId: number, period?: string): Promise<any[]> {
+    const params: any = { property_id: propertyId };
+    if (period) params.period = period;
+    const res = await this.instance.get<any[]>('/payrolls/monthly', { params });
+    return res.data;
+  }
+
+  async createMonthlyPayroll(propertyId: number, formData: FormData): Promise<any> {
+    const res = await this.instance.postForm<any>('/payrolls/monthly', formData, { params: { property_id: propertyId } });
+    return res.data;
+  }
+
+  async updateMonthlyPayroll(propertyId: number, payrollId: number, data: any): Promise<any> {
+    const res = await this.instance.put<any>(`/payrolls/monthly/${payrollId}`, data, { params: { property_id: propertyId } });
+    return res.data;
+  }
+
+  async deleteMonthlyPayroll(propertyId: number, payrollId: number): Promise<any> {
+    const res = await this.instance.delete<any>(`/payrolls/monthly/${payrollId}`, { params: { property_id: propertyId } });
+    return res.data;
+  }
+
+  async duplicatePayrolls(propertyId: number, data: { source_period: string, target_period: string, copy_notes: boolean, copy_attachments: boolean }): Promise<any> {
+    const res = await this.instance.post<any>('/payrolls/monthly/duplicate', data, { params: { property_id: propertyId } });
+    return res.data;
+  }
 }
+

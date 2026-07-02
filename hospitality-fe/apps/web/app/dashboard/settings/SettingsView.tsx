@@ -147,6 +147,66 @@ export default function SettingsView({ initialRestaurant, initialUsers }: Settin
   const [resTimezone, setResTimezone] = useState(initialRestaurant?.timezone || 'UTC');
   const [resOpStatus, setResOpStatus] = useState(initialRestaurant?.operational_status || 'OPEN');
 
+  // Inline Edit Restaurant States
+  const [editingRestaurantId, setEditingRestaurantId] = useState<number | null>(null);
+  const [editResName, setEditResName] = useState('');
+  const [editResTaxId, setEditResTaxId] = useState('');
+  const [editResEmail, setEditResEmail] = useState('');
+  const [editResPhone, setEditResPhone] = useState('');
+  const [editResAddress, setEditResAddress] = useState('');
+  const [editResCurrency, setEditResCurrency] = useState('');
+  const [editResTimezone, setEditResTimezone] = useState('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
+  const handleEditRestaurant = (r: any) => {
+    setEditingRestaurantId(r.id);
+    setEditResName(r.name || '');
+    setEditResTaxId(r.tax_id || '');
+    setEditResEmail(r.email || '');
+    setEditResPhone(r.phone || '');
+    setEditResAddress(r.address || '');
+    setEditResCurrency(r.currency || 'EUR');
+    setEditResTimezone(r.timezone || 'UTC');
+  };
+
+  const handleUpdateSpecificRestaurant = async (e: React.FormEvent, id: number) => {
+    e.preventDefault();
+    setEditSubmitting(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const updated = await updateRestaurantAction({
+        name: editResName,
+        tax_id: editResTaxId || undefined,
+        email: editResEmail || undefined,
+        phone: editResPhone || undefined,
+        address: editResAddress || undefined,
+        currency: editResCurrency,
+        timezone: editResTimezone,
+        operational_status: 'OPEN'
+      }, id);
+      setSuccessMsg(`✅ Settings for ${updated.name} updated successfully!`);
+      
+      setRestaurants(prev => prev.map(r => r.id === id ? { ...r, ...updated } : r));
+      
+      if (id === user?.restaurant_id) {
+         setRestaurant(updated);
+         setResName(updated.name);
+         setResTaxId(updated.tax_id || '');
+         setResEmail(updated.email || '');
+         setResPhone(updated.phone || '');
+         setResAddress(updated.address || '');
+         setResCurrency(updated.currency);
+         setResTimezone(updated.timezone);
+      }
+      setEditingRestaurantId(null);
+    } catch (error: any) {
+      setErrorMsg(error.message || 'Failed to update restaurant settings.');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
   // Debounce search input
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -679,6 +739,7 @@ export default function SettingsView({ initialRestaurant, initialUsers }: Settin
             </div>
           </div>
 
+
           {user?.role === 'SUPER_ADMIN' ? (
             /* Multi-restaurant View for SUPER_ADMIN */
             loadingRestaurants ? (
@@ -717,6 +778,23 @@ export default function SettingsView({ initialRestaurant, initialUsers }: Settin
                         </div>
 
                         <div className="flex items-center gap-2">
+                          {editingRestaurantId === r.id ? (
+                            <button
+                              type="button"
+                              onClick={() => setEditingRestaurantId(null)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-secondary text-foreground hover:bg-muted rounded-xl border border-border transition-colors cursor-pointer"
+                            >
+                              <X size={13} /> Cancel
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleEditRestaurant(r)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-secondary text-foreground hover:bg-muted rounded-xl border border-border transition-colors cursor-pointer"
+                            >
+                              <SettingsIcon size={13} /> Edit
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => toggleTeamExpand(r.id)}
@@ -727,6 +805,60 @@ export default function SettingsView({ initialRestaurant, initialUsers }: Settin
                           </button>
                         </div>
                       </div>
+
+                      {/* Inline Edit Form */}
+                      {editingRestaurantId === r.id && (
+                        <form onSubmit={(e) => handleUpdateSpecificRestaurant(e, r.id)} className="bg-secondary/20 p-5 rounded-xl border border-border mt-4 animate-fade-in space-y-5">
+                          <h4 className="text-sm font-bold flex items-center gap-2">
+                            <SettingsIcon size={14} className="text-primary" />
+                            Edit {r.name}
+                          </h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">Restaurant Name</label>
+                              <input type="text" className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:ring-2 focus:ring-primary/20 transition-all" value={editResName} onChange={(e) => setEditResName(e.target.value)} required />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">Tax ID</label>
+                              <input type="text" className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:ring-2 focus:ring-primary/20 transition-all" value={editResTaxId} onChange={(e) => setEditResTaxId(e.target.value)} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">Contact Email</label>
+                              <input type="email" className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:ring-2 focus:ring-primary/20 transition-all" value={editResEmail} onChange={(e) => setEditResEmail(e.target.value)} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">Contact Phone</label>
+                              <input type="text" className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:ring-2 focus:ring-primary/20 transition-all" value={editResPhone} onChange={(e) => setEditResPhone(e.target.value)} />
+                            </div>
+                            <div className="sm:col-span-2 space-y-1.5">
+                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">Physical Address</label>
+                              <input type="text" className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:ring-2 focus:ring-primary/20 transition-all" value={editResAddress} onChange={(e) => setEditResAddress(e.target.value)} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">Base Currency</label>
+                              <select className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:ring-2 focus:ring-primary/20 transition-all cursor-pointer" value={editResCurrency} onChange={(e) => setEditResCurrency(e.target.value)}>
+                                <option value="EUR">EUR €</option>
+                                <option value="USD">USD $</option>
+                                <option value="GBP">GBP £</option>
+                                <option value="INR">INR ₹</option>
+                                <option value="AED">AED د.إ</option>
+                                <option value="CAD">CAD $</option>
+                                <option value="AUD">AUD $</option>
+                              </select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">Default Timezone</label>
+                              <input type="text" className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm text-foreground focus:ring-2 focus:ring-primary/20 transition-all" value={editResTimezone} onChange={(e) => setEditResTimezone(e.target.value)} />
+                            </div>
+                          </div>
+                          <div className="pt-2 flex justify-end">
+                            <button type="submit" disabled={editSubmitting} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold bg-primary text-primary-foreground hover:opacity-90 rounded-xl shadow-sm transition-all active:scale-95 disabled:opacity-50">
+                              {editSubmitting ? 'Saving...' : 'Save Settings'}
+                            </button>
+                          </div>
+                        </form>
+                      )}
+
 
                       {/* Collapsible Team Members List */}
                       {isExpanded && (
@@ -843,112 +975,141 @@ export default function SettingsView({ initialRestaurant, initialUsers }: Settin
           ) : (
             /* Single Restaurant View for Owners/Staff */
             <div className="space-y-6">
-              {/* Restaurant profile card */}
-              <div className="bg-card rounded-2xl border border-border p-6 shadow-sm space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border/60 pb-4">
-                  <div>
-                    <h3 className="text-base font-bold text-foreground flex items-center gap-2">
-                      <Building size={16} className="text-muted-foreground" />
-                      Restaurant Profile
-                    </h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Operational metadata and timezone parameters. Contact your administrator to edit.
-                    </p>
-                  </div>
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-secondary text-muted-foreground border border-border mt-2 sm:mt-0">
-                    <Lock size={10} />
-                    Read Only
-                  </span>
-                </div>
-
-                {loadingRestaurant ? (
-                  <div className="py-12 flex flex-col items-center justify-center text-muted-foreground gap-2">
-                    <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                    <span className="text-xs">Loading profile...</span>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">
-                        Restaurant Name
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full bg-secondary/10 border border-border rounded-xl px-3.5 py-2.5 text-sm text-muted-foreground cursor-not-allowed"
-                        value={resName}
-                        disabled
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">
-                        Tax ID / Business Registration Number
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full bg-secondary/10 border border-border rounded-xl px-3.5 py-2.5 text-sm text-muted-foreground cursor-not-allowed"
-                        value={resTaxId || 'Not configured'}
-                        disabled
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">
-                        Contact Email Address
-                      </label>
-                      <input
-                        type="email"
-                        className="w-full bg-secondary/10 border border-border rounded-xl px-3.5 py-2.5 text-sm text-muted-foreground cursor-not-allowed"
-                        value={resEmail || 'Not configured'}
-                        disabled
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">
-                        Contact Phone Number
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full bg-secondary/10 border border-border rounded-xl px-3.5 py-2.5 text-sm text-muted-foreground cursor-not-allowed"
-                        value={resPhone || 'Not configured'}
-                        disabled
-                      />
-                    </div>
-                    <div className="sm:col-span-2 space-y-1.5">
-                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">
-                        Physical Address
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full bg-secondary/10 border border-border rounded-xl px-3.5 py-2.5 text-sm text-muted-foreground cursor-not-allowed"
-                        value={resAddress || 'Not configured'}
-                        disabled
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">
-                        Base Currency
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full bg-secondary/10 border border-border rounded-xl px-3.5 py-2.5 text-sm text-muted-foreground cursor-not-allowed"
-                        value={resCurrency}
-                        disabled
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">
-                        Default Timezone
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full bg-secondary/10 border border-border rounded-xl px-3.5 py-2.5 text-sm text-muted-foreground cursor-not-allowed"
-                        value={resTimezone}
-                        disabled
-                      />
-                    </div>
-                  </div>
-                )}
+          <form onSubmit={handleUpdateRestaurant} className="bg-card rounded-2xl border border-border p-6 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border/60 pb-4">
+              <div>
+                <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                  <Building size={16} className="text-muted-foreground" />
+                  Restaurant Profile
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {canManage 
+                    ? 'Update your operational metadata and timezone parameters.' 
+                    : 'Operational metadata and timezone parameters. Contact your administrator to edit.'}
+                </p>
               </div>
+              {!canManage ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-secondary text-muted-foreground border border-border mt-2 sm:mt-0">
+                  <Lock size={10} />
+                  Read Only
+                </span>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold bg-primary text-primary-foreground hover:opacity-90 rounded-xl shadow-sm transition-all active:scale-95 disabled:opacity-50 mt-2 sm:mt-0"
+                >
+                  {submitting ? 'Saving...' : 'Save Settings'}
+                </button>
+              )}
+            </div>
 
+            {loadingRestaurant ? (
+              <div className="py-12 flex flex-col items-center justify-center text-muted-foreground gap-2">
+                <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs">Loading profile...</span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">
+                    Restaurant Name
+                  </label>
+                  <input
+                    type="text"
+                    className={`w-full border border-border rounded-xl px-3.5 py-2.5 text-sm ${canManage ? 'bg-secondary/30 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20' : 'bg-secondary/10 text-muted-foreground cursor-not-allowed'} transition-all`}
+                    value={resName}
+                    onChange={(e) => setResName(e.target.value)}
+                    disabled={!canManage}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">
+                    Tax ID / Business Registration Number
+                  </label>
+                  <input
+                    type="text"
+                    className={`w-full border border-border rounded-xl px-3.5 py-2.5 text-sm ${canManage ? 'bg-secondary/30 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20' : 'bg-secondary/10 text-muted-foreground cursor-not-allowed'} transition-all`}
+                    value={resTaxId}
+                    onChange={(e) => setResTaxId(e.target.value)}
+                    placeholder={!canManage ? 'Not configured' : ''}
+                    disabled={!canManage}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">
+                    Contact Email Address
+                  </label>
+                  <input
+                    type="email"
+                    className={`w-full border border-border rounded-xl px-3.5 py-2.5 text-sm ${canManage ? 'bg-secondary/30 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20' : 'bg-secondary/10 text-muted-foreground cursor-not-allowed'} transition-all`}
+                    value={resEmail}
+                    onChange={(e) => setResEmail(e.target.value)}
+                    placeholder={!canManage ? 'Not configured' : ''}
+                    disabled={!canManage}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">
+                    Contact Phone Number
+                  </label>
+                  <input
+                    type="text"
+                    className={`w-full border border-border rounded-xl px-3.5 py-2.5 text-sm ${canManage ? 'bg-secondary/30 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20' : 'bg-secondary/10 text-muted-foreground cursor-not-allowed'} transition-all`}
+                    value={resPhone}
+                    onChange={(e) => setResPhone(e.target.value)}
+                    placeholder={!canManage ? 'Not configured' : ''}
+                    disabled={!canManage}
+                  />
+                </div>
+                <div className="sm:col-span-2 space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">
+                    Physical Address
+                  </label>
+                  <input
+                    type="text"
+                    className={`w-full border border-border rounded-xl px-3.5 py-2.5 text-sm ${canManage ? 'bg-secondary/30 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20' : 'bg-secondary/10 text-muted-foreground cursor-not-allowed'} transition-all`}
+                    value={resAddress}
+                    onChange={(e) => setResAddress(e.target.value)}
+                    placeholder={!canManage ? 'Not configured' : ''}
+                    disabled={!canManage}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">
+                    Base Currency
+                  </label>
+                  <select
+                    className={`w-full border border-border rounded-xl px-3.5 py-2.5 text-sm ${canManage ? 'bg-secondary/30 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer' : 'bg-secondary/10 text-muted-foreground cursor-not-allowed'} transition-all`}
+                    value={resCurrency}
+                    onChange={(e) => setResCurrency(e.target.value)}
+                    disabled={!canManage}
+                  >
+                    <option value="EUR">EUR €</option>
+                    <option value="USD">USD $</option>
+                    <option value="GBP">GBP £</option>
+                    <option value="INR">INR ₹</option>
+                    <option value="AED">AED د.إ</option>
+                    <option value="CAD">CAD $</option>
+                    <option value="AUD">AUD $</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block ml-1">
+                    Default Timezone
+                  </label>
+                  <input
+                    type="text"
+                    className={`w-full border border-border rounded-xl px-3.5 py-2.5 text-sm ${canManage ? 'bg-secondary/30 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20' : 'bg-secondary/10 text-muted-foreground cursor-not-allowed'} transition-all`}
+                    value={resTimezone}
+                    onChange={(e) => setResTimezone(e.target.value)}
+                    disabled={!canManage}
+                  />
+                </div>
+              </div>
+            )}
+          </form>
               {/* Collapsible Team Members Card for single restaurant view */}
               <div className="bg-card rounded-2xl border border-border p-6 shadow-sm space-y-4">
                 <div className="flex items-center justify-between border-b border-border/60 pb-4">

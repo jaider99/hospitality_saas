@@ -24,6 +24,7 @@ from app.module.recipes.model import Recipe, RecipeIngredient
 from app.module.incidents.model import OperationalIncident
 from app.module.labor.model import StaffMember, StaffShift
 from app.module.ai.model import AIInsight
+from app.module.payroll.model import StaffPosition, StaffRole, StaffEmployee, MonthlyPayroll
 
 # Import OCR storage models as well
 from app.ocr.storage import Base as OCRBase
@@ -31,7 +32,7 @@ from app.ocr.storage import Base as OCRBase
 # We need to manage both SQLModel metadata and OCR SQLAlchemy metadata
 # Alternatively, since we use same database, we can just point to one if we merged them,
 # but we have two metadatas now. Let's create a combined metadata or just use one.
-target_metadata = [SQLModel.metadata, OCRBase.metadata]
+target_metadata = SQLModel.metadata
 
 db_url = settings.DATABASE_URL
 if "?" in db_url:
