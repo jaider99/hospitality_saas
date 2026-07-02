@@ -35,6 +35,23 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
 
+
+class SupplierContactRecord(Base):
+    __tablename__ = "supplier_contacts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(255))
+    position = Column(String(255))
+    email = Column(String(255))
+    phone = Column(String(255))
+    contact_preference = Column(String(50))
+    is_main_contact = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    supplier = relationship("SupplierRecord", back_populates="contact_list")
+
 class SupplierRecord(Base):
     __tablename__ = "suppliers"
 
@@ -45,9 +62,20 @@ class SupplierRecord(Base):
     legal_name = Column(String(255))
     address = Column(Text)
     contacts = Column(Integer, default=0)
+    contact_name = Column(String(255))
+    
+    category_id = Column(String(255), index=True)
+    accounting_account = Column(String(255))
+    sanitary_registration = Column(String(255))
+    tags = Column(JSON)
+    payment_info = Column(JSON)
+    
     created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    deleted_at = Column(DateTime)
 
     invoices = relationship("InvoiceRecord", back_populates="supplier")
+    contact_list = relationship("SupplierContactRecord", back_populates="supplier", cascade="all, delete-orphan")
 
 
 class InvoiceRecord(Base):

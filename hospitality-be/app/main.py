@@ -25,6 +25,7 @@ from app.api.v1.incidents.route import router as incidents_router
 from app.api.v1.ai.route import router as ai_router
 from app.api.v1.restaurant.route import router as restaurant_router
 from app.api.v1.roles.route import router as roles_router
+from app.module.suppliers.router import router as suppliers_router
 
 # Setup logger
 logging.basicConfig(level=logging.INFO)
@@ -98,6 +99,7 @@ app.include_router(incidents_router, prefix="/api/v1/incidents", tags=["Operatio
 app.include_router(ai_router, prefix="/api/v1/ai", tags=["Decision AI & Chatbot"])
 app.include_router(restaurant_router, prefix="/api/v1/restaurant", tags=["Restaurant Management"])
 app.include_router(roles_router, prefix="/api/v1/roles", tags=["Roles & Permissions"])
+app.include_router(suppliers_router, prefix="/api/v1/suppliers", tags=["Suppliers"])
 
 if __name__ == "__main__":
     import uvicorn

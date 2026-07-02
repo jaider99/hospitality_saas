@@ -45,6 +45,23 @@ export class ApiClient {
     );
   }
 
+  // Generic HTTP methods
+  public async get<T = any>(url: string, config?: any): Promise<{ data: T }> {
+    return this.instance.get<T>(url, config);
+  }
+
+  public async post<T = any>(url: string, data?: any, config?: any): Promise<{ data: T }> {
+    return this.instance.post<T>(url, data, config);
+  }
+
+  public async put<T = any>(url: string, data?: any, config?: any): Promise<{ data: T }> {
+    return this.instance.put<T>(url, data, config);
+  }
+
+  public async delete<T = any>(url: string, config?: any): Promise<{ data: T }> {
+    return this.instance.delete<T>(url, config);
+  }
+
   // Authentication
   async login(data: LoginInput): Promise<AuthResponse> {
     const res = await this.instance.post<AuthResponse>('/auth/login', data);
