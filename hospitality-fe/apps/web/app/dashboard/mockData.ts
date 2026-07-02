@@ -1,5 +1,5 @@
 import {
-  Home, FileText, FileCheck, AlertCircle, Package, Utensils, Users, AlertTriangle, Settings
+  Home, FileText, FileCheck, AlertCircle, Package, Utensils, Users, AlertTriangle, Settings, Truck
 } from 'lucide-react';
 import { InvoiceLine, KanbanCard, ChatMsg, NavItem } from './types';
 
@@ -141,6 +141,7 @@ export const navItems: NavItem[] = [
   { id: 'review', label: 'Review Center', icon: AlertCircle, badge: 28 },
   { id: 'products', label: 'Extracted Items', icon: Package },
   { id: 'recipes', label: 'Recipes', icon: Utensils },
+  { id: 'suppliers', label: 'Suppliers', icon: Truck },
   { id: 'labor', label: 'Staff & Labor', icon: Users },
   { id: 'staff-costs', label: 'Staff costs', icon: Users },
   { id: 'incidents', label: 'Incidents Board', icon: AlertTriangle, badge: 4 },

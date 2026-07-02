@@ -25,6 +25,7 @@ from app.api.v1.incidents.route import router as incidents_router
 from app.api.v1.ai.route import router as ai_router
 from app.api.v1.restaurant.route import router as restaurant_router
 from app.api.v1.roles.route import router as roles_router
+from app.module.suppliers.router import router as suppliers_router
 from app.api.v1.payrolls.route import router as payroll_router
 
 # Setup logger
@@ -47,7 +48,8 @@ app.add_middleware(
         settings.WEBSITE_DOMAIN,
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "http://192.168.29.73:3000"
+        "http://192.168.1.26:3000",   # Local network (current dev machine)
+        "http://192.168.29.73:3000",  # Legacy local network fallback
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
@@ -99,6 +101,7 @@ app.include_router(incidents_router, prefix="/api/v1/incidents", tags=["Operatio
 app.include_router(ai_router, prefix="/api/v1/ai", tags=["Decision AI & Chatbot"])
 app.include_router(restaurant_router, prefix="/api/v1/restaurant", tags=["Restaurant Management"])
 app.include_router(roles_router, prefix="/api/v1/roles", tags=["Roles & Permissions"])
+app.include_router(suppliers_router, prefix="/api/v1/suppliers", tags=["Suppliers"])
 app.include_router(payroll_router, prefix="/api/v1/payrolls", tags=["Payrolls"])
 
 if __name__ == "__main__":

@@ -1,0 +1,1554 @@
+{
+  "categories": [
+    {
+      "id": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+      "name": "raw-materials",
+      "color": "#FFD766",
+      "hasProducts": true,
+      "subcategories": [
+        {
+          "id": "expcat~rllnL240TE2ZW8rMsZc0yw",
+          "name": "staff-meals",
+          "color": "#332500",
+          "hasProducts": true,
+          "subcategories": [],
+          "parentCategoryID": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~tbeknP_TRuSxtwSV_0e0Tw",
+          "name": "fish-and-seafood",
+          "color": "#503B00",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~HujNZOsiR0S22MNbQ5lzmA",
+              "name": "molluscs",
+              "color": "#332500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~tbeknP_TRuSxtwSV_0e0Tw",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~VLCM_cSlS6SlnLX0NKWy9A",
+              "name": "crustaceans",
+              "color": "#997000",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~tbeknP_TRuSxtwSV_0e0Tw",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~eLC3XOl_QM6IBvtQduKqDg",
+              "name": "seafood",
+              "color": "#FFBB00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~tbeknP_TRuSxtwSV_0e0Tw",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~CzciSZM-RryLLitL6bh0Dg",
+              "name": "fish",
+              "color": "#FFD666",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~tbeknP_TRuSxtwSV_0e0Tw",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~XzeszwYpTRWk3FhK0VApQA",
+          "name": "frozen",
+          "color": "#6D5000",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~LY7yO9qWTnq5okiNkQuX_Q",
+              "name": "frozen-meat",
+              "color": "#332500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~XzeszwYpTRWk3FhK0VApQA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~l3ZafKgQRtanzy3xZL1tcg",
+              "name": "frozen-vegetables",
+              "color": "#6D5000",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~XzeszwYpTRWk3FhK0VApQA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~UIAhJbi3QcCzez9S2zKTfQ",
+              "name": "ice",
+              "color": "#A87B00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~XzeszwYpTRWk3FhK0VApQA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~cvxpsjdGROiQJN9VwfxwOA",
+              "name": "frozen-fish-and-seafood",
+              "color": "#E2A600",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~XzeszwYpTRWk3FhK0VApQA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~oTJKTUDwRi28kU5Ve_qOZw",
+              "name": "frozen-precooked",
+              "color": "#FFC31D",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~XzeszwYpTRWk3FhK0VApQA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~oz-IY0teQw6jZYVUc-e8DQ",
+              "name": "ice-creams",
+              "color": "#FFD257",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~XzeszwYpTRWk3FhK0VApQA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~qIg2iij2TJ6VhJ6l_8WSoQ",
+              "name": "frozen-fruits",
+              "color": "#FFE292",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~XzeszwYpTRWk3FhK0VApQA",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~qGjKO_6NRESS47sGwVTCGw",
+          "name": "pastry-and-bakery",
+          "color": "#8A6600",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~JKfREhw1Q5GkSj4feDA44w",
+              "name": "cakes",
+              "color": "#332500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~qGjKO_6NRESS47sGwVTCGw",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~L7F46xWgSJOqKKbe2PeqeA",
+              "name": "bakery",
+              "color": "#6D5000",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~qGjKO_6NRESS47sGwVTCGw",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~P3VlrDVHQIuUnajvxbaFHw",
+              "name": "biscuits",
+              "color": "#A87B00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~qGjKO_6NRESS47sGwVTCGw",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~AzgnwZhQRWi_C6Y5FD14dw",
+              "name": "doughs-and-cakes",
+              "color": "#E2A600",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~qGjKO_6NRESS47sGwVTCGw",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~CIoQaVVRSSKD1CoWzxlKAA",
+              "name": "desserts",
+              "color": "#FFC31D",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~qGjKO_6NRESS47sGwVTCGw",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~by9BFf7FRf67_1Wc7swctg",
+              "name": "pastries",
+              "color": "#FFD257",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~qGjKO_6NRESS47sGwVTCGw",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~icWyJ-duQFiTeyWI3F2Q5g",
+              "name": "chocolates",
+              "color": "#FFE292",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~qGjKO_6NRESS47sGwVTCGw",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~xM5EpXVPQrixavgGTVsWOQ",
+          "name": "snacks",
+          "color": "#A87B00",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~taiByhKoQoqNdQpigvTBBg",
+              "name": "sweet-snacks",
+              "color": "#332500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~xM5EpXVPQrixavgGTVsWOQ",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~8k3_9TnjQKGeRjcsJmCMZQ",
+              "name": "salted-snacks",
+              "color": "#FFBB00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~xM5EpXVPQrixavgGTVsWOQ",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~yuFxYgJSTvqrVfHcE6vALA",
+          "name": "preserved-food",
+          "color": "#C59000",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~ML2jwP44RZ-Q7umB0CcBSQ",
+              "name": "fruit-preserves",
+              "color": "#332500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~yuFxYgJSTvqrVfHcE6vALA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~kSwayWO5T_iGaJ9plbGO-g",
+              "name": "olives-and-pickles",
+              "color": "#856100",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~yuFxYgJSTvqrVfHcE6vALA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~WUsmd7G0SJOYns8T0a6JEg",
+              "name": "canned-meat",
+              "color": "#D69D00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~yuFxYgJSTvqrVfHcE6vALA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~j5CIIzSRTOmTTQ0gTv0sIw",
+              "name": "canned-vegetables",
+              "color": "#FFC629",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~yuFxYgJSTvqrVfHcE6vALA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~_DsodvsBTrm-9rsoo0-oIQ",
+              "name": "canned-fish",
+              "color": "#FFDC7A",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~yuFxYgJSTvqrVfHcE6vALA",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~IpsGo_SWTLeeiCf-u2nMUw",
+          "name": "oils-and-fats",
+          "color": "#E2A600",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~IK-1REXhTwOXfEgp_sGdGA",
+              "name": "fats",
+              "color": "#332500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~IpsGo_SWTLeeiCf-u2nMUw",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~EsHv0WmaQlW-L3eUZvLXcg",
+              "name": "olive-oils",
+              "color": "#856100",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~IpsGo_SWTLeeiCf-u2nMUw",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~jzbx6V4qRz-L7D1XnuqhXg",
+              "name": "vegetal-oils",
+              "color": "#D69D00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~IpsGo_SWTLeeiCf-u2nMUw",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~3KtZbq8sRPaKx_DhPhwIlA",
+              "name": "vinegar",
+              "color": "#FFC629",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~IpsGo_SWTLeeiCf-u2nMUw",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~B5tSlh-kQe2wuXcNw_SzuA",
+              "name": "oils",
+              "color": "#FFDC7A",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~IpsGo_SWTLeeiCf-u2nMUw",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+          "fontColor": "#000000"
+        },
+        {
+          "id": "expcat~PHcQWBcCQsWwC1sMMaQ1ZA",
+          "name": "egg-dairy-and-derivatives",
+          "color": "#FFBB00",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~H772eDv1SRi43uwuOghJ3w",
+              "name": "other-dairy-derivatives",
+              "color": "#332500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~PHcQWBcCQsWwC1sMMaQ1ZA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~KPu7qWXWQJeGoPbYYt217g",
+              "name": "milk",
+              "color": "#553E00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~PHcQWBcCQsWwC1sMMaQ1ZA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~mNiYgthLTN2QL12UbRZSXQ",
+              "name": "cream",
+              "color": "#775700",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~PHcQWBcCQsWwC1sMMaQ1ZA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~SwinF9hLR6e4kmOFc-1UNA",
+              "name": "butter",
+              "color": "#997000",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~PHcQWBcCQsWwC1sMMaQ1ZA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~ZMH6yvibSQWgJVItTl2Cpw",
+              "name": "eggs",
+              "color": "#BB8900",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~PHcQWBcCQsWwC1sMMaQ1ZA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~bxg3582hScKfaVoT3l7dLw",
+              "name": "whey",
+              "color": "#DDA200",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~PHcQWBcCQsWwC1sMMaQ1ZA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~hrvFie4BT_ubco0Ds53rig",
+              "name": "vegetable-drinks",
+              "color": "#FFBB00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~PHcQWBcCQsWwC1sMMaQ1ZA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~i99ANpZfS6WXQATkfg3tSg",
+              "name": "condensed-milk",
+              "color": "#FFC422",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~PHcQWBcCQsWwC1sMMaQ1ZA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~0wrKVHBbSYWX178UmXqxyA",
+              "name": "cheese",
+              "color": "#FFCD44",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~PHcQWBcCQsWwC1sMMaQ1ZA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~1j7vCw6sQ46LDwrFlAMLQA",
+              "name": "cooking-cream",
+              "color": "#FFD666",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~PHcQWBcCQsWwC1sMMaQ1ZA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~2y9MD7rfRcWBE0-miwTd_w",
+              "name": "evaporated-milk",
+              "color": "#FFDF88",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~PHcQWBcCQsWwC1sMMaQ1ZA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~9lf7iTUHS2qtdAHF8yKkTg",
+              "name": "yoghurt",
+              "color": "#FFE8AA",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~PHcQWBcCQsWwC1sMMaQ1ZA",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+          "fontColor": "#000000"
+        },
+        {
+          "id": "expcat~eL9uuNONQGq__ewEEi6Heg",
+          "name": "5th-range",
+          "color": "#FFC31D",
+          "hasProducts": true,
+          "subcategories": [],
+          "parentCategoryID": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+          "fontColor": "#000000"
+        },
+        {
+          "id": "expcat~5n6TibQpRT-TET8wBLVOtg",
+          "name": "fruit-and-vegetables",
+          "color": "#FFCB3A",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~LGC36PtYTjWPPY-2PEiqXw",
+              "name": "fruit",
+              "color": "#332500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~5n6TibQpRT-TET8wBLVOtg",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~lYZAP1eLRyiI2cz4JJBdkQ",
+              "name": "legumes",
+              "color": "#664B00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~5n6TibQpRT-TET8wBLVOtg",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~BTJ1FftVTsWuIttWgtqH6g",
+              "name": "sprouts-buds-flowers",
+              "color": "#997000",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~5n6TibQpRT-TET8wBLVOtg",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~CqhC7DL6ToGSFy3ZI5Hptw",
+              "name": "algae",
+              "color": "#CC9600",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~5n6TibQpRT-TET8wBLVOtg",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~ZsqEd9EoTnKU1bkN_EGmbg",
+              "name": "nuts",
+              "color": "#FFBB00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~5n6TibQpRT-TET8wBLVOtg",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~hvIH_Fh5QyqhYOufs4xpSw",
+              "name": "tubercles",
+              "color": "#FFC933",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~5n6TibQpRT-TET8wBLVOtg",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~tquQXh4uQei5r1HF0Aw9Hw",
+              "name": "vegetables",
+              "color": "#FFD666",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~5n6TibQpRT-TET8wBLVOtg",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~6pCVN7GjQM2cTISa5PbRxg",
+              "name": "mushrooms",
+              "color": "#FFE499",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~5n6TibQpRT-TET8wBLVOtg",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+          "fontColor": "#000000"
+        },
+        {
+          "id": "expcat~0ili-yh6R5GQoKjNpXPv-w",
+          "name": "meats",
+          "color": "#FFD257",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~MNqOWwjkQxirM4b4MFhDAQ",
+              "name": "poultry",
+              "color": "#332500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~0ili-yh6R5GQoKjNpXPv-w",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~QX88hGkPQfew0ps4nL0R5w",
+              "name": "lamb",
+              "color": "#584100",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~0ili-yh6R5GQoKjNpXPv-w",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~kMSTMR1JSM-o6Oar85qQNg",
+              "name": "meat-by-products",
+              "color": "#7D5C00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~0ili-yh6R5GQoKjNpXPv-w",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~q4haD_O0TFS2W9yjCjxa2g",
+              "name": "cow",
+              "color": "#A27700",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~0ili-yh6R5GQoKjNpXPv-w",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~rHlThKneSlGvVuGTms1Pxg",
+              "name": "pork",
+              "color": "#C79200",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~0ili-yh6R5GQoKjNpXPv-w",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~ufOf8f0kSVKYavGL3ZhXVQ",
+              "name": "game-meat",
+              "color": "#ECAD00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~0ili-yh6R5GQoKjNpXPv-w",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~yCJKmsRBTzOpG1gH_Tq76Q",
+              "name": "ox",
+              "color": "#FFC013",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~0ili-yh6R5GQoKjNpXPv-w",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~1MMZnyMFQe2ehMiBNGIbQA",
+              "name": "rabbit",
+              "color": "#FFCA38",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~0ili-yh6R5GQoKjNpXPv-w",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~31A1Mr5fQ7y_d_uB_lahxg",
+              "name": "plant-proteins",
+              "color": "#FFD45D",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~0ili-yh6R5GQoKjNpXPv-w",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~4K_0n4WjQ3SEXTNyOhb1ww",
+              "name": "cured",
+              "color": "#FFDE82",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~0ili-yh6R5GQoKjNpXPv-w",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~-zzqmwCpTP6VfXsWjfbebQ",
+              "name": "beef",
+              "color": "#FFE8A7",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~0ili-yh6R5GQoKjNpXPv-w",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+          "fontColor": "#000000"
+        },
+        {
+          "id": "expcat~rlad6VU2RTSO-MMEMy5F7w",
+          "name": "cereal-rice-and-pasta",
+          "color": "#FFDA75",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~VX0If1lvQv2PnfDEhy_wqQ",
+              "name": "flour",
+              "color": "#332500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~rlad6VU2RTSO-MMEMy5F7w",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~XvGOv1doSmyYlqH6fPvtSQ",
+              "name": "cereal",
+              "color": "#997000",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~rlad6VU2RTSO-MMEMy5F7w",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~bhrs7eLbTvWvFXLexFrsVg",
+              "name": "rice",
+              "color": "#FFBB00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~rlad6VU2RTSO-MMEMy5F7w",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~qrah-80nSlSEVwba9T599Q",
+              "name": "pasta",
+              "color": "#FFD666",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~rlad6VU2RTSO-MMEMy5F7w",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+          "fontColor": "#000000"
+        },
+        {
+          "id": "expcat~n1OQZ8p9QXK_kCMW3pAWEA",
+          "name": "seasoning-spices-and-sweeteners",
+          "color": "#FFE292",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~NR1mT29BQDurcEmOEdoQxw",
+              "name": "honey",
+              "color": "#332500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~n1OQZ8p9QXK_kCMW3pAWEA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~pG9Qy5GHT1agiXg2uTVujg",
+              "name": "seeds",
+              "color": "#6D5000",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~n1OQZ8p9QXK_kCMW3pAWEA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~ViaIgHXiQ7mVigaKmYyQOQ",
+              "name": "sweeteners",
+              "color": "#A87B00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~n1OQZ8p9QXK_kCMW3pAWEA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~c0t7neszQaew4kesMh3ghg",
+              "name": "sauce",
+              "color": "#E2A600",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~n1OQZ8p9QXK_kCMW3pAWEA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~vh5C-Cp1Sumfu8BIJCa6hw",
+              "name": "condiments",
+              "color": "#FFC31D",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~n1OQZ8p9QXK_kCMW3pAWEA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~xKnzOw-1QfC8zLezXml_nA",
+              "name": "sugar",
+              "color": "#FFD257",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~n1OQZ8p9QXK_kCMW3pAWEA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~6yw_NojvSxSUQkWk14I1sw",
+              "name": "spices",
+              "color": "#FFE292",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~n1OQZ8p9QXK_kCMW3pAWEA",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+          "fontColor": "#000000"
+        },
+        {
+          "id": "expcat~hYazPcafQj68gEss8AnNgQ",
+          "name": "coffee-beans",
+          "color": "#FFEAAF",
+          "hasProducts": true,
+          "subcategories": [],
+          "parentCategoryID": "expcat~34r_KrT6S06jtAL-0Mk2xQ",
+          "fontColor": "#000000"
+        }
+      ],
+      "fontColor": "#000000"
+    },
+    {
+      "id": "expcat~gXafP2W8THKd_lQvwOBvAQ",
+      "name": "drinks",
+      "color": "#FFB600",
+      "hasProducts": true,
+      "subcategories": [
+        {
+          "id": "expcat~AhPuPrWlSvCZP6nSsupzzg",
+          "name": "wines",
+          "color": "#332500",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~HJBKaLlzTx-AwXY5naF7lA",
+              "name": "sparkling-wine",
+              "color": "#332500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~AhPuPrWlSvCZP6nSsupzzg",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~TqqQa0eUQaSXL7rZ8pl4ug",
+              "name": "vermouth",
+              "color": "#6D4E00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~AhPuPrWlSvCZP6nSsupzzg",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~d9r8YsqcQPaPK9pz-zmKAA",
+              "name": "red-wine",
+              "color": "#A87800",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~AhPuPrWlSvCZP6nSsupzzg",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~eLE85aYySYeFcgwDObZf7g",
+              "name": "orange-wine",
+              "color": "#E2A200",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~AhPuPrWlSvCZP6nSsupzzg",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~6rpzv3wpRYmeJ7X_1E1ayQ",
+              "name": "sweet-wine",
+              "color": "#FFBF1D",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~AhPuPrWlSvCZP6nSsupzzg",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~7TEmuh9aT-GcQqul7hU-Cg",
+              "name": "pink-wine",
+              "color": "#FFD057",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~AhPuPrWlSvCZP6nSsupzzg",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~9ga6vFokS_CrbIxiLGWC5g",
+              "name": "white-wine",
+              "color": "#FFE092",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~AhPuPrWlSvCZP6nSsupzzg",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~gXafP2W8THKd_lQvwOBvAQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~IF5NkGPaR7mBiRihIVu3ZA",
+          "name": "distillates",
+          "color": "#664900",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~l36699VwSgKhaCNFrebZTw",
+              "name": "vodka",
+              "color": "#332500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~IF5NkGPaR7mBiRihIVu3ZA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~Cxu1P4khSU2Rk2KlzrURwg",
+              "name": "rum",
+              "color": "#855F00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~IF5NkGPaR7mBiRihIVu3ZA",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~Susf-ujnQ4-Pp5_gcnAUbw",
+              "name": "tequila",
+              "color": "#D69A00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~IF5NkGPaR7mBiRihIVu3ZA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~zdW1T4puQXCSx2ywpyl7oA",
+              "name": "gin",
+              "color": "#FFC229",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~IF5NkGPaR7mBiRihIVu3ZA",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~16bA3Zj4Rl-e4ddTJeUPIQ",
+              "name": "whisky",
+              "color": "#FFD97A",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~IF5NkGPaR7mBiRihIVu3ZA",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~gXafP2W8THKd_lQvwOBvAQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~n0VKdpCDTZO81cQ5OnnLHA",
+          "name": "liquor",
+          "color": "#996E00",
+          "hasProducts": true,
+          "subcategories": [],
+          "parentCategoryID": "expcat~gXafP2W8THKd_lQvwOBvAQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~pndZGyFjRvu4seXtVPqRcw",
+          "name": "beer",
+          "color": "#CC9200",
+          "hasProducts": true,
+          "subcategories": [],
+          "parentCategoryID": "expcat~gXafP2W8THKd_lQvwOBvAQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~vtwpyK__SJO689YF0tN-qw",
+          "name": "cider",
+          "color": "#FFB700",
+          "hasProducts": true,
+          "subcategories": [],
+          "parentCategoryID": "expcat~gXafP2W8THKd_lQvwOBvAQ",
+          "fontColor": "#000000"
+        },
+        {
+          "id": "expcat~S7Rbq58xRNiKLaP8JiC4PQ",
+          "name": "non-alcoholic",
+          "color": "#FFC533",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~QfxAsjeHSJ-Gcl-VSCJj6Q",
+              "name": "non-alcoholic-beer",
+              "color": "#332500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~S7Rbq58xRNiKLaP8JiC4PQ",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~W02bmURWSjGMzRt2sD-__w",
+              "name": "juices-and-slushies",
+              "color": "#775500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~S7Rbq58xRNiKLaP8JiC4PQ",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~aC-tOeCARZm3MUmJD4kNzg",
+              "name": "water",
+              "color": "#BB8600",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~S7Rbq58xRNiKLaP8JiC4PQ",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~dHYoJGcQRAuHNm4ohle-Cw",
+              "name": "herbal-teas",
+              "color": "#FFB700",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~S7Rbq58xRNiKLaP8JiC4PQ",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~gxDj4YhJTqa4XUd5xu_6YQ",
+              "name": "coffee",
+              "color": "#FFCA44",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~S7Rbq58xRNiKLaP8JiC4PQ",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~DmGp4O60Q5irFJL-P72AlA",
+              "name": "soft-drinks",
+              "color": "#FFDD88",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~S7Rbq58xRNiKLaP8JiC4PQ",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~gXafP2W8THKd_lQvwOBvAQ",
+          "fontColor": "#000000"
+        },
+        {
+          "id": "expcat~pggg4492SOaBMJu4lt8eiQ",
+          "name": "alcoholic",
+          "color": "#FFD466",
+          "hasProducts": true,
+          "subcategories": [],
+          "parentCategoryID": "expcat~gXafP2W8THKd_lQvwOBvAQ",
+          "fontColor": "#000000"
+        },
+        {
+          "id": "expcat~ootjwnOdSeG2zHCi_n2_Ww",
+          "name": "returnable-containers",
+          "color": "#FFE299",
+          "hasProducts": true,
+          "subcategories": [],
+          "parentCategoryID": "expcat~gXafP2W8THKd_lQvwOBvAQ",
+          "fontColor": "#000000"
+        }
+      ],
+      "fontColor": "#000000"
+    },
+    {
+      "id": "expcat~4q4G1xGiSJ6agjYJLsrsrQ",
+      "name": "cleaning",
+      "color": "#FF8650",
+      "hasProducts": true,
+      "subcategories": [
+        {
+          "id": "expcat~r4BETbTySjyjTqL4PllOIA",
+          "name": "laundry",
+          "color": "#331000",
+          "hasProducts": true,
+          "subcategories": [],
+          "parentCategoryID": "expcat~4q4G1xGiSJ6agjYJLsrsrQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~6CAT5oGXRziaHIcRJQ26KQ",
+          "name": "cleaning-services",
+          "color": "#993000",
+          "hasProducts": true,
+          "subcategories": [],
+          "parentCategoryID": "expcat~4q4G1xGiSJ6agjYJLsrsrQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~Ms3HkJhwRkafb43iWE2veg",
+          "name": "cleaning-tools",
+          "color": "#FF5100",
+          "hasProducts": true,
+          "subcategories": [],
+          "parentCategoryID": "expcat~4q4G1xGiSJ6agjYJLsrsrQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~WoJCvSf4R1GMwPzxnmSG1A",
+          "name": "cleaning-products",
+          "color": "#FF9666",
+          "hasProducts": true,
+          "subcategories": [],
+          "parentCategoryID": "expcat~4q4G1xGiSJ6agjYJLsrsrQ",
+          "fontColor": "#000000"
+        }
+      ],
+      "fontColor": "#000000"
+    },
+    {
+      "id": "expcat~Mx5E35kETuaeyPpMo36JlA",
+      "name": "consumables",
+      "color": "#FFA24B",
+      "hasProducts": true,
+      "subcategories": [
+        {
+          "id": "expcat~jXaKzopQSGawMmE3KoPpgw",
+          "name": "household",
+          "color": "#331900",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~KwqkTrlzS_uTCQhI3mL1gQ",
+              "name": "tablecloths",
+              "color": "#331900",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~jXaKzopQSGawMmE3KoPpgw",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~MNRnqWfJSKGb0EZlrlSw8A",
+              "name": "glassware",
+              "color": "#6D3500",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~jXaKzopQSGawMmE3KoPpgw",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~nOFZQ_exSkmzJHPvMMa6iw",
+              "name": "crockery",
+              "color": "#A85100",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~jXaKzopQSGawMmE3KoPpgw",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~S_9pb7agQ4Oyp01FA5_nJA",
+              "name": "miscellaneous-items",
+              "color": "#E26D00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~jXaKzopQSGawMmE3KoPpgw",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~_LBBAO13Qn2fPZ2SPA-qWA",
+              "name": "disposables",
+              "color": "#FF8A1D",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~jXaKzopQSGawMmE3KoPpgw",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~APSQ-SlBTWKFQMH4PQKxgA",
+              "name": "napkins",
+              "color": "#FFA857",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~jXaKzopQSGawMmE3KoPpgw",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~AN-fOb11RLOCdlATqx1sKQ",
+              "name": "cutlery",
+              "color": "#FFC792",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~jXaKzopQSGawMmE3KoPpgw",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~Mx5E35kETuaeyPpMo36JlA",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~y_BxvnbrRPO4bsIMOmwWuQ",
+          "name": "office-supplies",
+          "color": "#773A00",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~Gg-uRUuJSvKgrPr1Ml6eSg",
+              "name": "toner",
+              "color": "#331900",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~y_BxvnbrRPO4bsIMOmwWuQ",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~Uj-9HCvITdKfS8-k3UtK4w",
+              "name": "paper",
+              "color": "#BB5A00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~y_BxvnbrRPO4bsIMOmwWuQ",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~oRgUahArTxG_yV0c3X0SEQ",
+              "name": "copy-services",
+              "color": "#FF9E44",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~y_BxvnbrRPO4bsIMOmwWuQ",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~Mx5E35kETuaeyPpMo36JlA",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~WXtRqtz_TtSw5r_BbFZ3vQ",
+          "name": "other-consumables",
+          "color": "#BB5A00",
+          "hasProducts": true,
+          "subcategories": [],
+          "parentCategoryID": "expcat~Mx5E35kETuaeyPpMo36JlA",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~XrxjiUXZQFeC9jMI_2d7DQ",
+          "name": "packaging",
+          "color": "#FF7B00",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~PfWK1rE4SaC4GqfZDuDpdQ",
+              "name": "take-away-glasses",
+              "color": "#331900",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~XrxjiUXZQFeC9jMI_2d7DQ",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~RI1ziwtcRYCSljSsySWw1Q",
+              "name": "take-away-cutlery",
+              "color": "#854000",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~XrxjiUXZQFeC9jMI_2d7DQ",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~ZuUByouqQoWQnMrUMLwe3w",
+              "name": "boxes",
+              "color": "#D66800",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~XrxjiUXZQFeC9jMI_2d7DQ",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~3cDnc2OQRPmoNTD6SN2UWg",
+              "name": "bags",
+              "color": "#FF9029",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~XrxjiUXZQFeC9jMI_2d7DQ",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~9TYAZMMETaiv_2xAkENJUA",
+              "name": "tops",
+              "color": "#FFBA7A",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~XrxjiUXZQFeC9jMI_2d7DQ",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~Mx5E35kETuaeyPpMo36JlA",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~wTxBGrgJS4aNzVL5TZfpXw",
+          "name": "uniforms",
+          "color": "#FF9E44",
+          "hasProducts": true,
+          "subcategories": [],
+          "parentCategoryID": "expcat~Mx5E35kETuaeyPpMo36JlA",
+          "fontColor": "#000000"
+        },
+        {
+          "id": "expcat~ll72u4SUT_mYCzouOX3WFQ",
+          "name": "kitchen-equipment",
+          "color": "#FFC288",
+          "hasProducts": true,
+          "subcategories": [
+            {
+              "id": "expcat~INipaKxmTFe2c7485WljHA",
+              "name": "lunch-box",
+              "color": "#331900",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~ll72u4SUT_mYCzouOX3WFQ",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~jI7npIRCQxibIdQRasMYng",
+              "name": "cooking-pot",
+              "color": "#773A00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~ll72u4SUT_mYCzouOX3WFQ",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~t0IDHo4-Rxa6JUWtdO504A",
+              "name": "frying-pans",
+              "color": "#BB5A00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~ll72u4SUT_mYCzouOX3WFQ",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~xYKpiVazQe2S6odkLDhx1A",
+              "name": "paella-pan",
+              "color": "#FF7B00",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~ll72u4SUT_mYCzouOX3WFQ",
+              "fontColor": "#FFFFFF"
+            },
+            {
+              "id": "expcat~4uN8FPUXRB2o06Tz-DQTHw",
+              "name": "miscellaneous-tools",
+              "color": "#FF9E44",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~ll72u4SUT_mYCzouOX3WFQ",
+              "fontColor": "#000000"
+            },
+            {
+              "id": "expcat~FOhE72fqTb-L5TH26QxNSw",
+              "name": "oven-plate",
+              "color": "#FFC288",
+              "hasProducts": true,
+              "subcategories": [],
+              "parentCategoryID": "expcat~ll72u4SUT_mYCzouOX3WFQ",
+              "fontColor": "#000000"
+            }
+          ],
+          "parentCategoryID": "expcat~Mx5E35kETuaeyPpMo36JlA",
+          "fontColor": "#000000"
+        }
+      ],
+      "fontColor": "#000000"
+    },
+    {
+      "id": "expcat~YlRxLgg0SDOr8IHB4wDcNQ",
+      "name": "management",
+      "color": "#867EFF",
+      "hasProducts": false,
+      "subcategories": [],
+      "fontColor": "#FFFFFF"
+    },
+    {
+      "id": "expcat~gp5utDPSTNmxlb2XvvweIw",
+      "name": "marketing-and-communication",
+      "color": "#00007C",
+      "hasProducts": false,
+      "subcategories": [],
+      "fontColor": "#FFFFFF"
+    },
+    {
+      "id": "expcat~NbtufaA_QHWX81E6n8izfQ",
+      "name": "rent",
+      "color": "#8FD1D6",
+      "hasProducts": false,
+      "subcategories": [
+        {
+          "id": "expcat~PA3blSq2Tom6iRYX8vBbDg",
+          "name": "premises",
+          "color": "#0E2425",
+          "hasProducts": false,
+          "subcategories": [],
+          "parentCategoryID": "expcat~NbtufaA_QHWX81E6n8izfQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~fXWtgaIAQ8yqpRmvaWcsoA",
+          "name": "rentals",
+          "color": "#328389",
+          "hasProducts": false,
+          "subcategories": [],
+          "parentCategoryID": "expcat~NbtufaA_QHWX81E6n8izfQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~yD6zCY0HThWRFNUBNogc2w",
+          "name": "machinery",
+          "color": "#76C7CD",
+          "hasProducts": false,
+          "subcategories": [],
+          "parentCategoryID": "expcat~NbtufaA_QHWX81E6n8izfQ",
+          "fontColor": "#000000"
+        }
+      ],
+      "fontColor": "#000000"
+    },
+    {
+      "id": "expcat~uFRgX0VbRLaGnytrM4uduQ",
+      "name": "finance",
+      "color": "#4F4F4F",
+      "hasProducts": false,
+      "subcategories": [
+        {
+          "id": "expcat~MaWuJYN7Tde-DqIzmNwHSg",
+          "name": "insurance",
+          "color": "#1A1A1A",
+          "hasProducts": false,
+          "subcategories": [],
+          "parentCategoryID": "expcat~uFRgX0VbRLaGnytrM4uduQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~UFwoa_Z5RX-zTIUGJBtFOg",
+          "name": "taxes",
+          "color": "#5E5E5E",
+          "hasProducts": false,
+          "subcategories": [],
+          "parentCategoryID": "expcat~uFRgX0VbRLaGnytrM4uduQ",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~UH84LTj8RUOdIKdr8EyWgA",
+          "name": "loans",
+          "color": "#A2A2A2",
+          "hasProducts": false,
+          "subcategories": [],
+          "parentCategoryID": "expcat~uFRgX0VbRLaGnytrM4uduQ",
+          "fontColor": "#000000"
+        }
+      ],
+      "fontColor": "#FFFFFF"
+    },
+    {
+      "id": "expcat~EyBi2kRwRECjJj5AhEmEIg",
+      "name": "maintenance",
+      "color": "#828282",
+      "hasProducts": false,
+      "subcategories": [
+        {
+          "id": "expcat~DFwLsXLuShyezM8lxC1-uw",
+          "name": "repairs",
+          "color": "#1A1A1A",
+          "hasProducts": false,
+          "subcategories": [],
+          "parentCategoryID": "expcat~EyBi2kRwRECjJj5AhEmEIg",
+          "fontColor": "#FFFFFF"
+        }
+      ],
+      "fontColor": "#FFFFFF"
+    },
+    {
+      "id": "expcat~S-MU0NBSRZ2YgbloKKUMlw",
+      "name": "others",
+      "color": "#BDBDBD",
+      "hasProducts": true,
+      "subcategories": [],
+      "fontColor": "#000000"
+    },
+    {
+      "id": "expcat~iboPN5p5TM-o1IMIRN9RiA",
+      "name": "utilities",
+      "color": "#FFB380",
+      "hasProducts": false,
+      "subcategories": [
+        {
+          "id": "expcat~AyHrMGpGRaOQRsPuBtDSCg",
+          "name": "electricity",
+          "color": "#331400",
+          "hasProducts": false,
+          "subcategories": [],
+          "parentCategoryID": "expcat~iboPN5p5TM-o1IMIRN9RiA",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~IWKF9D4BTj28yFgVEYDb6Q",
+          "name": "gas",
+          "color": "#773000",
+          "hasProducts": false,
+          "subcategories": [],
+          "parentCategoryID": "expcat~iboPN5p5TM-o1IMIRN9RiA",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~n21TqdLlScGJzdtq8q8zdA",
+          "name": "telephone",
+          "color": "#BB4B00",
+          "hasProducts": false,
+          "subcategories": [],
+          "parentCategoryID": "expcat~iboPN5p5TM-o1IMIRN9RiA",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~23ipNfsVQqChfgodtEOjNg",
+          "name": "water",
+          "color": "#FF6600",
+          "hasProducts": false,
+          "subcategories": [],
+          "parentCategoryID": "expcat~iboPN5p5TM-o1IMIRN9RiA",
+          "fontColor": "#FFFFFF"
+        },
+        {
+          "id": "expcat~5gstIyN0QqKzA50DFchdDg",
+          "name": "light",
+          "color": "#FF8F44",
+          "hasProducts": false,
+          "subcategories": [],
+          "parentCategoryID": "expcat~iboPN5p5TM-o1IMIRN9RiA",
+          "fontColor": "#000000"
+        },
+        {
+          "id": "expcat~cFf0tvJTQnuYrcjUGlSIcQ",
+          "name": "fuel",
+          "color": "#FFB888",
+          "hasProducts": false,
+          "subcategories": [],
+          "parentCategoryID": "expcat~iboPN5p5TM-o1IMIRN9RiA",
+          "fontColor": "#000000"
+        }
+      ],
+      "fontColor": "#000000"
+    },
+    {
+      "id": "expcat~U3O9P4aHQhuYEBcM7hEiNQ",
+      "name": "tech",
+      "color": "#3528FF",
+      "hasProducts": false,
+      "subcategories": [],
+      "fontColor": "#FFFFFF"
+    },
+    {
+      "id": "expcat~xuGvObKfS_CRcXkEsENZqw",
+      "name": "equipment-and-furniture",
+      "color": "#267B8E",
+      "hasProducts": false,
+      "subcategories": [],
+      "fontColor": "#FFFFFF"
+    },
+    {
+      "id": "expcat~aKMH4yLkS8KyEDAKTeWPMg",
+      "name": "delivery-and-transport",
+      "color": "#800080",
+      "hasProducts": false,
+      "subcategories": [],
+      "fontColor": "#FFFFFF"
+    },
+    {
+      "id": "expcat~zKiOoWCJR2GBdMxSH-J01A",
+      "name": "personal-expenses",
+      "color": "#867EFF",
+      "hasProducts": true,
+      "subcategories": [],
+      "fontColor": "#FFFFFF"
+    }
+  ]
+}

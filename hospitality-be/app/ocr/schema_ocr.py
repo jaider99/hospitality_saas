@@ -105,6 +105,7 @@ class Invoice:
 
     # Adding a place for confidence and review notes so pipeline can still use them
     ocr_confidence: Optional[float] = None
+    llm_confidence: Optional[float] = None
     needs_review: bool = False
     review_reasons: List[str] = field(default_factory=list)
     ocr_time: Optional[float] = None

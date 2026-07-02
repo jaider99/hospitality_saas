@@ -81,13 +81,26 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
 
         # Trigger Success Webhook
         try:
-            import httpx
+            import urllib.request
+            import json
             webhook_url = f"http://localhost:{settings.PORT}/api/v1/invoices/webhook"
             logger.info(f"Triggering success webhook at {webhook_url}...")
-            async with httpx.AsyncClient() as client:
-                await client.post(webhook_url, json={"invoice_id": invoice_id, "status": "PROCESSED"})
+            
+            data = json.dumps({"invoice_id": invoice_id, "status": "PROCESSED"}).encode("utf-8")
+            req = urllib.request.Request(
+                webhook_url, 
+                data=data, 
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+            logger.info(f"Triggering success webhook at {webhook_url}...")
+            try:
+                with urllib.request.urlopen(req, timeout=15) as response:
+                    logger.info(f"Webhook response: {response.status}")
+            except Exception as e:
+                logger.warning(f"Failed to trigger webhook on success: {e}. (This does not affect invoice processing)")
         except Exception as webhook_err:
-            logger.error(f"Failed to trigger webhook on success: {webhook_err}")
+            logger.error(f"Failed to trigger webhook on success: {webhook_err}", exc_info=True)
 
     except Exception as e:
         logger.error(f"Error processing invoice ID {invoice_id}: {str(e)}", exc_info=True)

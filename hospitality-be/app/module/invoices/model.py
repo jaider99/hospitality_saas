@@ -1,21 +1,50 @@
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import SQLModel, Field, Relationship, Column, JSON
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
+
+
+class SupplierContact(SQLModel, table=True):
+    __tablename__ = "supplier_contacts"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    supplier_id: int = Field(foreign_key="suppliers.id", ondelete="CASCADE")
+    name: str
+    position: Optional[str] = Field(default=None)
+    email: Optional[str] = Field(default=None)
+    phone: Optional[str] = Field(default=None)
+    contact_preference: Optional[str] = Field(default=None)
+    is_main_contact: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    supplier: "Supplier" = Relationship(back_populates="contact_list")
 
 class Supplier(SQLModel, table=True):
     __tablename__ = "suppliers"  # Use snake_case plural to match migrations
     
     id: Optional[int] = Field(default=None, primary_key=True)
+    supplier_code: Optional[str] = Field(default=None, index=True)
     name: str = Field(index=True)
     legal_name: Optional[str] = Field(default=None)        # legalName from OCR schema
     vat_id: Optional[str] = Field(default=None, index=True)  # CIF/NIF/VAT from OCR schema
     address: Optional[str] = Field(default=None)
-    contacts: int = Field(default=0)
+    category_id: Optional[str] = Field(default=None, index=True)
+    accounting_account: Optional[str] = Field(default=None)
+    sanitary_registration: Optional[str] = Field(default=None)
+    tags: List[str] = Field(default=[], sa_column=Column(JSON))
+    payment_info: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    notes: List[Dict[str, Any]] = Field(default=[], sa_column=Column(JSON))
+
+    contacts_count: int = Field(default=0)
     contact_info: Optional[str] = Field(default=None)      # Phone, email, etc.
     contact_name: Optional[str] = Field(default=None)      # Main contact person name
+    
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    deleted_at: Optional[datetime] = Field(default=None)
 
     # Relationships
+    contact_list: List["SupplierContact"] = Relationship(back_populates="supplier", cascade_delete=True)
     products: List["SuppliedProduct"] = Relationship(back_populates="supplier", cascade_delete=True)
     invoices: List["Invoice"] = Relationship(back_populates="supplier", cascade_delete=True)
 
@@ -67,6 +96,7 @@ class Invoice(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     is_refund: bool = Field(default=False)
     is_recurrent: bool = Field(default=False)
+    is_duplicate: bool = Field(default=False)
 
     # --- OCR-extracted fields (populated by background worker) ---
     # General info
@@ -94,6 +124,10 @@ class Invoice(SQLModel, table=True):
     attributable_cost: Optional[float] = Field(default=None)
     tax_free_costs: Optional[float] = Field(default=None)
     total_with_iva: Optional[float] = Field(default=None)
+
+    # Extraction confidence metrics
+    ocr_confidence: Optional[float] = Field(default=None)
+    llm_confidence: Optional[float] = Field(default=None)
 
     # Status from invoice document
     reconciliation_status: Optional[str] = Field(default=None)  # Unreconciled / Reconciled

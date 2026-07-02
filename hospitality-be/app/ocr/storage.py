@@ -35,6 +35,23 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
 
+
+class SupplierContactRecord(Base):
+    __tablename__ = "supplier_contacts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(255))
+    position = Column(String(255))
+    email = Column(String(255))
+    phone = Column(String(255))
+    contact_preference = Column(String(50))
+    is_main_contact = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    supplier = relationship("SupplierRecord", back_populates="contact_list")
+
 class SupplierRecord(Base):
     __tablename__ = "suppliers"
 
@@ -45,9 +62,20 @@ class SupplierRecord(Base):
     legal_name = Column(String(255))
     address = Column(Text)
     contacts = Column(Integer, default=0)
+    contact_name = Column(String(255))
+    
+    category_id = Column(String(255), index=True)
+    accounting_account = Column(String(255))
+    sanitary_registration = Column(String(255))
+    tags = Column(JSON)
+    payment_info = Column(JSON)
+    
     created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    deleted_at = Column(DateTime)
 
     invoices = relationship("InvoiceRecord", back_populates="supplier")
+    contact_list = relationship("SupplierContactRecord", back_populates="supplier", cascade="all, delete-orphan")
 
 
 class InvoiceRecord(Base):
@@ -74,6 +102,7 @@ class InvoiceRecord(Base):
     isRefund = Column(Boolean, default=False)
     isReconciled = Column(Boolean, default=False)
     isRecurrent = Column(Boolean, default=False)
+    is_duplicate = Column(Boolean, default=False)
     documentInboxEmail = Column(String(255))
     observations = Column(Text)
     fileUrl = Column(String(1000))
@@ -114,16 +143,16 @@ class InvoiceLineRecord(Base):
 
 
 class TaxBracketRecord(Base):
-    __tablename__ = "tax_brackets"
+    __tablename__ = "invoicetaxbracket"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    invoiceId = Column(Integer, ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False)
-    subtotal = Column(Numeric(10, 2))
-    taxRate = Column(Numeric(5, 4))
-    tax = Column(Numeric(10, 2))
-    equivalenceSurchargeRate = Column(Numeric(5, 4))
-    equivalenceSurcharge = Column(Numeric(10, 2))
-    total = Column(Numeric(10, 2))
+    invoiceId = Column("invoice_id", Integer, ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False)
+    subtotal = Column("base", Numeric(10, 2))
+    taxRate = Column("rate_pct", Numeric(5, 4))
+    tax = Column("iva_amount", Numeric(10, 2))
+    equivalenceSurchargeRate = Column("equivalence_surcharge_rate", Numeric(5, 4))
+    equivalenceSurcharge = Column("equivalence_surcharge", Numeric(10, 2))
+    total = Column("row_total", Numeric(10, 2))
 
     invoice = relationship("InvoiceRecord", back_populates="taxBrackets")
 
@@ -177,7 +206,8 @@ def save_invoice(inv: InvoiceDTO, session: Optional[Session] = None, invoice_id:
                 vat_id=inv.supplier.vatID,
                 legal_name=inv.supplier.legalName,
                 address=inv.supplier.address,
-                contacts=inv.supplier.contacts or 0
+                contacts=inv.supplier.contacts or 0,
+                contact_info=inv.supplier.contactInfo
             )
             session.add(supplier_record)
             session.flush()
@@ -209,6 +239,8 @@ def save_invoice(inv: InvoiceDTO, session: Optional[Session] = None, invoice_id:
             method=inv.payment.method,
             isRefund=inv.isRefund,
             isReconciled=inv.isReconciled,
+            isRecurrent=False,
+            is_duplicate=inv.isDuplicate,
             documentInboxEmail=inv.documentInboxEmail,
             observations=inv.observations,
             fileUrl=inv.document.fileUrl,
@@ -374,6 +406,7 @@ def update_invoice(invoice_id: int, inv: InvoiceDTO, session: Optional[Session] 
         record.method = inv.payment.method
         record.isRefund = inv.isRefund
         record.isReconciled = inv.isReconciled
+        record.is_duplicate = getattr(inv, 'isDuplicate', False)
         record.documentInboxEmail = inv.documentInboxEmail
         record.observations = inv.observations
         
@@ -387,17 +420,18 @@ def update_invoice(invoice_id: int, inv: InvoiceDTO, session: Optional[Session] 
         if inv.supplier:
             supplier_record = None
             if inv.supplier.vatID:
-                supplier_record = session.query(SupplierRecord).filter_by(vatID=inv.supplier.vatID).first()
+                supplier_record = session.query(SupplierRecord).filter_by(vat_id=inv.supplier.vatID).first()
             if not supplier_record and inv.supplier.name and inv.supplier.name != "Unknown Supplier":
                 supplier_record = session.query(SupplierRecord).filter(SupplierRecord.name.ilike(inv.supplier.name)).first()
                 
             if not supplier_record and (inv.supplier.name or inv.supplier.vatID):
                 supplier_record = SupplierRecord(
                     name=inv.supplier.name or "Unknown Supplier",
-                    vatID=inv.supplier.vatID,
-                    legalName=inv.supplier.legalName,
+                    vat_id=inv.supplier.vatID,
+                    legal_name=inv.supplier.legalName,
                     address=inv.supplier.address,
-                    contacts=inv.supplier.contacts or 0
+                    contacts=inv.supplier.contacts or 0,
+                    contact_info=inv.supplier.contactInfo
                 )
                 session.add(supplier_record)
                 session.flush()
@@ -405,11 +439,13 @@ def update_invoice(invoice_id: int, inv: InvoiceDTO, session: Optional[Session] 
                 if inv.supplier.name:
                     supplier_record.name = inv.supplier.name
                 if inv.supplier.legalName:
-                    supplier_record.legalName = inv.supplier.legalName
+                    supplier_record.legal_name = inv.supplier.legalName
                 if inv.supplier.vatID:
-                    supplier_record.vatID = inv.supplier.vatID
+                    supplier_record.vat_id = inv.supplier.vatID
                 if inv.supplier.address:
                     supplier_record.address = inv.supplier.address
+                if inv.supplier.contactInfo:
+                    supplier_record.contact_info = inv.supplier.contactInfo
                 session.add(supplier_record)
                 session.flush()
 
