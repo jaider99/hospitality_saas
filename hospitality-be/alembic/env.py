@@ -25,6 +25,7 @@ from app.module.incidents.model import OperationalIncident
 from app.module.labor.model import StaffMember, StaffShift
 from app.module.ai.model import AIInsight
 from app.module.payroll.model import StaffPosition, StaffRole, StaffEmployee, MonthlyPayroll
+from app.module.categories.model import Category
 
 # Import OCR storage models as well
 from app.ocr.storage import Base as OCRBase

@@ -75,12 +75,13 @@ export default function NewSupplierModal({ isOpen, onClose, onSubmit }: NewSuppl
       
       updatedContacts[index] = { ...updatedContacts[index], [field]: value };
       // Clear error for this specific field
-      if (errors[index]?.[field]) {
+      const fieldStr = field as string;
+      if (errors[index]?.[fieldStr]) {
         setErrors(prevErrors => {
           const newErrors = { ...prevErrors };
           if (newErrors[index]) {
             newErrors[index] = { ...newErrors[index] };
-            delete newErrors[index][field];
+            delete newErrors[index][fieldStr];
           }
           return newErrors;
         });
@@ -204,7 +205,7 @@ export default function NewSupplierModal({ isOpen, onClose, onSubmit }: NewSuppl
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
                   <CategorySelector 
-                    value={formData.category_id} 
+                    value={formData.category_id ?? null} 
                     onChange={(val) => handleInfoChange('category_id', val)} 
                   />
                 </div>

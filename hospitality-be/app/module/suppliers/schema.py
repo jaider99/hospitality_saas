@@ -38,6 +38,9 @@ class SupplierBase(BaseModel):
 class SupplierCreate(SupplierBase):
     contacts: List[SupplierContactCreate] = Field(default_factory=list)
 
+class SupplierContactUpdate(SupplierContactBase):
+    id: Optional[int] = None
+
 class SupplierUpdate(BaseModel):
     name: Optional[str] = None
     legal_name: Optional[str] = None
@@ -48,7 +51,7 @@ class SupplierUpdate(BaseModel):
     sanitary_registration: Optional[str] = None
     tags: Optional[List[str]] = None
     payment_info: Optional[Dict[str, Any]] = None
-    contacts: Optional[List[SupplierContactCreate]] = None
+    contacts: Optional[List[SupplierContactUpdate]] = None
     notes: Optional[List[Dict[str, Any]]] = None
 
 class SupplierRead(SupplierBase):

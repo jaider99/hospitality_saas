@@ -68,6 +68,7 @@ export default function SupplierDetailDrawer({ supplier, isOpen, onClose, onUpda
     if (!supplier) return;
     try {
       const currentContacts = supplier.contact_list ? supplier.contact_list.map(c => ({
+        id: c.id,
         name: c.name,
         position: c.position || '',
         email: c.email || '',
@@ -89,15 +90,16 @@ export default function SupplierDetailDrawer({ supplier, isOpen, onClose, onUpda
     if (!supplier || !supplier.contact_list) return;
     try {
       const currentContacts = supplier.contact_list.map(c => ({
+        id: c.id,
         name: c.name,
-        position: c.position || '',
-        email: c.email || '',
-        phone: c.phone || '',
-        contact_preference: c.contact_preference || 'phone',
+        position: c.position || undefined,
+        email: c.email || undefined,
+        phone: c.phone || undefined,
+        contact_preference: c.contact_preference || undefined,
         is_main_contact: c.is_main_contact
-      }));
+      })) as any[];
       
-      currentContacts[index] = updatedContact;
+      currentContacts[index] = { ...updatedContact, id: currentContacts[index].id };
 
       await onUpdateSupplier(supplier.id!, {
         contacts: currentContacts
@@ -119,6 +121,7 @@ export default function SupplierDetailDrawer({ supplier, isOpen, onClose, onUpda
       const remainingContacts = supplier.contact_list
         .filter((_, idx) => idx !== contactToDelete)
         .map(c => ({
+          id: c.id,
           name: c.name,
           position: c.position || '',
           email: c.email || '',
@@ -185,7 +188,7 @@ export default function SupplierDetailDrawer({ supplier, isOpen, onClose, onUpda
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1.5">Category</label>
                   <CategorySelector 
-                    value={formData.category_id || null} 
+                    value={formData.category_id ?? null} 
                     onChange={(val) => handleInfoChange('category_id', val)} 
                   />
                 </div>

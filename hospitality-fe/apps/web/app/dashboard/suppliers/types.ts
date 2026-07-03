@@ -11,6 +11,10 @@ export interface SupplierContact {
   updated_at?: string;
 }
 
+export type SupplierContactCreate = Omit<SupplierContact, 'id' | 'supplier_id' | 'created_at' | 'updated_at'>;
+
+export type SupplierContactUpdate = Partial<SupplierContactCreate> & { id?: number };
+
 export interface SupplierNote {
   title: string;
   content: string;
@@ -49,7 +53,9 @@ export interface SupplierCreate {
   notes?: SupplierNote[];
 }
 
-export type SupplierUpdate = Partial<SupplierCreate>;
+export type SupplierUpdate = Omit<Partial<SupplierCreate>, 'contacts'> & {
+  contacts?: SupplierContactUpdate[];
+};
 
 // Interfaces for parsing categories.json
 export interface SubCategory {

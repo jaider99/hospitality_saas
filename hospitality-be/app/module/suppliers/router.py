@@ -58,15 +58,33 @@ def update_supplier(supplier_id: int, supplier_in: SupplierUpdate, session: Sess
     
     # Handle contacts if provided
     if supplier_in.contacts is not None:
-        # For simplicity, we drop existing contacts and recreate them when updating
         statement = select(SupplierContact).where(SupplierContact.supplier_id == supplier_id)
         existing_contacts = session.exec(statement).all()
-        for c in existing_contacts:
-            session.delete(c)
-            
+        existing_contacts_dict = {c.id: c for c in existing_contacts}
+
+        incoming_ids = [c.id for c in supplier_in.contacts if getattr(c, 'id', None) is not None]
+
+        # Delete contacts not in incoming list
+        for c_id, c in existing_contacts_dict.items():
+            if c_id not in incoming_ids:
+                session.delete(c)
+
+        # Update existing or create new
         for contact_in in supplier_in.contacts:
-            db_contact = SupplierContact(**contact_in.dict(), supplier_id=supplier_id)
-            session.add(db_contact)
+            if getattr(contact_in, 'id', None) is not None and contact_in.id in existing_contacts_dict:
+                # Update
+                db_contact = existing_contacts_dict[contact_in.id]
+                for key, value in contact_in.dict(exclude_unset=True).items():
+                    if key != 'id':
+                        setattr(db_contact, key, value)
+                db_contact.updated_at = datetime.utcnow()
+                session.add(db_contact)
+            else:
+                # Create
+                contact_data = contact_in.dict()
+                contact_data.pop('id', None)
+                db_contact = SupplierContact(**contact_data, supplier_id=supplier_id)
+                session.add(db_contact)
             
     session.commit()
     session.refresh(db_supplier)

@@ -2,7 +2,7 @@ import React from 'react';
 
 export type Screen =
   | 'dashboard' | 'documents' | 'review' | 'products'
-  | 'invoice-matching' | 'recipes' | 'labor' | 'incidents' | 'settings';
+  | 'invoice-matching' | 'recipes' | 'labor' | 'incidents' | 'settings' | 'suppliers' | 'categories' | 'staff-costs';
 
 export type VoiceState = 'idle' | 'listening' | 'streaming' | 'playback';
 export type MatchStatus = 'auto-matched' | 'review' | 'confirmed' | 'flagged';

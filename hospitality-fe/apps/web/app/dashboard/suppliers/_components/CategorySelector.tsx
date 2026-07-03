@@ -1,6 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { ChevronDown, ChevronRight, Check } from 'lucide-react';
-import categoriesData from '../../../../data/categories.json';
+import { Category } from '@hospitality-saas/shared-types';
+import { ApiClient } from '@hospitality-saas/api-client';
+import { useAuthStore } from '../../../../store/auth';
 
 interface CategorySelectorProps {
   value: string | null;
@@ -9,7 +11,42 @@ interface CategorySelectorProps {
 }
 
 export default function CategorySelector({ value, onChange, error }: CategorySelectorProps) {
+  const apiClient = useAuthStore(state => state.apiClient);
   const [isOpen, setIsOpen] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
+  
+  useEffect(() => {
+    apiClient.getCategories().then(setCategories).catch(console.error);
+  }, [apiClient]);
+
+  // Build tree from flat list
+  const categoryTree = useMemo(() => {
+    const rootNodes: any[] = [];
+    const map = new Map();
+    const mapByStrId = new Map();
+    
+    categories.forEach(c => {
+      const node = { ...c, subcategories: [] };
+      map.set(c.id, node);
+      mapByStrId.set(c.category_id, node);
+    });
+    
+    categories.forEach(c => {
+      const node = map.get(c.id);
+      if (c.parent_category_id) {
+        const parent = mapByStrId.get(c.parent_category_id);
+        if (parent) {
+          parent.subcategories.push(node);
+        } else {
+          rootNodes.push(node);
+        }
+      } else {
+        rootNodes.push(node);
+      }
+    });
+    
+    return rootNodes;
+  }, [categories]);
 
   // Flatten for the selected value display only
   const flatOptionsMap = useMemo(() => {
@@ -17,13 +54,13 @@ export default function CategorySelector({ value, onChange, error }: CategorySel
     const traverse = (nodes: any[], currentPath: string) => {
       nodes.forEach((node) => {
         const path = currentPath ? `${currentPath} > ${node.name}` : node.name;
-        map.set(node.id, { name: node.name, color: node.color, path });
+        map.set(node.category_id, { name: node.name, color: node.color, path });
         if (node.subcategories?.length) traverse(node.subcategories, path);
       });
     };
-    if (categoriesData?.categories) traverse(categoriesData.categories, '');
+    if (categoryTree.length) traverse(categoryTree, '');
     return map;
-  }, []);
+  }, [categoryTree]);
 
   const selectedOption = value ? flatOptionsMap.get(value) : null;
 
@@ -36,38 +73,34 @@ export default function CategorySelector({ value, onChange, error }: CategorySel
     return (
       <div className="w-full">
         <div
-          className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between hover:bg-gray-50 transition-colors ${
-            value === node.id ? 'bg-primary/5' : ''
+          className={`w-full text-left px-4 py-2.5 text-sm flex items-center justify-between hover:bg-gray-50 transition-colors cursor-pointer ${
+            value === node.category_id ? 'bg-primary/5' : ''
           }`}
           style={{ paddingLeft: `${depth * 16 + 12}px` }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onChange(node.category_id);
+            setIsOpen(false);
+          }}
         >
-          {/* Chevron for expanding/collapsing */}
-          <div 
-            className={`w-6 h-6 flex items-center justify-center mr-1 rounded hover:bg-gray-200 transition-colors ${!hasChildren ? 'invisible' : ''}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsExpanded(!isExpanded);
-            }}
-          >
-            {isExpanded ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
-          </div>
-
-          {/* Selection Area */}
-          <button 
-            className="flex items-center flex-1 min-w-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              onChange(node.id);
-              setIsOpen(false);
-            }}
-          >
+          <div className="flex items-center min-w-0">
+            {/* Chevron for expanding/collapsing */}
+            <div 
+              className={`w-6 h-6 flex items-center justify-center mr-1 rounded hover:bg-gray-200 transition-colors ${!hasChildren ? 'invisible' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsExpanded(!isExpanded);
+              }}
+            >
+              {isExpanded ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
+            </div>
             <span
               className="w-2.5 h-2.5 rounded-full mr-2.5 flex-shrink-0"
               style={{ backgroundColor: node.color || '#ccc' }}
             />
             <span className="font-medium text-gray-700">{node.name}</span>
-            {value === node.id && <Check size={14} className="text-primary ml-auto flex-shrink-0" />}
-          </button>
+          </div>
+          {value === node.category_id && <Check size={14} className="text-primary ml-auto flex-shrink-0" />}
         </div>
 
         {isExpanded && hasChildren && (
@@ -107,10 +140,10 @@ export default function CategorySelector({ value, onChange, error }: CategorySel
       {/* Dropdown Tree */}
       {isOpen && (
         <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-y-auto py-1">
-          {(!categoriesData || !categoriesData.categories || categoriesData.categories.length === 0) ? (
+          {categoryTree.length === 0 ? (
             <div className="p-3 text-sm text-gray-500">No categories found</div>
           ) : (
-            categoriesData.categories.map((node: any) => (
+            categoryTree.map((node: any) => (
               <CategoryNode key={node.id} node={node} depth={0} />
             ))
           )}

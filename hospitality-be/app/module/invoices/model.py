@@ -28,7 +28,7 @@ class Supplier(SQLModel, table=True):
     legal_name: Optional[str] = Field(default=None)        # legalName from OCR schema
     vat_id: Optional[str] = Field(default=None, index=True)  # CIF/NIF/VAT from OCR schema
     address: Optional[str] = Field(default=None)
-    category_id: Optional[str] = Field(default=None, index=True)
+    category_id: Optional[str] = Field(default=None, foreign_key="categories.category_id", index=True)
     accounting_account: Optional[str] = Field(default=None)
     sanitary_registration: Optional[str] = Field(default=None)
     tags: List[str] = Field(default=[], sa_column=Column(JSON))
@@ -47,6 +47,7 @@ class Supplier(SQLModel, table=True):
     contact_list: List["SupplierContact"] = Relationship(back_populates="supplier", cascade_delete=True)
     products: List["SuppliedProduct"] = Relationship(back_populates="supplier", cascade_delete=True)
     invoices: List["Invoice"] = Relationship(back_populates="supplier", cascade_delete=True)
+    category: Optional["Category"] = Relationship(back_populates="suppliers")
 
 class SuppliedProduct(SQLModel, table=True):
     __tablename__ = "suppliedproduct"  # Match migration naming
@@ -222,3 +223,4 @@ class InvoiceTaxBracket(SQLModel, table=True):
 
 # Resolve circular dependencies for relationships
 from app.module.recipes.model import RecipeIngredient
+from app.module.categories.model import Category

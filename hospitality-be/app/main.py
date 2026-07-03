@@ -27,6 +27,7 @@ from app.api.v1.restaurant.route import router as restaurant_router
 from app.api.v1.roles.route import router as roles_router
 from app.module.suppliers.router import router as suppliers_router
 from app.api.v1.payrolls.route import router as payroll_router
+from app.module.categories.router import router as categories_router
 
 # Setup logger
 logging.basicConfig(level=logging.INFO)
@@ -103,7 +104,7 @@ app.include_router(restaurant_router, prefix="/api/v1/restaurant", tags=["Restau
 app.include_router(roles_router, prefix="/api/v1/roles", tags=["Roles & Permissions"])
 app.include_router(suppliers_router, prefix="/api/v1/suppliers", tags=["Suppliers"])
 app.include_router(payroll_router, prefix="/api/v1/payrolls", tags=["Payrolls"])
-
+app.include_router(categories_router, prefix="/api/v1/categories", tags=["Categories"])
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=settings.PORT, reload=True)

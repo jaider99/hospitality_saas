@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { API_BASE_URL } from '@hospitality-saas/constants';
-import { AuthResponse, Invoice, Recipe, OperationalIncident, StaffMember, AIInsight } from '@hospitality-saas/shared-types';
+import { AuthResponse, Invoice, Recipe, OperationalIncident, StaffMember, AIInsight, Category } from '@hospitality-saas/shared-types';
 import { LoginInput } from '@hospitality-saas/validation';
 
 export class ApiClient {
@@ -264,6 +264,31 @@ export class ApiClient {
   async duplicatePayrolls(propertyId: number, data: { source_period: string, target_period: string, copy_notes: boolean, copy_attachments: boolean }): Promise<any> {
     const res = await this.instance.post<any>('/payrolls/monthly/duplicate', data, { params: { property_id: propertyId } });
     return res.data;
+  }
+
+  // Categories
+  async getCategories(): Promise<Category[]> {
+    const res = await this.instance.get<Category[]>('/categories');
+    return res.data;
+  }
+
+  async getCategoryDetails(id: number): Promise<Category> {
+    const res = await this.instance.get<Category>(`/categories/${id}`);
+    return res.data;
+  }
+
+  async createCategory(data: any): Promise<Category> {
+    const res = await this.instance.post<Category>('/categories', data);
+    return res.data;
+  }
+
+  async updateCategory(id: number, data: any): Promise<Category> {
+    const res = await this.instance.put<Category>(`/categories/${id}`, data);
+    return res.data;
+  }
+
+  async deleteCategory(id: number): Promise<void> {
+    await this.instance.delete(`/categories/${id}`);
   }
 }
 

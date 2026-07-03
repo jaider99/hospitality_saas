@@ -210,3 +210,14 @@ export interface RolePermissionPayload {
 }
 
 export type RolePermissionsMap = Record<SystemRole, Record<string, ModulePermission>>;
+
+export interface Category {
+  id: number;
+  category_id: string;
+  name: string;
+  description: string | null;
+  color: string | null;
+  parent_category_id: string | null;
+  created_at: string;
+  updated_at: string;
+}

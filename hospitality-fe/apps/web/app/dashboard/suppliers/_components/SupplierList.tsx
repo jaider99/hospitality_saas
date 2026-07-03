@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
 import { Supplier } from '../types';
-import categoriesData from '../../../../data/categories.json';
+import { Category } from '@hospitality-saas/shared-types';
+import { useAuthStore } from '../../../../store/auth';
 
 interface SupplierListProps {
   suppliers: Supplier[];
@@ -17,6 +18,12 @@ interface CategoryGroup {
 
 export default function SupplierList({ suppliers, onSupplierClick }: SupplierListProps) {
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
+  const [categories, setCategories] = useState<Category[]>([]);
+  const apiClient = useAuthStore(state => state.apiClient);
+
+  React.useEffect(() => {
+    apiClient.getCategories().then(setCategories).catch(console.error);
+  }, [apiClient]);
 
   const toggleCategory = (categoryId: string) => {
     setExpandedCategories(prev => ({
@@ -28,76 +35,67 @@ export default function SupplierList({ suppliers, onSupplierClick }: SupplierLis
   // Group suppliers by category
   const groupedSuppliers = useMemo(() => {
     const groups: Record<string, CategoryGroup> = {};
-    const noCategoryGroup: CategoryGroup = {
-      id: 'none',
-      name: 'No category',
-      color: '#ccc',
-      suppliers: []
-    };
 
     // Helper to find main category and subcategory
-    const getCategoryHierarchy = (categoryId: string) => {
-      let mainCategory = { id: 'none', name: 'No category', color: '#ccc' };
+    const getCategoryHierarchy = (categoryId: number | string) => {
+      let mainCategory: { id: string | number; name: string; color: string } = { id: 'unassigned', name: 'No category', color: '#ccc' };
       let subCategoryName = '';
       let subCategoryColor = '';
       let subCategoryFontColor = '';
       
-      const search = (nodes: any[], parentNode: any | null = null) => {
-        for (const node of nodes) {
-          if (node.id === categoryId) {
-            if (parentNode) {
-               mainCategory = { id: parentNode.id, name: parentNode.name, color: parentNode.color };
-               subCategoryName = node.name;
-               subCategoryColor = node.color;
-               subCategoryFontColor = node.fontColor || '#FFFFFF';
-            } else {
-               mainCategory = { id: node.id, name: node.name, color: node.color };
-            }
-            return true;
+      const node: any = categories.find(c => c.category_id === categoryId);
+      if (node) {
+        if (node.parent_category_id) {
+          const parent: any = categories.find(c => c.category_id === node.parent_category_id);
+          if (parent) {
+            mainCategory = { id: parent.id, name: parent.name, color: parent.color };
+            subCategoryName = node.name;
+            subCategoryColor = node.color;
+            subCategoryFontColor = node.fontColor || '#FFFFFF';
+          } else {
+            mainCategory = { id: node.id, name: node.name, color: node.color };
           }
-          if (node.subcategories && search(node.subcategories, parentNode || node)) {
-             return true;
-          }
+        } else {
+          mainCategory = { id: node.id, name: node.name, color: node.color };
         }
-        return false;
-      };
-      
-      if (categoriesData && categoriesData.categories) {
-        search(categoriesData.categories);
       }
+      
       return { mainCategory, subCategoryName, subCategoryColor, subCategoryFontColor };
     };
 
     suppliers.forEach(supplier => {
-      if (!supplier.category_id) {
-        noCategoryGroup.suppliers.push(supplier);
-      } else {
-        const { mainCategory, subCategoryName, subCategoryColor, subCategoryFontColor } = getCategoryHierarchy(supplier.category_id);
-        
-        if (!groups[mainCategory.id]) {
-          groups[mainCategory.id] = {
-            id: mainCategory.id,
-            name: mainCategory.name,
-            color: mainCategory.color,
-            suppliers: []
-          };
-        }
-        groups[mainCategory.id].suppliers.push({
-          ...supplier,
-          _subCategoryName: subCategoryName,
-          _subCategoryColor: subCategoryColor,
-          _subCategoryFontColor: subCategoryFontColor
-        } as Supplier & { _subCategoryName?: string, _subCategoryColor?: string, _subCategoryFontColor?: string });
+      const { mainCategory, subCategoryName, subCategoryColor, subCategoryFontColor } = 
+        supplier.category_id 
+          ? getCategoryHierarchy(supplier.category_id)
+          : { 
+              mainCategory: { id: 'unassigned', name: 'No category', color: '#ccc' },
+              subCategoryName: '', subCategoryColor: '', subCategoryFontColor: ''
+            };
+      
+      if (!groups[mainCategory.id]) {
+        groups[mainCategory.id] = {
+          id: String(mainCategory.id),
+          name: mainCategory.name,
+          color: mainCategory.color,
+          suppliers: []
+        };
       }
+      groups[mainCategory.id].suppliers.push({
+        ...supplier,
+        _subCategoryName: subCategoryName,
+        _subCategoryColor: subCategoryColor,
+        _subCategoryFontColor: subCategoryFontColor
+      } as Supplier & { _subCategoryName?: string, _subCategoryColor?: string, _subCategoryFontColor?: string });
     });
 
-    const resultList = Object.values(groups).sort((a, b) => a.name.localeCompare(b.name));
-    if (noCategoryGroup.suppliers.length > 0) {
-      resultList.push(noCategoryGroup);
-    }
+    const resultList = Object.values(groups).sort((a, b) => {
+      if (a.id === 'unassigned') return 1;
+      if (b.id === 'unassigned') return -1;
+      return a.name.localeCompare(b.name);
+    });
     
     return resultList;
-  }, [suppliers]);
+  }, [suppliers, categories]);
 
   // Auto-expand categories when the grouped list changes (e.g., on search or load)
   React.useEffect(() => {

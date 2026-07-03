@@ -1,4 +1,4 @@
-a"""Add supplier_code to supplier
+"""Add supplier_code to supplier
 
 Revision ID: 660aedb5d1ed
 Revises: aedc585cd3b8
