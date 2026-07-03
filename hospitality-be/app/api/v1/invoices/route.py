@@ -14,7 +14,7 @@ from app.module.invoices.service import get_invoices, get_invoice_details
 from app.core.translation import get_lang
 from app.module.invoices.model import Invoice
 from app.core.queue import enqueue_invoice_processing
-from app.core.minio import upload_to_minio
+from app.core.minio import upload_to_minio, delete_from_minio
 from app.core.setting import settings
 
 # In-memory list of active client queues for Server-Sent Events
@@ -246,9 +246,63 @@ async def delete_invoice_api(
     inv = db.get(Invoice, invoice_id)
     if not inv:
         raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
+    doc_num = inv.document_number
+    inv_num = inv.invoice_number
+    supplier_id = inv.supplier_id
     
+    # Clean up file from MinIO
+    if inv.file_url:
+        try:
+            object_key = inv.file_url.split("/")[-1]
+            if object_key:
+                delete_from_minio(object_key)
+        except Exception as e:
+            pass # File might already be gone or URL malformed
+            
     db.delete(inv)
     db.commit()
+    
+    # Recalculate duplicates
+    from sqlmodel import or_
+    if doc_num or inv_num:
+        conditions = []
+        if doc_num: conditions.append(Invoice.document_number == doc_num)
+        if inv_num: conditions.append(Invoice.invoice_number == inv_num)
+        if doc_num: conditions.append(Invoice.invoice_number == doc_num)
+        if inv_num: conditions.append(Invoice.document_number == inv_num)
+        
+        query = db.query(Invoice).filter(or_(*conditions))
+        if supplier_id:
+            query = query.filter(Invoice.supplier_id == supplier_id)
+            
+        remaining = query.order_by(Invoice.id).all()
+        
+        if remaining:
+            # The oldest one becomes the non-duplicate
+            first_inv = remaining[0]
+            if first_inv.is_duplicate:
+                first_inv.is_duplicate = False
+                if first_inv.review_reasons:
+                    import json
+                    try:
+                        reasons = json.loads(first_inv.review_reasons)
+                        if isinstance(reasons, list):
+                            reasons = [r for r in reasons if not r.startswith("duplicate_invoice")]
+                            if not reasons:
+                                first_inv.review_reasons = None
+                                first_inv.needs_review = False
+                            else:
+                                first_inv.review_reasons = json.dumps(reasons)
+                    except:
+                        pass
+                db.commit()
+            
+            # The rest are still duplicates
+            for duplicate_inv in remaining[1:]:
+                if not duplicate_inv.is_duplicate:
+                    duplicate_inv.is_duplicate = True
+                    db.commit()
+                    
     return None
 
 @router.delete("/{invoice_id}/lines/{line_id}", status_code=status.HTTP_204_NO_CONTENT)

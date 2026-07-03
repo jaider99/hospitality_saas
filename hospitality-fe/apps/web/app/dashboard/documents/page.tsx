@@ -324,7 +324,10 @@ export default function DocumentsPage() {
   const handleDownloadInvoice = (doc: any) => {
     const fileExtension = (doc.source_file ? doc.source_file.split('.').pop()?.toLowerCase() : 'pdf') || 'pdf';
     const objectName = `invoice_${doc.id}.${fileExtension}`;
-    const minioUrl = process.env.NEXT_PUBLIC_MINIO_URL || 'http://localhost:9010';
+    let minioUrl = process.env.NEXT_PUBLIC_MINIO_URL || 'http://localhost:9012';
+    if (minioUrl.endsWith('/invoices')) minioUrl = minioUrl.slice(0, -9);
+    if (minioUrl.endsWith('/invoices/')) minioUrl = minioUrl.slice(0, -10);
+    if (minioUrl.endsWith('/')) minioUrl = minioUrl.slice(0, -1);
     window.open(`${minioUrl}/invoices/${objectName}`, '_blank');
     setActiveRowMenu(null);
   };

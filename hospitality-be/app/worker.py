@@ -83,7 +83,8 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
         try:
             import urllib.request
             import json
-            webhook_url = f"http://localhost:{settings.PORT}/api/v1/invoices/webhook"
+            backend_url = os.environ.get("BACKEND_URL", f"http://localhost:{settings.PORT}")
+            webhook_url = f"{backend_url}/api/v1/invoices/webhook"
             logger.info(f"Triggering success webhook at {webhook_url}...")
             
             data = json.dumps({"invoice_id": invoice_id, "status": "PROCESSED"}).encode("utf-8")
@@ -93,7 +94,6 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
                 headers={'Content-Type': 'application/json'},
                 method='POST'
             )
-            logger.info(f"Triggering success webhook at {webhook_url}...")
             try:
                 with urllib.request.urlopen(req, timeout=15) as response:
                     logger.info(f"Webhook response: {response.status}")
@@ -117,7 +117,8 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
         # Trigger Failure Webhook
         try:
             import httpx
-            webhook_url = f"http://localhost:{settings.PORT}/api/v1/invoices/webhook"
+            backend_url = os.environ.get("BACKEND_URL", f"http://localhost:{settings.PORT}")
+            webhook_url = f"{backend_url}/api/v1/invoices/webhook"
             logger.info(f"Triggering failure webhook at {webhook_url}...")
             async with httpx.AsyncClient() as client:
                 await client.post(webhook_url, json={"invoice_id": invoice_id, "status": "FAILED"})

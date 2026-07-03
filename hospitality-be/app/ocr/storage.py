@@ -61,8 +61,8 @@ class SupplierRecord(Base):
     vat_id = Column(String(50), unique=True, index=True)
     legal_name = Column(String(255))
     address = Column(Text)
-    contacts = Column(Integer, default=0)
-    contact_name = Column(String(255))
+    # contacts = Column(Integer, default=0)
+    # contact_name = Column(String(255))
     
     category_id = Column(String(255), index=True)
     accounting_account = Column(String(255))

@@ -281,7 +281,11 @@ export default function DocumentDetailPage() {
   
   // If backend didn't provide a full URL, fallback to local minio construct
   const objectName = `invoice_${invoice.id}.${fileExtension}`;
-  const minioUrl = process.env.NEXT_PUBLIC_MINIO_URL || 'http://localhost:9010';
+  let minioUrl = process.env.NEXT_PUBLIC_MINIO_URL || 'http://localhost:9012';
+  if (minioUrl.endsWith('/invoices')) minioUrl = minioUrl.slice(0, -9);
+  if (minioUrl.endsWith('/invoices/')) minioUrl = minioUrl.slice(0, -10);
+  if (minioUrl.endsWith('/')) minioUrl = minioUrl.slice(0, -1);
+  
   const fileUrl = backendFileUrl.startsWith('http') 
     ? backendFileUrl 
     : `${minioUrl}/invoices/${objectName}?cb=${Date.now()}`;

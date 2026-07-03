@@ -6,7 +6,6 @@ import { useAuthStore } from '../store/auth';
 import { LoginSchema } from '@hospitality-saas/validation';
 import { Mail, Lock, Eye, EyeOff, AlertTriangle, Zap } from 'lucide-react';
 import EmailPassword from 'supertokens-web-js/recipe/emailpassword';
-import { getMeAction } from './auth/actions';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -73,8 +72,12 @@ export default function LoginPage() {
       });
 
       if (response.status === 'OK') {
-        // 2. Fetch authenticated user profile details from PostgreSQL database via Server Action
-        const userProfile = await getMeAction();
+        // 2. Fetch user profile client-side so the browser includes the freshly-set session cookie
+        const meRes = await fetch('/api/v1/auth/me', { credentials: 'include' });
+        if (!meRes.ok) {
+          throw new Error('Failed to fetch user profile after login.');
+        }
+        const userProfile = await meRes.json();
         
         // 3. Update Zustand Store with user profile and dummy tokens (cookies manage actual auth)
         login({
@@ -91,7 +94,7 @@ export default function LoginPage() {
         setGeneralErr('Authentication failed. Please check your credentials.');
       }
     } catch (err: any) {
-      setGeneralErr(err.response?.data?.message || 'A network error occurred. Please try again.');
+      setGeneralErr(err?.message || 'A network error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
