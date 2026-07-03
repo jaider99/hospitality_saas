@@ -95,10 +95,15 @@ export default function EmployeeDetailsPage() {
   const handleEditEmployee = async () => {
     try {
       const client = getApiClient();
-      await client.updateStaffEmployee(propertyId, employeeId, {
+      const payload = {
         ...editEmployeeData,
-        weekly_hours: editEmployeeData.weekly_hours ? parseFloat(editEmployeeData.weekly_hours) : undefined
-      });
+        email: editEmployeeData.email || null,
+        phone: editEmployeeData.phone || null,
+        government_id: editEmployeeData.government_id || null,
+        notes: editEmployeeData.notes || null,
+        weekly_hours: editEmployeeData.weekly_hours ? parseFloat(editEmployeeData.weekly_hours) : null
+      };
+      await client.updateStaffEmployee(propertyId, employeeId, payload);
       setIsEditModalOpen(false);
       fetchEmployeeData();
     } catch (error) {

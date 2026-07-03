@@ -848,7 +848,7 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     # --- Duplicate Invoice Check ---
     if inv.serialNumber:
         try:
-            import os, re
+
             raw_url = os.getenv("DATABASE_URL", "").strip().strip('"').strip("'")
             # psycopg2 doesn't accept ?schema=..., strip it; also replace asyncpg driver
             sync_url = re.sub(r'\?.*$', '', raw_url).replace("postgresql+asyncpg", "postgresql")

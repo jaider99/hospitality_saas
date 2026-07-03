@@ -158,6 +158,14 @@ echo "Step 6: Running Alembic migrations..."
 cd "$(dirname "$0")"
 
 if command -v alembic &> /dev/null; then
+    # Check for multiple heads and auto-merge if needed
+    HEADS_COUNT=$(alembic heads 2>/dev/null | grep -c " (head)" || true)
+    if [ "$HEADS_COUNT" -gt 1 ]; then
+        echo "  ⚠️ Multiple Alembic heads detected ($HEADS_COUNT). Auto-merging branches..."
+        alembic merge -m "Auto-merge conflicting heads from different branches" heads
+        echo "  ✓ Merge migration created successfully. Please commit this new file!"
+    fi
+
     alembic upgrade head
     echo "✓ Migrations completed"
     echo ""

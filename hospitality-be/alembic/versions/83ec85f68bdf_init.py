@@ -1,8 +1,8 @@
-"""unified_schema_init
+"""init
 
-Revision ID: 71c87a58b212
+Revision ID: 83ec85f68bdf
 Revises: 
-Create Date: 2026-06-30 17:09:34.612618
+Create Date: 2026-07-03 10:52:19.876314
 
 """
 from typing import Sequence, Union
@@ -13,7 +13,7 @@ import sqlmodel
 
 
 # revision identifiers, used by Alembic.
-revision: str = '71c87a58b212'
+revision: str = '83ec85f68bdf'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -48,28 +48,6 @@ def upgrade() -> None:
     sa.Column('updated_at', sa.DateTime(), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_table('staffmember',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-    sa.Column('role', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-    sa.Column('hourly_rate', sa.Float(), nullable=False),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.PrimaryKeyConstraint('id')
-    )
-    op.create_table('suppliers',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-    sa.Column('legal_name', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('vat_id', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('address', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('contacts', sa.Integer(), nullable=False),
-    sa.Column('contact_info', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('contact_name', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
-    sa.PrimaryKeyConstraint('id')
-    )
-    op.create_index(op.f('ix_suppliers_name'), 'suppliers', ['name'], unique=False)
-    op.create_index(op.f('ix_suppliers_vat_id'), 'suppliers', ['vat_id'], unique=False)
     op.create_table('restaurant',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
@@ -81,11 +59,64 @@ def upgrade() -> None:
     sa.Column('timezone', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('operational_status', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('settings_json', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('owner_id', sa.Integer(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=False),
+
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_restaurant_name'), 'restaurant', ['name'], unique=False)
+    op.create_table('staffmember',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('role', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('hourly_rate', sa.Float(), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('staffposition',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('property_id', sa.Integer(), nullable=False),
+    sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('color', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.Column('updated_at', sa.DateTime(), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_restaurant_name'), 'restaurant', ['name'], unique=False)
+    op.create_index(op.f('ix_staffposition_property_id'), 'staffposition', ['property_id'], unique=False)
+    op.create_table('staffrole',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('position_ids', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=False),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('suppliers',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('supplier_code', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('legal_name', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('vat_id', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('address', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('category_id', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('accounting_account', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('sanitary_registration', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('tags', sa.JSON(), nullable=True),
+    sa.Column('payment_info', sa.JSON(), nullable=True),
+    sa.Column('notes', sa.JSON(), nullable=True),
+    sa.Column('contacts_count', sa.Integer(), nullable=False),
+    sa.Column('contact_info', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('contact_name', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=False),
+    sa.Column('deleted_at', sa.DateTime(), nullable=True),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_suppliers_category_id'), 'suppliers', ['category_id'], unique=False)
+    op.create_index(op.f('ix_suppliers_name'), 'suppliers', ['name'], unique=False)
+    op.create_index(op.f('ix_suppliers_supplier_code'), 'suppliers', ['supplier_code'], unique=False)
+    op.create_index(op.f('ix_suppliers_vat_id'), 'suppliers', ['vat_id'], unique=False)
     op.create_table('user',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('supertokens_id', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
@@ -130,7 +161,9 @@ def upgrade() -> None:
     sa.Column('raw_text', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.Column('updated_at', sa.DateTime(), nullable=False),
-    sa.Column('due_date', sa.DateTime(), nullable=True),
+    sa.Column('is_refund', sa.Boolean(), nullable=False),
+    sa.Column('is_recurrent', sa.Boolean(), nullable=False),
+    sa.Column('is_duplicate', sa.Boolean(), nullable=False),
     sa.Column('document_type', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('document_number', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('document_date', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
@@ -151,31 +184,62 @@ def upgrade() -> None:
     sa.Column('attributable_cost', sa.Float(), nullable=True),
     sa.Column('tax_free_costs', sa.Float(), nullable=True),
     sa.Column('total_with_iva', sa.Float(), nullable=True),
-    sa.Column('taxable_additional_cost', sa.Float(), nullable=True),
-    sa.Column('net_additional_cost', sa.Float(), nullable=True),
+    sa.Column('ocr_confidence', sa.Float(), nullable=True),
+    sa.Column('llm_confidence', sa.Float(), nullable=True),
     sa.Column('reconciliation_status', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('payment_status', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('payment_method', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('currency', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('source_file', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('file_url', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('language_detected', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.Column('extraction_method', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('ocr_confidence', sa.Float(), nullable=True),
     sa.Column('needs_review', sa.Boolean(), nullable=False),
     sa.Column('review_reasons', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('ocr_duration', sa.Float(), nullable=True),
+    sa.Column('llm_duration', sa.Float(), nullable=True),
     sa.Column('raw_ocr_json', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('is_refund', sa.Boolean(), nullable=False),
-    sa.Column('is_recurrent', sa.Boolean(), nullable=False),
-    sa.Column('document_inbox_email', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('observations', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('property_id', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('file_url', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     sa.ForeignKeyConstraint(['supplier_id'], ['suppliers.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_invoices_invoice_number'), 'invoices', ['invoice_number'], unique=False)
     op.create_index(op.f('ix_invoices_needs_review'), 'invoices', ['needs_review'], unique=False)
     op.create_index(op.f('ix_invoices_supplier_tax_id'), 'invoices', ['supplier_tax_id'], unique=False)
+    op.create_table('role_permissions',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('restaurant_id', sa.Integer(), nullable=False),
+    sa.Column('role_name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('module', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('view', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('create', sa.Boolean(), nullable=False),
+    sa.Column('edit', sa.Boolean(), nullable=False),
+    sa.Column('delete', sa.Boolean(), nullable=False),
+    sa.Column('export', sa.Boolean(), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=False),
+    sa.ForeignKeyConstraint(['restaurant_id'], ['restaurant.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('restaurant_id', 'role_name', 'module', name='uq_role_permission_module')
+    )
+    op.create_index(op.f('ix_role_permissions_module'), 'role_permissions', ['module'], unique=False)
+    op.create_index(op.f('ix_role_permissions_restaurant_id'), 'role_permissions', ['restaurant_id'], unique=False)
+    op.create_index(op.f('ix_role_permissions_role_name'), 'role_permissions', ['role_name'], unique=False)
+    op.create_table('staffemployee',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('property_id', sa.Integer(), nullable=False),
+    sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('email', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('phone', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('government_id', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('weekly_hours', sa.Float(), nullable=True),
+    sa.Column('position_id', sa.Integer(), nullable=True),
+    sa.Column('active', sa.Boolean(), nullable=False),
+    sa.Column('notes', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=False),
+    sa.ForeignKeyConstraint(['position_id'], ['staffposition.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_staffemployee_property_id'), 'staffemployee', ['property_id'], unique=False)
     op.create_table('staffshift',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('staff_id', sa.Integer(), nullable=False),
@@ -201,6 +265,20 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_suppliedproduct_sku'), 'suppliedproduct', ['sku'], unique=True)
+    op.create_table('supplier_contacts',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('supplier_id', sa.Integer(), nullable=False),
+    sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('position', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('email', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('phone', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('contact_preference', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('is_main_contact', sa.Boolean(), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=False),
+    sa.ForeignKeyConstraint(['supplier_id'], ['suppliers.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
     op.create_table('invoice_lines',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('invoice_id', sa.Integer(), nullable=False),
@@ -220,6 +298,8 @@ def upgrade() -> None:
     sa.Column('nominal_price', sa.Float(), nullable=True),
     sa.Column('iva_pct', sa.Float(), nullable=True),
     sa.Column('base', sa.Float(), nullable=True),
+    sa.Column('gra', sa.Float(), nullable=True),
+    sa.Column('u_m', sa.Float(), nullable=True),
     sa.ForeignKeyConstraint(['invoice_id'], ['invoices.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['product_id'], ['suppliedproduct.id'], ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('id')
@@ -236,6 +316,23 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['invoice_id'], ['invoices.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_table('monthlypayroll',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('property_id', sa.Integer(), nullable=False),
+    sa.Column('employee_id', sa.Integer(), nullable=True),
+    sa.Column('period', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('configuration', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('company_cost', sa.Float(), nullable=False),
+    sa.Column('net_amount', sa.Float(), nullable=True),
+    sa.Column('notes', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('attachment_url', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=False),
+    sa.ForeignKeyConstraint(['employee_id'], ['staffemployee.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_monthlypayroll_period'), 'monthlypayroll', ['period'], unique=False)
+    op.create_index(op.f('ix_monthlypayroll_property_id'), 'monthlypayroll', ['property_id'], unique=False)
     op.create_table('productcosthistory',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('product_id', sa.Integer(), nullable=False),
@@ -261,11 +358,21 @@ def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###
     op.drop_table('recipeingredient')
     op.drop_table('productcosthistory')
+    op.drop_index(op.f('ix_monthlypayroll_property_id'), table_name='monthlypayroll')
+    op.drop_index(op.f('ix_monthlypayroll_period'), table_name='monthlypayroll')
+    op.drop_table('monthlypayroll')
     op.drop_table('invoicetaxbracket')
     op.drop_table('invoice_lines')
+    op.drop_table('supplier_contacts')
     op.drop_index(op.f('ix_suppliedproduct_sku'), table_name='suppliedproduct')
     op.drop_table('suppliedproduct')
     op.drop_table('staffshift')
+    op.drop_index(op.f('ix_staffemployee_property_id'), table_name='staffemployee')
+    op.drop_table('staffemployee')
+    op.drop_index(op.f('ix_role_permissions_role_name'), table_name='role_permissions')
+    op.drop_index(op.f('ix_role_permissions_restaurant_id'), table_name='role_permissions')
+    op.drop_index(op.f('ix_role_permissions_module'), table_name='role_permissions')
+    op.drop_table('role_permissions')
     op.drop_index(op.f('ix_invoices_supplier_tax_id'), table_name='invoices')
     op.drop_index(op.f('ix_invoices_needs_review'), table_name='invoices')
     op.drop_index(op.f('ix_invoices_invoice_number'), table_name='invoices')
@@ -275,12 +382,17 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_user_supertokens_id'), table_name='user')
     op.drop_index(op.f('ix_user_email'), table_name='user')
     op.drop_table('user')
+    op.drop_index(op.f('ix_suppliers_vat_id'), table_name='suppliers')
+    op.drop_index(op.f('ix_suppliers_supplier_code'), table_name='suppliers')
+    op.drop_index(op.f('ix_suppliers_name'), table_name='suppliers')
+    op.drop_index(op.f('ix_suppliers_category_id'), table_name='suppliers')
+    op.drop_table('suppliers')
+    op.drop_table('staffrole')
+    op.drop_index(op.f('ix_staffposition_property_id'), table_name='staffposition')
+    op.drop_table('staffposition')
+    op.drop_table('staffmember')
     op.drop_index(op.f('ix_restaurant_name'), table_name='restaurant')
     op.drop_table('restaurant')
-    op.drop_index(op.f('ix_suppliers_vat_id'), table_name='suppliers')
-    op.drop_index(op.f('ix_suppliers_name'), table_name='suppliers')
-    op.drop_table('suppliers')
-    op.drop_table('staffmember')
     op.drop_table('recipe')
     op.drop_table('operationalincident')
     op.drop_table('aiinsight')

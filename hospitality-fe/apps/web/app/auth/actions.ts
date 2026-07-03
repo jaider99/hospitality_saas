@@ -2,7 +2,7 @@
 
 import { cookies } from 'next/headers';
 
-const API_BASE = 'http://localhost:8000/api/v1';
+const API_BASE = 'http://127.0.0.1:8000/api/v1';
 
 async function getAuthHeaders() {
   const cookieStore = await cookies();

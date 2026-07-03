@@ -80,8 +80,6 @@ async def async_main():
         session.query(SuppliedProduct).delete()
         session.query(Supplier).delete()
         session.query(User).delete()
-        session.query(RolePermission).delete()
-        session.query(Restaurant).delete()
         session.commit()
 
         logger.info("Seeding data...")
