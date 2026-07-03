@@ -26,12 +26,23 @@ fi
 
 # 1. Run migrations to get the latest schema
 echo "=== Running Database Migrations ==="
+
+# Check for multiple heads and auto-merge if needed
+HEADS_COUNT=$($PYTHON -m alembic heads 2>/dev/null | grep -c " (head)" || true)
+if [ "$HEADS_COUNT" -gt 1 ]; then
+  echo "⚠️ Multiple Alembic heads detected ($HEADS_COUNT). Auto-merging branches..."
+  $PYTHON -m alembic merge -m "Auto-merge conflicting heads from different branches" heads
+  echo "✓ Merge migration created successfully. Please commit this new file!"
+fi
+
 $PYTHON -m alembic upgrade head
 
 # 2. Optionally seed the database if the --seed or -s flag is provided
 if [[ "$1" == "--seed" || "$1" == "-s" ]]; then
   echo "=== Seeding Database ==="
   $PYTHON seed.py
+  echo "=== Seeding Roles ==="
+  $PYTHON seed_roles.py
 fi
 
 echo "=== Database setup completed successfully! ==="

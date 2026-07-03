@@ -324,7 +324,8 @@ export default function DocumentsPage() {
   const handleDownloadInvoice = (doc: any) => {
     const fileExtension = (doc.source_file ? doc.source_file.split('.').pop()?.toLowerCase() : 'pdf') || 'pdf';
     const objectName = `invoice_${doc.id}.${fileExtension}`;
-    window.open(`http://localhost:9012/invoices/${objectName}`, '_blank');
+    const minioUrl = process.env.NEXT_PUBLIC_MINIO_URL || 'http://localhost:9010';
+    window.open(`${minioUrl}/invoices/${objectName}`, '_blank');
     setActiveRowMenu(null);
   };
 

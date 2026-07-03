@@ -45,8 +45,6 @@ def should_trigger_vl_fallback(ocr_confidence: Optional[float], inv: Invoice) ->
 
     # Check OCR confidence threshold
     if ocr_confidence is not None and ocr_confidence < VL_OCR_THRESHOLD:
-        import logging
-        logger = logging.getLogger("invoice_pipeline")
         logger.info(f"Triggering VL fallback: OCR confidence {ocr_confidence:.2f} < {VL_OCR_THRESHOLD}")
         return True
         
@@ -72,8 +70,6 @@ def should_trigger_vl_fallback(ocr_confidence: Optional[float], inv: Invoice) ->
         inv.llm_confidence = final_initial_score
         
         if final_initial_score < VL_LLM_THRESHOLD:
-            import logging
-            logger = logging.getLogger("invoice_pipeline")
             logger.info(f"Triggering VL fallback: GPT OSS Score {final_initial_score:.2f} < {VL_LLM_THRESHOLD}. (Math errors: {num_reasons})")
             return True
 

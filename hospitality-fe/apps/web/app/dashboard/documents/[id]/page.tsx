@@ -281,9 +281,10 @@ export default function DocumentDetailPage() {
   
   // If backend didn't provide a full URL, fallback to local minio construct
   const objectName = `invoice_${invoice.id}.${fileExtension}`;
+  const minioUrl = process.env.NEXT_PUBLIC_MINIO_URL || 'http://localhost:9010';
   const fileUrl = backendFileUrl.startsWith('http') 
     ? backendFileUrl 
-    : `http://localhost:9012/invoices/${objectName}?cb=${Date.now()}`;
+    : `${minioUrl}/invoices/${objectName}?cb=${Date.now()}`;
 
   // Formatted display values
   const standardVatRates = [0, 2, 4, 5, 7.5, 10, 12, 21];
