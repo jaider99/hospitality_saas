@@ -63,6 +63,46 @@ services:
     environment:
       POSTGRES_CONNECTION_URI: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality"
 
+  # Backend API
+  backend:
+    build: .
+    container_name: hospitality-backend
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality?schema=public"
+      QDRANT_URL: "http://hospitality-qdrant:6333"
+      REDIS_URL: "redis://hospitality-redis:6379"
+      MINIO_ENDPOINT_URL: "http://hospitality-minio:9000"
+    depends_on:
+      - postgres
+      - qdrant
+      - redis
+      - minio
+      - supertokens
+
+  # ARQ Worker
+  worker:
+    build: .
+    container_name: hospitality-worker
+    restart: always
+    command: python -m arq app.worker.WorkerSettings
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality?schema=public"
+      QDRANT_URL: "http://hospitality-qdrant:6333"
+      REDIS_URL: "redis://hospitality-redis:6379"
+      MINIO_ENDPOINT_URL: "http://hospitality-minio:9000"
+    depends_on:
+      - postgres
+      - qdrant
+      - redis
+      - minio
+
 volumes:
   postgres_data:
   qdrant_data:
