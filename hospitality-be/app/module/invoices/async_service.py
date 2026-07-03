@@ -78,8 +78,8 @@ async def async_save_ocr_invoice(
             supplier.contact_info = supplier_contact_info
         if supplier_legal_name and not supplier.legal_name:
             supplier.legal_name = supplier_legal_name
-        if supplier_contacts_count and supplier.contacts < supplier_contacts_count:
-            supplier.contacts = supplier_contacts_count
+        if supplier_contacts_count and supplier.contacts_count < supplier_contacts_count:
+            supplier.contacts_count = supplier_contacts_count
         db.add(supplier)
         await db.commit()
         await db.refresh(supplier)

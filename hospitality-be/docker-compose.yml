@@ -61,7 +61,7 @@ services:
     ports:
       - "3567:3567"
     environment:
-      POSTGRES_CONNECTION_URI: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality"
+      POSTGRESQL_CONNECTION_URI: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality"
 
   # Backend API
   backend:
@@ -77,6 +77,7 @@ services:
       QDRANT_URL: "http://hospitality-qdrant:6333"
       REDIS_URL: "redis://hospitality-redis:6379"
       MINIO_ENDPOINT_URL: "http://hospitality-minio:9000"
+      SUPERTOKENS_CONNECTION_URI: "http://hospitality-supertokens:3567"
     depends_on:
       - postgres
       - qdrant
@@ -97,14 +98,19 @@ services:
       QDRANT_URL: "http://hospitality-qdrant:6333"
       REDIS_URL: "redis://hospitality-redis:6379"
       MINIO_ENDPOINT_URL: "http://hospitality-minio:9000"
+      SUPERTOKENS_CONNECTION_URI: "http://hospitality-supertokens:3567"
+      BACKEND_URL: "http://hospitality-backend:8000"
     depends_on:
       - postgres
       - qdrant
       - redis
       - minio
+    volumes:
+      - paddleocr_models:/root/.paddleocr
 
 volumes:
   postgres_data:
   qdrant_data:
   redis_data:
   minio_data:
+  paddleocr_models:

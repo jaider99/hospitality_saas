@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 from openai import OpenAI
 from app.ocr.schema import Invoice, LABELS, LINE_ITEM_HEADERS
@@ -21,8 +22,60 @@ LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://openrouter.ai/api/v1")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "").strip()
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", 16384))
 MODEL_NAME = os.environ.get("LLM_MODEL", "openai/gpt-oss-120b")
+LLM_FALLBACK_MODEL = os.environ.get("LLM_FALLBACK_MODEL", "inclusionai/ring-2.6-1t")
 
 _client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+
+def _call_llm_with_fallback(messages: list, temperature: float = 0, model_name: str = MODEL_NAME, use_fallback_model: bool = False) -> any:
+    if use_fallback_model:
+        # User explicitly requested the fallback model
+        logger.warning(f"Starting Secondary Text Model extraction using: {LLM_FALLBACK_MODEL}...")
+        try:
+            response = _client.chat.completions.create(
+                model=LLM_FALLBACK_MODEL,
+                temperature=temperature,
+                messages=messages,
+                max_tokens=LLM_MAX_TOKENS,
+            )
+            content = response.choices[0].message.content
+            if not content or not content.strip():
+                raise ValueError("Secondary LLM returned empty content.")
+            logger.warning(f"Secondary Text Model ({LLM_FALLBACK_MODEL}) extraction completed successfully.")
+            return response
+        except Exception as e:
+            logger.error(f"Secondary Text Model ({LLM_FALLBACK_MODEL}) failed: {e}")
+            raise e
+
+    try:
+        response = _client.chat.completions.create(
+            model=model_name,
+            temperature=temperature,
+            messages=messages,
+            max_tokens=LLM_MAX_TOKENS,
+        )
+        content = response.choices[0].message.content
+        if not content or not content.strip():
+            raise ValueError("Primary LLM returned empty content.")
+        logger.warning(f"Primary Text Model ({model_name}) extraction completed successfully.")
+        return response
+    except Exception as e:
+        logger.warning(f"Primary Text Model ({model_name}) failed: {e}. Falling back to {LLM_FALLBACK_MODEL}...")
+        try:
+            logger.warning(f"Starting Fallback Text Model extraction using: {LLM_FALLBACK_MODEL}...")
+            fallback_response = _client.chat.completions.create(
+                model=LLM_FALLBACK_MODEL,
+                temperature=temperature,
+                messages=messages,
+                max_tokens=LLM_MAX_TOKENS,
+            )
+            fallback_content = fallback_response.choices[0].message.content
+            if not fallback_content or not fallback_content.strip():
+                raise ValueError("Fallback LLM returned empty content.")
+            logger.warning(f"Fallback Text Model ({LLM_FALLBACK_MODEL}) extraction completed successfully.")
+            return fallback_response
+        except Exception as fallback_e:
+            logger.error(f"Fallback Text Model ({LLM_FALLBACK_MODEL}) also failed: {fallback_e}")
+            raise fallback_e
 
 
 def _build_bilingual_dictionary() -> str:
@@ -117,7 +170,7 @@ SYSTEM_PROMPT = (
     "  • 'Canon por copia privada' IS a real line item (regulatory levy). Include it in the line items table.\n"
     "DO NOT redact the Supplier Name, Supplier VAT ID, or Customer Name — they MUST appear explicitly in the output.\n"
     "PRODUCT NAME CORRECTION: If the OCR text for a product description contains obvious spelling errors or garbled characters (e.g. 'Canon por oa rivada' instead of 'obra privada', or missing letters), you MUST gently correct the spelling to make it readable in the Markdown output.\n"
-    "CREDIT CARD RECEIPTS: If a credit card terminal receipt is stapled to the invoice, you will see text like 'MASTERCARD', 'VISA', 'TARJETA', 'TVR', or 'COMERCIO'. **NEVER extract 'MASTERCARD' or 'VISA' as the Supplier Name.** The actual supplier name is the store/company name printed on the main invoice (e.g. 'Artyplan').\n"
+    "CREDIT CARD RECEIPTS: If a credit card terminal receipt is stapled to the invoice, you will see text like 'MASTERCARD', 'VISA', 'TARJETA', 'TVR', or 'COMERCIO'. **NEVER extract 'MASTERCARD' or 'VISA' as the Supplier Name.** The actual supplier name is the store/company name printed on the main invoice (e.g. 'The Store Name').\n"
     "SUPPLIER NAME EXTRACTION: The supplier name is usually the largest text at the top, or explicitly labeled. DO NOT use abbreviations or truncate the name. Extract the FULL legal name.\n"
     "INVOICE SUBTOTAL VALIDATION: The sum of the 'Amount' column for all Line Items MUST strictly equal the Invoice Subtotal (within a few cents). If your extracted line items sum to 4155.30 but the Subtotal is 1658.00, YOU HAVE FAILED. You MUST re-read the OCR text and find the correct quantities and prices such that their sum matches the Subtotal.\n"
     "CUSTOMER VAT ID RULE: You must NEVER include the Customer's VAT ID in the Markdown output. Simply omit it if you see it. DO NOT redact or omit the Supplier's name, Supplier's VAT ID, or the Customer's name—they MUST be explicitly extracted and included in the output.\n"
@@ -197,6 +250,7 @@ SYSTEM_PROMPT = (
     "is only for an explicit document-wide discount amount shown in the totals "
     "section (e.g. 'Descuento general: 10.00 €').\n"
     "CRITICAL: NEVER put the invoice Total or Subtotal into the `discount` field! If there is no explicit discount, leave it null.\n"
+    "EXTREMELY IMPORTANT: Pay close attention to the difference between the GRAND TOTAL ('TOTAL ALBARAN', 'TOTAL FACTURA') and the totals of individual tax brackets. Do NOT confuse a tax bracket total (e.g. 58.08) for the grand total if there is a clear 'TOTAL' line at the bottom (e.g. 82.72).\n"
     "TAX BRACKETS: Only populate `taxBrackets` if there is an explicit table breaking down the VAT by percentage (e.g. 10%, 21%). Do NOT invent base amounts or tax amounts if they are not explicitly printed on the document! If there is no breakdown table, leave `taxBrackets` empty.\n"
     "If the markdown contains 'Regulatory Operating Costs', 'DST Fees', 'Pago aplazado', 'Canon', or other fees that increase the grand total but are NOT already included in the line items or the IVA breakdown, YOU MUST sum them up and place the sum in `taxableAdditionalCost`.\n"
     "CRITICAL: If a fee (like Canon) is already included in the invoice's Subtotal or if adding it to the Subtotal+Tax exceeds the Grand Total, DO NOT put it in `taxableAdditionalCost`! Otherwise it will double-count.\n"
@@ -261,8 +315,12 @@ SYSTEM_PROMPT = (
 )
 
 
-def extract_with_llm(raw_text: str, missing_fields: Optional[list] = None) -> dict:
+def extract_with_llm(raw_text: str, missing_fields: Optional[list] = None, use_fallback_model: bool = False) -> dict:
     """Calls LLM and returns a parsed dict matching the schema."""
+    if use_fallback_model:
+        logger.warning(f"Starting Secondary Text Model extraction using: {LLM_FALLBACK_MODEL}...")
+    else:
+        logger.warning(f"Starting Primary Text Model extraction using: {MODEL_NAME}...")
     user_prompt = (
         f"{SCHEMA_DESCRIPTION}\n\n"
         f"Invoice Text:\n"
@@ -274,14 +332,13 @@ def extract_with_llm(raw_text: str, missing_fields: Optional[list] = None) -> di
 
     dynamic_system_prompt = SYSTEM_PROMPT + "\n" + _build_bilingual_dictionary()
 
-    response = _client.chat.completions.create(
-        model=MODEL_NAME,
+    response = _call_llm_with_fallback(
         temperature=0,
         messages=[
             {"role": "system", "content": dynamic_system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        max_tokens=LLM_MAX_TOKENS,
+        use_fallback_model=use_fallback_model
     )
     
     message = response.choices[0].message
@@ -307,14 +364,12 @@ def extract_with_llm(raw_text: str, missing_fields: Optional[list] = None) -> di
             f"The following output is malformed JSON and must be corrected to match the schema: {SCHEMA_DESCRIPTION}\n"
             f"Malformed output:\n{content}\n\nPlease return ONLY valid JSON."
         )
-        repair_resp = _client.chat.completions.create(
-            model=MODEL_NAME,
+        repair_resp = _call_llm_with_fallback(
             temperature=0,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": repair_prompt},
             ],
-            max_tokens=LLM_MAX_TOKENS,
         )
         repaired = repair_resp.choices[0].message.content.strip()
         if repaired.startswith("```"):
@@ -491,14 +546,12 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
     )
 
     try:
-        response = _client.chat.completions.create(
-            model=MODEL_NAME,
+        response = _call_llm_with_fallback(
             temperature=0,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            max_tokens=LLM_MAX_TOKENS,
         )
         content = response.choices[0].message.content
 
@@ -516,14 +569,12 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
                 "IMPORTANT: Do NOT invent values. Only extract what is literally in the text.\n"
                 "IMPORTANT: For sideways/rotated scans, codes and prices may be on separate lines — match them by order."
             )
-            retry_response = _client.chat.completions.create(
-                model=MODEL_NAME,
+            retry_response = _call_llm_with_fallback(
                 temperature=0,
                 messages=[
                     {"role": "system", "content": compact_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=LLM_MAX_TOKENS,
             )
             content = retry_response.choices[0].message.content
             if not content or not content.strip():

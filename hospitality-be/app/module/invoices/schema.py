@@ -140,8 +140,7 @@ class InvoiceDetailsResponse(BaseModel):
     supplier_display_name: Optional[str] = None  # OCR-extracted supplier name
     supplier_legal_name: Optional[str] = None    # OCR-extracted supplier legal name
     supplier_tax_id: Optional[str] = None
-    supplier_address: Optional[str] = None       # OCR-extracted supplier address
-    supplier_contact_info: Optional[str] = None  # OCR-extracted supplier contact info
+    # OCR-extracted supplier address/contact info removed from frontend response, but still stored in DB
     issue_date: Optional[datetime] = None
     total_amount: float = 0.0
     status: str

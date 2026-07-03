@@ -1,3 +1,4 @@
+from __future__ import annotations
 # """
 # pipeline.py
 # ============
@@ -7,7 +8,9 @@
 # from __future__ import annotations
 # import logging
 # import re
-# from dotenv import load_dotenv
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from dotenv import load_dotenv
 
 # load_dotenv()
 
@@ -404,10 +407,14 @@ Rationale: feeding low-confidence OCR text to an LLM produces a confident-
 sounding guess on bad input, not a correction. Flag it for a human instead.
 """
 
-from __future__ import annotations
 import logging
 import re
+import os
 import time
+import base64
+from typing import Tuple, List, Optional
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -420,6 +427,7 @@ from app.ocr.llm_fallback import extract_with_llm, merge_llm_result_into_invoice
 from app.ocr.vl_fallback import should_trigger_vl_fallback, extract_with_vl_model
 from app.ocr.validate import validate, REQUIRED_FIELDS
 from app.ocr.triage import looks_handwritten, log_to_review_queue
+from app.module.invoices.model import Invoice as DBInvoice
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("invoice_pipeline")
@@ -594,29 +602,47 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
                     if "subtotal" not in missing: missing.append("subtotal")
                     if "total" not in missing: missing.append("total")
 
+            import copy
+            from app.ocr.vl_fallback import calculate_llm_score, VL_LLM_THRESHOLD
+
+            original_inv = copy.deepcopy(inv)
             full_llm_input = ocr_text + "\n\n=== RAW OCR TEXT ===\n" + page_result.raw_text
-            _start_llm = time.time()
-            try:
-                llm_result = extract_with_llm(full_llm_input, missing_fields=missing)
-            finally:
-                llm_total_time += time.time() - _start_llm
-            logger.info(f"LLM returned dict: {llm_result}")
-            inv = merge_llm_result_into_invoice(inv, llm_result, force_fields=missing)
+            
+            for attempt, use_fallback in enumerate([False, True]):
+                _start_llm = time.time()
+                try:
+                    llm_result = extract_with_llm(full_llm_input, missing_fields=missing, use_fallback_model=use_fallback)
+                finally:
+                    llm_total_time += time.time() - _start_llm
+                logger.info(f"LLM returned dict: {llm_result}")
+                
+                # Merge into the current invoice state
+                inv = merge_llm_result_into_invoice(inv, llm_result, force_fields=missing)
 
-            for adj_field in ["discount", "payeAmount", "greenPointAmount", "ibeeAmount", "taxableAdditionalCost", "netAdditionalCost"]:
-                val = getattr(inv, adj_field, 0.0)
-                if val and py_total and abs(val - py_total) < 0.05:
-                    setattr(inv, adj_field, 0.0)
-                elif val and py_base and abs(val - py_base) < 0.05:
-                    setattr(inv, adj_field, 0.0)
+                for adj_field in ["discount", "payeAmount", "greenPointAmount", "ibeeAmount", "taxableAdditionalCost", "netAdditionalCost"]:
+                    val = getattr(inv, adj_field, 0.0)
+                    if val and py_total and abs(val - py_total) < 0.05:
+                        setattr(inv, adj_field, 0.0)
+                    elif val and py_base and abs(val - py_base) < 0.05:
+                        setattr(inv, adj_field, 0.0)
 
-            if py_base and py_total:
-                if abs((py_base + (py_iva or 0)) - py_total) < 1.0:
-                    inv.subtotal = py_base
-                    inv.tax = py_iva
+                if py_base and py_total:
+                    if abs((py_base + (py_iva or 0)) - py_total) < 1.0:
+                        inv.subtotal = py_base
+                        inv.tax = py_iva
+                        inv.total = py_total
+                elif py_total and not inv.total:
                     inv.total = py_total
-            elif py_total and not inv.total:
-                inv.total = py_total
+                    
+                # Evaluate semantic score
+                score = calculate_llm_score(inv)
+                if score >= VL_LLM_THRESHOLD:
+                    break # Good enough, don't need fallback text model
+                    
+                if not use_fallback:
+                    logger.warning(f"Primary Text Model semantic score ({score:.2f}) < {VL_LLM_THRESHOLD}. Discarding output and trying fallback text model...")
+                    inv = copy.deepcopy(original_inv) # Reset invoice to pre-LLM state
+                    
         except Exception as e:
             logger.warning(f"LLM fallback failed: {e}")
             inv.review_reasons.append("AI extraction failed (requires manual review)")
@@ -627,7 +653,7 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
 
     # --- Stage 2.5: VL Fallback ---
     if should_trigger_vl_fallback(inv.ocr_confidence, inv):
-        logger.info("Triggering VL Fallback (Stage 2.5)...")
+        logger.warning("Triggering VL Fallback (Stage 2.5)...")
         try:
             image_bytes = None
             if page_result.page_images and len(page_result.page_images) > 0:
