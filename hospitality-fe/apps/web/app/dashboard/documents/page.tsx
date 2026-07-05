@@ -239,7 +239,10 @@ export default function DocumentsPage() {
       try {
         // 2. POST file to backend → returns 202 with invoiceId
         const formData = new FormData();
-        formData.append('file', file);
+        // Next.js rewrites can crash (500) if multipart filenames contain parentheses or special chars
+        const cleanName = file.name.replace(/[^a-zA-Z0-9.\\-_]/g, '_');
+        const safeFile = new File([file], cleanName, { type: file.type });
+        formData.append('file', safeFile);
         const response = await client.uploadInvoice(formData);
         const invoiceId = response.invoiceId;
 
@@ -296,10 +299,17 @@ export default function DocumentsPage() {
   // Dropdown state for rows
   const [activeRowMenu, setActiveRowMenu] = useState<number | null>(null);
 
-  const handleDeleteInvoice = async (id: number) => {
+  const handleDeleteInvoice = async (id: number | string) => {
+    const numericId = typeof id === 'string' ? parseInt(id, 10) : id;
+    if (!numericId || isNaN(numericId)) {
+      // Placeholder/pending doc — just remove from local state
+      setUploadedDocs((prev) => prev.filter((d) => d.id !== id));
+      setActiveRowMenu(null);
+      return;
+    }
     try {
       const client = getApiClient();
-      await client.deleteInvoice(id);
+      await client.deleteInvoice(numericId);
       await fetchInvoices();
       setActiveRowMenu(null);
     } catch (e) {

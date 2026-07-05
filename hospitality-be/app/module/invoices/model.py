@@ -139,7 +139,6 @@ class Invoice(SQLModel, table=True):
     file_url: Optional[str] = Field(default=None)                # Full public MinIO URL
     language_detected: Optional[str] = Field(default=None)      # en / es
     extraction_method: Optional[str] = Field(default=None)      # regex / llm / hybrid
-    ocr_confidence: Optional[float] = Field(default=None)       # 0-100
     needs_review: bool = Field(default=False, index=True)
     review_reasons: Optional[str] = Field(default=None)         # JSON list as string
     ocr_duration: Optional[float] = Field(default=None)          # Time taken for OCR processing
