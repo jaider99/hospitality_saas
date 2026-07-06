@@ -19,7 +19,7 @@ export default function CategoriesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [categoryToDelete, setCategoryToDelete] = useState<number | null>(null);
-  const [pageError, setPageError] = useState<string | null>(null);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
 
   const fetchCategories = async () => {
     setIsLoading(true);
@@ -66,14 +66,11 @@ export default function CategoriesPage() {
     if (!categoryToDelete) return;
     try {
       await apiClient.deleteCategory(categoryToDelete);
-      setPageError(null);
+      setAlertMessage(null);
       await fetchCategories();
     } catch (error: any) {
-      if (error.response?.data?.detail) {
-        setPageError(error.response.data.detail);
-      } else {
-        console.error("Error deleting category:", error);
-      }
+      const msg = error.response?.data?.detail || error.message || 'Failed to delete category.';
+      setAlertMessage(msg);
     } finally {
       setCategoryToDelete(null);
     }
@@ -118,17 +115,6 @@ export default function CategoriesPage() {
       {/* Main Content */}
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-5xl mx-auto space-y-4">
-          {pageError && (
-            <div className="p-4 bg-red-50 text-red-700 border border-red-200 rounded-lg flex items-center justify-between">
-              <span className="text-sm font-medium">{pageError}</span>
-              <button onClick={() => setPageError(null)} className="text-red-500 hover:text-red-700">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          )}
-
           {isLoading ? (
             <div className="flex justify-center py-20">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -157,8 +143,18 @@ export default function CategoriesPage() {
         title="Delete Category"
         message="Are you sure you want to permanently delete this category? This action cannot be undone."
         confirmText="Delete"
+        cancelText="Cancel"
         onConfirm={confirmDeleteCategory}
         onCancel={() => setCategoryToDelete(null)}
+      />
+
+      <ConfirmModal
+        isOpen={alertMessage !== null}
+        title="Delete Category Blocked"
+        message={alertMessage || ''}
+        confirmText="OK"
+        onConfirm={() => setAlertMessage(null)}
+        onCancel={() => setAlertMessage(null)}
       />
 
     </div>

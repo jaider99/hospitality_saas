@@ -132,8 +132,87 @@ export class ApiClient {
   }
 
   // Recipes & Menu
-  async getRecipes(): Promise<Recipe[]> {
-    const res = await this.instance.get<Recipe[]>('/recipes');
+  async getRecipes(params?: { preparations?: boolean }): Promise<Recipe[]> {
+    const res = await this.instance.get<Recipe[]>('/recipes', { params });
+    return res.data;
+  }
+
+  async getRecipeTags(): Promise<any[]> {
+    const res = await this.instance.get<any[]>('/recipes/tags');
+    return res.data;
+  }
+
+  async createRecipeTag(name: string, isPreparation: boolean): Promise<any> {
+    const res = await this.instance.post<any>('/recipes/tags', { name, isPreparation });
+    return res.data;
+  }
+
+  async deleteRecipeTag(tagId: string): Promise<void> {
+    await this.instance.delete(`/recipes/tags/${tagId}`);
+  }
+
+  async uploadRecipeImage(recipeId: number, file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await this.instance.post<any>(`/recipes/${recipeId}/image`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return res.data;
+  }
+
+  async getDishes(params?: { preparations?: boolean }): Promise<any[]> {
+    const res = await this.instance.get<any[]>('/recipes/dishes', { params });
+    return res.data;
+  }
+
+  async getUnlinkedDishes(): Promise<any[]> {
+    const res = await this.instance.get<any[]>('/recipes/dishes/unlinked');
+    return res.data;
+  }
+
+  async getBOM(dishId: string | number): Promise<any> {
+    const res = await this.instance.get<any>(`/recipes/dishes/${dishId}/bom`);
+    return res.data;
+  }
+
+  async createRecipe(data: any): Promise<any> {
+    const res = await this.instance.post<any>('/recipes', data);
+    return res.data;
+  }
+
+  async updateRecipe(recipeId: number, data: any): Promise<any> {
+    const res = await this.instance.put<any>(`/recipes/${recipeId}`, data);
+    return res.data;
+  }
+
+  async deleteRecipe(recipeId: number): Promise<void> {
+    await this.instance.delete(`/recipes/${recipeId}`);
+  }
+
+  async addIngredient(recipeId: number, data: any): Promise<any> {
+    const res = await this.instance.post<any>(`/recipes/${recipeId}/ingredients`, data);
+    return res.data;
+  }
+
+  async removeIngredient(ingredientId: number): Promise<void> {
+    await this.instance.delete(`/recipes/ingredients/${ingredientId}`);
+  }
+
+  async searchSuppliedProducts(query?: string): Promise<any[]> {
+    const res = await this.instance.get<any[]>('/recipes/supplied-products', { params: { q: query } });
+    return res.data;
+  }
+
+  async generateFromFile(file: File): Promise<any[]> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await this.instance.post<any[]>('/recipes/generate-from-file', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
     return res.data;
   }
 

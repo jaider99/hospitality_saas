@@ -32,6 +32,7 @@ import { documents } from '../mockData';
 import { Btn } from '../_components/ui';
 import { getApiClient } from '../../../store/auth';
 import { API_BASE_URL } from '@hospitality-saas/constants';
+import ConfirmModal from '../suppliers/_components/ConfirmModal';
 
 export default function DocumentsPage() {
   const router = useRouter();
@@ -78,6 +79,7 @@ export default function DocumentsPage() {
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
+  const [alertConfig, setAlertConfig] = useState<{ title: string; message: string } | null>(null);
   const itemsPerPage = 5;
 
   // Server-Side API States
@@ -304,7 +306,7 @@ export default function DocumentsPage() {
       setActiveRowMenu(null);
     } catch (e) {
       console.error(e);
-      alert('Failed to delete invoice');
+      setAlertConfig({ title: 'Error', message: 'Failed to delete invoice' });
     }
   };
 
@@ -317,7 +319,7 @@ export default function DocumentsPage() {
       await fetchInvoices();
     } catch (e) {
       console.error(e);
-      alert('Failed to delete selected invoices');
+      setAlertConfig({ title: 'Error', message: 'Failed to delete selected invoices' });
     }
   };
 
@@ -1644,6 +1646,16 @@ export default function DocumentsPage() {
             </div>
           </div>
         </div>
+      )}
+      {alertConfig && (
+        <ConfirmModal
+          isOpen={alertConfig !== null}
+          title={alertConfig.title}
+          message={alertConfig.message}
+          confirmText="OK"
+          onConfirm={() => setAlertConfig(null)}
+          onCancel={() => setAlertConfig(null)}
+        />
       )}
     </div>
   );

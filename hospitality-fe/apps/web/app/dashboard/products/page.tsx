@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { getApiClient } from '../../../store/auth';
 import { Badge, Btn } from '../_components/ui';
+import ConfirmModal from '../suppliers/_components/ConfirmModal';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DateRange } from 'react-day-picker';
@@ -72,6 +73,7 @@ export default function ProductsPage() {
   const [detailTab, setDetailTab] = useState<'purchases' | 'recipes'>('purchases');
   const [docFilter, setDocFilter] = useState<'all' | 'invoices' | 'delivery_notes'>('all');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [alertConfig, setAlertConfig] = useState<{ title: string; message: string } | null>(null);
 
   // Totals & Counts
   const [totalCount, setTotalCount] = useState(0);
@@ -356,7 +358,7 @@ export default function ProductsPage() {
       // Reload detail
       const detail = await client.getProductDetail(selectedProductId);
       setProductDetail(detail);
-      alert('Price configuration saved successfully!');
+      setAlertConfig({ title: 'Success', message: 'Price configuration saved successfully!' });
     } catch (err) {
       console.error('Failed to save price configuration:', err);
     } finally {
@@ -729,12 +731,12 @@ export default function ProductsPage() {
                           </td>
                           <td className="py-4 px-4">
                             {(p.app_category_name || p.category_name) ? (
-                              <Badge
-                                variant="neutral"
+                              <span
+                                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold border"
                                 style={p.app_category_color ? { borderColor: p.app_category_color, color: p.app_category_color } : undefined}
                               >
                                 {p.app_category_name || p.category_name}
-                              </Badge>
+                              </span>
                             ) : (
                               <span className="text-xs text-muted-foreground/50">—</span>
                             )}
@@ -980,17 +982,17 @@ export default function ProductsPage() {
                       <Pencil size={14} /> Configuration
                     </button>
                     {/* <button 
-                      onClick={() => { alert('Merge tool selected'); setMenuOpen(false); }}
+                      onClick={() => { setAlertConfig({ title: 'Merge', message: 'Merge tool selected' }); setMenuOpen(false); }}
                       className="w-full text-left px-4 py-3 text-sm text-foreground hover:bg-muted transition-colors flex items-center gap-2 border-t border-border/50"
                     >
                       <Merge size={14} /> Merge
-                    </button>
+                    </button> */}
                     <button 
                       onClick={() => { handleArchive(productDetail.id, productDetail.archived); setMenuOpen(false); }}
                       className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors flex items-center gap-2 border-t border-border/50"
                     >
                       <EyeOff size={14} /> Hide / Archive
-                    </button> */}
+                    </button>
                   </div>
                 </>
               )}
@@ -1654,11 +1656,11 @@ export default function ProductsPage() {
                           <label className="flex items-center gap-2.5 text-xs text-foreground cursor-pointer font-medium">
                             <input
                               type="checkbox"
-                              checked={selectedCategoryIds.includes(c.id)}
-                              onChange={() => toggleCategorySelection(c.id)}
+                              checked={selectedCategoryIds.includes(String(c.id))}
+                              onChange={() => toggleCategorySelection(String(c.id))}
                               className="w-4.5 h-4.5 rounded border-border text-primary focus:ring-primary/10"
                             />
-                            <span className="bg-yellow-50 text-yellow-800 px-2 py-0.5 rounded-md font-semibold text-[10px]">
+                            <span style={{ backgroundColor: '#fefce8', color: '#854d0e', padding: '2px 8px', borderRadius: '6px', fontWeight: '600', fontSize: '10px' }}>
                               {c.name}
                             </span>
                           </label>
@@ -2057,6 +2059,16 @@ export default function ProductsPage() {
             </form>
           </div>
         </div>
+      )}
+      {alertConfig && (
+        <ConfirmModal
+          isOpen={alertConfig !== null}
+          title={alertConfig.title}
+          message={alertConfig.message}
+          confirmText="OK"
+          onConfirm={() => setAlertConfig(null)}
+          onCancel={() => setAlertConfig(null)}
+        />
       )}
     </div>
   );
