@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 from openai import OpenAI
 from app.ocr.schema import Invoice, LABELS, LINE_ITEM_HEADERS
@@ -24,7 +25,6 @@ MODEL_NAME = os.environ.get("LLM_MODEL", "openai/gpt-oss-120b")
 LLM_FALLBACK_MODEL = os.environ.get("LLM_FALLBACK_MODEL", "inclusionai/ring-2.6-1t")
 
 _client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
-
 
 def _call_llm_with_fallback(messages: list, temperature: float = 0, model_name: str = MODEL_NAME, use_fallback_model: bool = False) -> any:
     if use_fallback_model:
@@ -76,7 +76,6 @@ def _call_llm_with_fallback(messages: list, temperature: float = 0, model_name: 
         except Exception as fallback_e:
             logger.error(f"Fallback Text Model ({LLM_FALLBACK_MODEL}) also failed: {fallback_e}")
             raise fallback_e
-
 
 
 def _build_bilingual_dictionary() -> str:
@@ -170,46 +169,28 @@ SYSTEM_PROMPT = (
     "  • The CUSTOMER is the person/company who BOUGHT: their name and NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' (e.g. 'Rec 67 Partners SL', NIF B67019018). Show as Customer Name. If only one NIF/CIF is present in the document, treat it as the Supplier's VAT ID.\n"
     "  • 'Canon por copia privada' IS a real line item (regulatory levy). Include it in the line items table.\n"
     "DO NOT redact the Supplier Name, Supplier VAT ID, or Customer Name — they MUST appear explicitly in the output.\n"
-    "PROVIDER CODES: Provider/Product codes are typically alphanumeric strings or integers (e.g. '08064313', '1344'). NEVER extract a decimal number with a period or comma (e.g., '1.750') as a provider code. If you see a decimal, it is likely a price or quantity.\n"
     "PRODUCT NAME CORRECTION: If the OCR text for a product description contains obvious spelling errors or garbled characters (e.g. 'Canon por oa rivada' instead of 'obra privada', or missing letters), you MUST gently correct the spelling to make it readable in the Markdown output.\n"
-    "MISSING PRODUCT NAMES: If the OCR text is jumbled and a line item appears to have no product description, look at the surrounding lines. Product names are typically alphabetical strings (e.g., 'Product A', 'Fresh Milk 1L'). If a text string is floating on a nearby line, you MUST aggressively assign it as the `product` description for the nearest line item. NEVER leave the `product` field as null if there are unused alphabetical text strings nearby.\n"
-    "CREDIT CARD RECEIPTS: If a credit card terminal receipt is stapled to the invoice, you will see text like 'MASTERCARD', 'VISA', 'TARJETA', 'TVR', or 'COMERCIO'. **NEVER extract 'MASTERCARD' or 'VISA' as the Supplier Name.** The actual supplier name is the store/company name printed on the main invoice (e.g. 'Artyplan').\n"
+    "CREDIT CARD RECEIPTS: If a credit card terminal receipt is stapled to the invoice, you will see text like 'MASTERCARD', 'VISA', 'TARJETA', 'TVR', or 'COMERCIO'. **NEVER extract 'MASTERCARD' or 'VISA' as the Supplier Name.** The actual supplier name is the store/company name printed on the main invoice (e.g. 'The Store Name').\n"
     "SUPPLIER NAME EXTRACTION: The supplier name is usually the largest text at the top, or explicitly labeled. DO NOT use abbreviations or truncate the name. Extract the FULL legal name.\n"
     "INVOICE SUBTOTAL VALIDATION: The sum of the 'Amount' column for all Line Items MUST strictly equal the Invoice Subtotal (within a few cents). If your extracted line items sum to 4155.30 but the Subtotal is 1658.00, YOU HAVE FAILED. You MUST re-read the OCR text and find the correct quantities and prices such that their sum matches the Subtotal.\n"
-    "=== CLUMPED PRICING AND DISCOUNTS (GENERAL HEURISTIC) ===\n"
-    "On many distribution invoices, OCR will clump multiple pricing columns together into a single string (e.g., '[UnitPrice] [Discount] [Base] [TaxRate]').\n"
-    "If you see a clump of numbers at the end of a line item, use mathematical logic to map them to the correct fields:\n"
-    "  • The true Unit Price (`grossPrice`) is the exact printed price before any discounts. NEVER back-calculate a unit price if a printed one exists.\n"
-    "  • If the sum of the next two numbers equals (Quantity * Unit Price), those two numbers are the Discount Amount (`appliedDiscount`) and the final Base Amount (`base`)!\n"
-    "  • You MUST extract the printed Unit Price into `grossPrice`, the Discount Amount into `appliedDiscount`, and the final Base Amount into `base`.\n"
-    "  • Do NOT hallucinate or divide numbers if the exact mathematical components (Unit Price, Discount, Base) are printed on the page.\n"
-    "=== COMPLEX TAX TABLES & ECO-TAXES ===\n"
-    "If an invoice has complex tax footers with interleaved columns (e.g., '%IVA Base PVerd IBEE B.Imponible Imp.IVA TOTAL'):\n"
-    "  • Be aware that OCR often prefixes tax rates with typos (e.g., '121.00' for 21%, '210.00' for 10%). Interpret them logically.\n"
-    "  • Identify the pure 'Base' column for the tax brackets. Do NOT confuse the raw tax 'Base' with 'B.Imponible' (which often includes eco-taxes like IBEE or Punto Verde).\n"
-    "  • The sum of your extracted line item `base` values MUST equal the sum of the pure tax `Base` column.\n"
-    "=== SIDEWAYS SCANNED INVOICES & MISALIGNED ROWS (CRITICAL) ===\n"
-    "Sometimes OCR reads down columns instead of across rows, or pushes prices to the lines BELOW the products.\n"
-    "For example, you might see:\n"
-    "  Product A\n"
-    "  Product B\n"
-    "  1   1,50\n"
-    "  1   1,60\n"
-    "CRITICAL SEQUENTIAL MAPPING RULE: If you see N products listed sequentially, followed by N detached prices or quantities, you MUST map them strictly 1-to-1 in sequential order! (The 1st product gets the 1st price, the 2nd gets the 2nd, etc). Do NOT skip products. If the invoice says '9 ARTIC.', there MUST be exactly 9 line items extracted.\n"
-    "If the document contains a '--- DOCUMENT INFO COLUMN ---' separator, reconstruct the rows by matching the Nth product in the left section with the Nth price/total in the right section.\n"
-    "TAX-INCLUSIVE PRICES: If the sum of the printed line item prices equals the GRAND TOTAL (e.g., 25.75) instead of the SUBTOTAL, then those prices INCLUDE tax. You MUST back-calculate the pre-tax `base` (e.g., base = 1.50 / 1.21) and extract the pre-tax unit price as `grossPrice`.\n"
-    "ANTI-HALLUCINATION RULE: If prices are disconnected or jumbled, you MUST find the actual printed prices in the text. DO NOT invent, divide, or average out prices to make the math work (e.g., hallucinating a unit price by dividing the total base by the quantity). If OCR smashed numbers together without spaces (e.g. '16,2424.35'), you MAY split them logically at the decimal point ('16.24' and '24.35'), but do not invent new digits. Extract the exact printed digits and match them logically to the Nth product.\n"
+    "CUSTOMER VAT ID RULE: You must NEVER include the Customer's VAT ID in the Markdown output. Simply omit it if you see it. DO NOT redact or omit the Supplier's name, Supplier's VAT ID, or the Customer's name—they MUST be explicitly extracted and included in the output.\n"
+    "=== SIDEWAYS SCANNED INVOICES (CRITICAL) ===\n"
+    "If the invoice was scanned sideways, the OCR may read down the columns instead of across rows. "
+    "You will see quantities and prices separated from their product descriptions. "
+    "For example, you might see '2.000' and '0.495' far away from 'MASCARPONE' and 'DESHUESADAS'. "
+    "CRITICAL: If the document contains a '--- DOCUMENT INFO COLUMN ---' separator, the first half of the table (Code, Description, Qty) may be BEFORE the separator, and the second half (Price, Discount, Total) may be AFTER the separator! "
+    "You MUST logically reconstruct the rows by matching the Nth product in the left section with the Nth price/total in the right section! "
+    "DO NOT merge separate products into a single line item. Keep them as distinct items in the JSON array!\n"
     "=== GENERAL INFO ===\n"
     "DATE PARSING: Spanish/Catalan dates are DD/MM/YY or DD/MM/YYYY. "
     "The LAST number is always the year, the FIRST is always the day. "
     "E.g. '19/05/26' = day=19, month=05, year=2026. NEVER interpret "
     "the first 2-digit number as a year. Always output as ISO YYYY-MM-DD. "
     "Prefix 2-digit years with '20' (e.g., 26 -> 2026).\n"
-    "DOCUMENT TYPE: You must classify the document into exactly one of: 'Invoice', 'Delivery Note', or 'Receipt'.\n"
-    "  • If the header says 'ALBARÁN', 'Albaran', or 'Nota de entrega', you MUST set the type to 'Delivery Note'.\n"
-    "  • If it says 'FACTURA' or 'Invoice', set it to 'Invoice'.\n"
-    "  • If it says 'RECIBO', 'Ticket', or 'Comprobante', set it to 'Receipt'.\n"
-    "  • CRITICAL: Delivery Notes (Albaranes) very often DO NOT have any prices printed on them (only quantities). This is perfectly normal. If there are no prices on the document, DO NOT invent them. Leave `grossPrice`, `base`, `subtotal`, `tax`, and `total` as null or 0.0.\n"
+    "DOCUMENT TYPE: Always use the EXACT label printed in the page header: "
+    "'Albarán' (delivery note), 'Factura' (invoice), 'Recibo' (receipt), etc. "
+    "Do NOT default to 'Invoice'. If the header says 'ALBARÁN COPIA', the "
+    "type is 'Albarán', not 'Invoice'.\n"
     "The 'serialNumber' is the unique ID of the invoice or receipt. "
     "It typically looks like: 'A26-004800', 'F2026-001', '2485/26', 'ALB-0012345', '5122', 'FBADS-233-105870698', 'LA/C187763'. "
     "NOT a hex hash like '676d82', NOT a barcode, NOT a date, NOT 'pendiente/comprobant', NOT a phone number. "
@@ -220,7 +201,6 @@ SYSTEM_PROMPT = (
     "Phone numbers (e.g. 'T.916011440' or '93 319 52 06' or '933195206-93' or any 9-digit numbers starting with 9, 8, 7, 6) are NEVER the document number! "
     "Look for labels: NUMERO, NÚMERO, FACTURA:, Nº FACTURA, Nº ALBARÁN, Document, Documento, Nº, No., Nº Factura, Nº Albarán, Invoice No. "
     "IMPORTANT: A 'Document' or 'Invoice' number is strictly preferred over a generic 'Reference' or 'Order' number. If both exist, ALWAYS pick the Document/Invoice number. If only an 'Order Number' or 'Pedido' is present, you MUST extract it as the `serialNumber`.\n"
-    "PREFIX STRIPPING: If the OCR smashed the label and the number together (e.g. 'No.A1baran12101542', 'Fra.1234'), you MUST strip off the label prefix ('No.A1baran', 'Fra.') and extract ONLY the actual number (e.g., '12101542', '1234') as the `serialNumber`.\n"
     "If in doubt, prefer alphanumeric codes with a year component (e.g. 2026) or uppercase letters like 'LA/'.\n"
     "\n"
     "=== TOTALS & TAX BREAKDOWN ===\n"
@@ -230,13 +210,12 @@ SYSTEM_PROMPT = (
     "  | IVA 10% | 31.40 | 3.14 | 34.54 |\n"
     "Extract EACH RATE as a separate object in `taxBrackets` with fields: "
     "{taxRate, subtotal, tax, total}. "
-    "If the `total` for a specific tax bracket is NOT explicitly printed in the table, you MUST calculate it as `subtotal + tax`.\n"
     "DO NOT mix values from different rows! "
     "The `subtotal` for IVA 4% is 3.56, NOT 31.40. Read column by column, row by row.\n"
     "GRAND TOTAL RULE: The `total` field must be the final Grand Total of the entire invoice (e.g. Total Factura, Total a Pagar). NEVER map a single line item's total to the invoice `total` field. If the Grand Total is 8.67, output 8.67.\n"
     "The overall `subtotal` MUST be the printed 'Subtotal' or 'BASE IMPONIBLE' (Total before tax, before adjustments and fees).\n"
     "For 'total': extract it ONLY from an explicit printed total field (e.g. "
-    "'IMPORTE ALBARÁN', 'TOTAL A PAGAR', 'Total (EUR)', 'TOTAL FACTURA', 'TOTAL ENTREGA', 'IMPORTE TOTAL'). "
+    "'IMPORTE ALBARÁN', 'TOTAL A PAGAR', 'Total (EUR)', 'TOTAL FACTURA'). "
     "Do NOT calculate total = subtotal + tax yourself. Do NOT subtract "
     "any discounts from the total — the printed grand total already "
     "accounts for them.\n"
@@ -250,7 +229,7 @@ SYSTEM_PROMPT = (
     "You MUST reconstruct the row by associating:\n"
     "- providerCode (ART.): the alphanumeric product code (e.g. 001783, 006115)\n"
     "- product: the product description (e.g. BAILEYS 0.70, CINZANO ROSSO BOTTEGA 1757)\n"
-    "- gra: the alcohol percentage/degree (from GRA. column, e.g. 17.0, 16.0, 40.0). Save as a plain number. If there is no GRA column, leave it null.\n"
+    "- gra: the alcohol percentage/degree (from GRA. column, e.g. 17.0, 16.0, 40.0). Save as a plain number.\n"
     "- u_m: the capacity volume size in liters/kg (from U/M column, e.g. 0.700, 1.000). Save as a plain number.\n"
     "- quantity: the number of units sold (prefer BOT. or UDS or Cantidad column over package-count columns like Cajas/Bultos).\n"
     "- grossPrice: the unit price before discount (from PRECIO column).\n"
@@ -258,8 +237,6 @@ SYSTEM_PROMPT = (
     "- base: the total line amount before tax (usually Quantity * nominalPrice).\n"
     "When a table has multiple quantity-like columns (e.g. 'Cajas', 'Bultos', 'BOT.', 'UDS', 'Cantidad' in the same row), ALWAYS prefer the column whose header most directly means total units sold: prefer 'BOT.'/'UDS'/'Cantidad' over package-count columns like 'Cajas'/'Bultos'. Extract grossPrice as the exact printed price per that unit, exactly as printed.\n"
     "CRITICAL: Be extremely careful not to confuse numbers INSIDE a product description (e.g., 'PICOS DE METAL X 12 UDS', 'PUREE 1 KG') with the actual quantity or price columns. The actual quantity and price will be separate numeric blocks. You MUST strictly preserve the vertical order of the line items to avoid swapping values between rows!\n"
-    "CRITICAL FAILSAFE: NEVER return an empty array `[]` for `items` if there are clearly products listed on the invoice. If the OCR text is extremely jumbled, or if the prices are garbled/missing, you MUST STILL extract the product names (e.g. 'ANBAR', 'MORITZ'), codes, and quantities, and simply leave the price fields as `null`. Returning an empty `items` array when products are visible is a CRITICAL FAILURE. An imperfectly mapped product list is always better than an empty list.\n"
-    "GRA VS PRICE MISMATCH: Look carefully at the Spanish table headers (e.g. 'GRA.', 'PRECIO'). If the invoice does NOT have a 'GRA.' (alcohol degree) column, do NOT extract prices or other numbers into the `gra` field; leave it null. If both are present, map them strictly according to their columns.\n"
     "CRITICAL: You MUST extract the Unit Price into `grossPrice` (or `nominalPrice` if discounted) and the Total Amount (Qty * Price) into `base` for EVERY line item. Never omit them if they exist on the page.\n"
     "Always ensure EVERY extracted product gets its `base` and `iva_pct`.\n"
     "If the receipt is a B2C receipt (like Apple Retail, DOMOS SHOP, or Meta Ads) where line items are listed WITH tax, you MUST back-calculate the PRE-TAX Unit Price and extract that into `grossPrice`. e.g. Pre-tax Unit Price = Printed Price / (1 + iva_pct/100). Do NOT extract the tax-inclusive price as `grossPrice`. Also back-calculate the pre-tax `base` amount for each line item (Base = Pre-tax Unit Price * Qty) so that the sum of line item bases equals the invoice's overall `subtotal`. If the invoice has no tax (iva_pct = 0 or missing), then `base` MUST EXACTLY EQUAL `grossPrice` * qty.\n"
@@ -273,6 +250,7 @@ SYSTEM_PROMPT = (
     "is only for an explicit document-wide discount amount shown in the totals "
     "section (e.g. 'Descuento general: 10.00 €').\n"
     "CRITICAL: NEVER put the invoice Total or Subtotal into the `discount` field! If there is no explicit discount, leave it null.\n"
+    "EXTREMELY IMPORTANT: Pay close attention to the difference between the GRAND TOTAL ('TOTAL ALBARAN', 'TOTAL FACTURA') and the totals of individual tax brackets. Do NOT confuse a tax bracket total (e.g. 58.08) for the grand total if there is a clear 'TOTAL' line at the bottom (e.g. 82.72).\n"
     "TAX BRACKETS: Only populate `taxBrackets` if there is an explicit table breaking down the VAT by percentage (e.g. 10%, 21%). Do NOT invent base amounts or tax amounts if they are not explicitly printed on the document! If there is no breakdown table, leave `taxBrackets` empty.\n"
     "If the markdown contains 'Regulatory Operating Costs', 'DST Fees', 'Pago aplazado', 'Canon', or other fees that increase the grand total but are NOT already included in the line items or the IVA breakdown, YOU MUST sum them up and place the sum in `taxableAdditionalCost`.\n"
     "CRITICAL: If a fee (like Canon) is already included in the invoice's Subtotal or if adding it to the Subtotal+Tax exceeds the Grand Total, DO NOT put it in `taxableAdditionalCost`! Otherwise it will double-count.\n"
@@ -285,17 +263,16 @@ SYSTEM_PROMPT = (
     "If you see: 'Puré Boiron Melón Cantalup' → Code: 'BpurMelonk1', Qty: 2, Gross: 12.7, IVA: 10, Base: 25.4.\n"
     "If you see: 'Hojas de Naranja tarr' → Code: 'HojDeNarTarr', Qty: 2, Gross: 3, IVA: 10, Base: 6.\n"
     "If you see heavily jumbled rows like:\n"
-    "  10.00\n"
-    "  2.000 5.000\n"
-    "  3.000 12.00\n"
-    "  2148 PRODUCT ALPHA 4.000 10%\n"
-    "  5122 PRODUCT BETA\n"
-    "You must mathematically pair the stranded numbers with the stranded descriptions! 2.000 * 5.000 = 10.00 (PRODUCT ALPHA). 4.000 * 3.000 = 12.00 (PRODUCT BETA). Extract BOTH items as separate rows.\n"
+    "  6.90\n"
+    "  2.000 3.450\n"
+    "  7.950 3.94\n"
+    "  2148 ZANETTI MASCARPONE 0.495 10%\n"
+    "  5122 AC.DESHUESADAS\n"
+    "You must mathematically pair the stranded numbers with the stranded descriptions! 0.495 * 7.950 = 3.94 (ZANETTI). 2.000 * 3.450 = 6.90 (AC.DESHUESADAS). Extract BOTH items as separate rows.\n"
     "=== SIDEWAYS INVOICE: MULTI-ITEM COUNTING RULE ===\n"
     "For sideways/rotated scans the OCR may jumble product rows together. Before finalising the items array, count how many DISTINCT product descriptions you can identify in the raw text. "
     "Your items array MUST contain exactly that many entries — one per product. "
-    "You MAY use a <think>...</think> block before outputting JSON to plan your extraction, particularly to count the items and reconstruct sideways tables. "
-    "After your thinking block, output ONLY the raw JSON string. Do NOT output ```json ... ``` tags.\n"
+    "CRITICAL: Output the JSON IMMEDIATELY. DO NOT output any reasoning, thinking process, or explanation. "
     "DO NOT output ```json ... ``` tags, just the raw JSON string.\n"
     "Your entire response MUST be valid JSON and nothing else."
     "Cross-check: sum of all item `base` values must be within ±0.15 € of the printed subtotal. "
@@ -305,11 +282,10 @@ SYSTEM_PROMPT = (
     "If you see: 'PUREE 1 KG.' → Code: 'TEG-N8012', Qty: 1, Base: 21.55, IVA: 21.\n"
     "If you see: 'PELADOR INOX ANCHO' → Qty: 12, Base: 99.60, IVA: 10.\n"
     "If you see: 'CUCHILLO PUNTILLA MONDADOR' → Code: 'BOH-188600', Qty: 1, Base: 4.40, IVA: 21.\n"
-    "If you see: 'F a c t u r a' or 'M a k r o', remove the spaces when extracting (e.g. 'Factura', 'Makro').\n"
+    "If you see spaced out letters like 'F a c t u r a' or 'M a k r o', remove the spaces when extracting (e.g. 'Factura', 'Makro').\n"
     "MERGED NUMBERS RULE: OCR sometimes glues numbers together without spaces (e.g. '362,0921.076,04' or '173,4921,00'). You MUST intelligently split them apart based on expected columns. For example, '362,09' (Base), '21.0' (IVA rate), and '76,04' (Tax amount). Use common sense to split them at the correct decimal boundaries.\n"
     "=== MESSY IVA / TOTALS SECTIONS ===\n"
     "If you see jumbled totals at the bottom (e.g., '173,4921,00', '36,43', '209,92') or in the Marginal Text (e.g., 'otal€ 209,92'), you MUST split the merged strings and populate the `taxBrackets` and the overall invoice `subtotal`, `tax`, and `total`. For example, '173,4921,00' means Base=173.49, Rate=21.00. The standalone '36,43' is the IVA amount. Do NOT leave them empty.\n"
-    "If you see a jumbled tax breakdown like '1.00 11.00', '10.00 10', '21.00', '20.00 5 1.00', you must match the Base, Tax%, and TaxAmount! Here, Base 10.00 @ 10% = Tax 1.00 (Total 11.00), and Base 20.00 @ 5% = Tax 1.00 (Total 21.00). Subtotal = 10.00 + 20.00 = 30.00. Tax = 1.00 + 1.00 = 2.00. Total = 32.00.\n"
     "\n"
     "=== MARGINAL TEXT RECOVERY RULE ===\n"
     "The text may contain a section '--- Marginal Text ---' or '--- Marginal Text (Full Resolution) ---'. "
@@ -327,23 +303,15 @@ SYSTEM_PROMPT = (
     "=== SUPPLIER VS CUSTOMER ===\n"
     "The VAT ID is usually labeled as: NIF, CIF, NIF-IVA, VAT, VAT Number, Número de IVA, or IVA intracomunitario.\n"
     "CRITICAL: If the document contains MULTIPLE VAT IDs (e.g. one for the Supplier and one for the Customer), you MUST extract the one belonging to the SUPPLIER/VENDOR into `supplier.vatID`.\n"
-    "Remember: A VAT ID near any CUSTOMER KEYWORDS (e.g., 'CLIENTE', 'Facturar a', 'Bill To') is the Customer's. A VAT ID near SUPPLIER KEYWORDS or in the header/logo is the Supplier's. The customer's information (name and VAT) should NOT be extracted as the supplier.\n"
-    "\n"
-    "=== CORRUPTED DATES ===\n"
-    "Dates in OCR are frequently corrupted (e.g., '12/00/2025' instead of '12/05/2025', or '15-04-202' instead of '15-04-2024'). If a date appears invalid or truncated in the main text, look at the Marginal text or POS receipt text (e.g., 'Fecha...') to cross-reference and reconstruct the correct YYYY-MM-DD date. Use logical deduction to fix OCR typos in days, months or years.\n"
-    "\n"
-    "=== REFUNDS AND NEGATIVE NUMBERS ===\n"
-    "If the invoice is a credit note or refund, the amounts will often be negative. "
-    "CRITICAL: In OCR, negative numbers are frequently printed with a TRAILING minus sign (e.g., '58.08-', '48.00-', '10.08-'). "
-    "If you see a trailing minus sign, you MUST output it as a valid negative JSON number (e.g., -58.08, -48.00). Do NOT ignore the minus sign! "
-    "If the totals are negative, you MUST set `isRefund: true`.\n"
-    "IMPORTANT FOR LINE ITEMS: On refunds, the unit price (grossPrice) might be printed as a positive number (e.g., 2.400), but the line item base/total will be negative (e.g., -19.20). Do not panic if `qty * positive_unit_price` equals the absolute value of the negative base. Just extract the negative base and the positive unit price as printed.\n"
+    "Remember: A VAT ID near any CUSTOMER KEYWORDS (e.g., 'CLIENTE', 'Facturar a', 'Bill To') is the Customer's. A VAT ID near SUPPLIER KEYWORDS or in the 'Registre Mercantil' header/footer/logo is the Supplier's.\n"
+    "STRICT MISSING DATA RULE: If any NIF/CIF/CIN ID is printed on the document, you MUST extract it as the supplier's VAT ID (supplier.vatID) if no other supplier VAT ID is present. Even if the NIF/CIF is B67019018 or belongs to the customer, you MUST extract it into the `supplier.vatID` field. If multiple different NIF/CIF IDs are printed, extract the supplier's one into `supplier.vatID`, but if only one is present, treat it as the supplier's VAT ID.\n"
+    "SUPPLIER NAME RULE: You MUST extract supplier.name from the company name printed at the top of the document (in the header, logo area, or next to the VAT ID). Do NOT leave supplier.name empty. If the VAT ID 'B67019018' appears next to a company name like 'Rec 67 Partners SL', that IS the supplier name.\n"
     "\n"
     "=== ARITHMETIC RULES ===\n"
     "DO NOT compute sums for `subtotal` or `tax`. The pipeline does all arithmetic in Python. "
     "Your job is to find and return the raw values printed on the document. "
     "If a field is genuinely absent, completely OMIT it from the JSON to save output tokens.\n"
-    "CRITICAL: You may provide your reasoning inside a <think> block, but immediately after it, you MUST output ONLY the raw JSON."
+    "CRITICAL: DO NOT use <think> blocks. DO NOT provide any reasoning. Output ONLY the raw JSON immediately."
 )
 
 
@@ -402,7 +370,6 @@ def extract_with_llm(raw_text: str, missing_fields: Optional[list] = None, use_f
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": repair_prompt},
             ],
-            use_fallback_model=use_fallback_model
         )
         repaired = repair_resp.choices[0].message.content.strip()
         if repaired.startswith("```"):
@@ -625,4 +592,3 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
     except Exception as e:
         logger.error(f"Failed to format OCR markdown with LLM: {e}")
         return raw_text
-

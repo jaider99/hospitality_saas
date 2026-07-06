@@ -594,29 +594,47 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
                     if "subtotal" not in missing: missing.append("subtotal")
                     if "total" not in missing: missing.append("total")
 
+            import copy
+            from app.ocr.vl_fallback import calculate_llm_score, VL_LLM_THRESHOLD
+
+            original_inv = copy.deepcopy(inv)
             full_llm_input = ocr_text + "\n\n=== RAW OCR TEXT ===\n" + page_result.raw_text
-            _start_llm = time.time()
-            try:
-                llm_result = extract_with_llm(full_llm_input, missing_fields=missing)
-            finally:
-                llm_total_time += time.time() - _start_llm
-            logger.info(f"LLM returned dict: {llm_result}")
-            inv = merge_llm_result_into_invoice(inv, llm_result, force_fields=missing)
+            
+            for attempt, use_fallback in enumerate([False, True]):
+                _start_llm = time.time()
+                try:
+                    llm_result = extract_with_llm(full_llm_input, missing_fields=missing, use_fallback_model=use_fallback)
+                finally:
+                    llm_total_time += time.time() - _start_llm
+                logger.info(f"LLM returned dict: {llm_result}")
+                
+                # Merge into the current invoice state
+                inv = merge_llm_result_into_invoice(inv, llm_result, force_fields=missing)
 
-            for adj_field in ["discount", "payeAmount", "greenPointAmount", "ibeeAmount", "taxableAdditionalCost", "netAdditionalCost"]:
-                val = getattr(inv, adj_field, 0.0)
-                if val and py_total and abs(val - py_total) < 0.05:
-                    setattr(inv, adj_field, 0.0)
-                elif val and py_base and abs(val - py_base) < 0.05:
-                    setattr(inv, adj_field, 0.0)
+                for adj_field in ["discount", "payeAmount", "greenPointAmount", "ibeeAmount", "taxableAdditionalCost", "netAdditionalCost"]:
+                    val = getattr(inv, adj_field, 0.0)
+                    if val and py_total and abs(val - py_total) < 0.05:
+                        setattr(inv, adj_field, 0.0)
+                    elif val and py_base and abs(val - py_base) < 0.05:
+                        setattr(inv, adj_field, 0.0)
 
-            if py_base and py_total:
-                if abs((py_base + (py_iva or 0)) - py_total) < 1.0:
-                    inv.subtotal = py_base
-                    inv.tax = py_iva
+                if py_base and py_total:
+                    if abs((py_base + (py_iva or 0)) - py_total) < 1.0:
+                        inv.subtotal = py_base
+                        inv.tax = py_iva
+                        inv.total = py_total
+                elif py_total and not inv.total:
                     inv.total = py_total
-            elif py_total and not inv.total:
-                inv.total = py_total
+                    
+                # Evaluate semantic score
+                score = calculate_llm_score(inv)
+                if score >= VL_LLM_THRESHOLD:
+                    break # Good enough, don't need fallback text model
+                    
+                if not use_fallback:
+                    logger.warning(f"Primary Text Model semantic score ({score:.2f}) < {VL_LLM_THRESHOLD}. Discarding output and trying fallback text model...")
+                    inv = copy.deepcopy(original_inv) # Reset invoice to pre-LLM state
+                    
         except Exception as e:
             logger.warning(f"LLM fallback failed: {e}")
             inv.review_reasons.append("AI extraction failed (requires manual review)")
@@ -848,7 +866,11 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     # --- Duplicate Invoice Check ---
     if inv.serialNumber:
         try:
-            import os, re
+            import os
+            from sqlalchemy import create_engine
+            from sqlalchemy.orm import sessionmaker
+            from app.module.invoices.model import Invoice
+
             raw_url = os.getenv("DATABASE_URL", "").strip().strip('"').strip("'")
             # psycopg2 doesn't accept ?schema=..., strip it; also replace asyncpg driver
             sync_url = re.sub(r'\?.*$', '', raw_url).replace("postgresql+asyncpg", "postgresql")
@@ -856,11 +878,10 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
             SyncSessionLocal = sessionmaker(bind=engine)
             
             with SyncSessionLocal() as session:
-                # The DB column is document_number or invoice_number. Let's check both or just document_number.
-                duplicate_match = session.query(DBInvoice).filter(
-                    (DBInvoice.document_number == inv.serialNumber) | (DBInvoice.invoice_number == inv.serialNumber),
-                    DBInvoice.id != invoice_id
-                ).first()
+                query = session.query(Invoice).filter(Invoice.invoice_number == inv.serialNumber)
+                if invoice_id is not None:
+                    query = query.filter(Invoice.id != invoice_id)
+                duplicate_match = query.first()
                 
                 if duplicate_match:
                     inv.isDuplicate = True
