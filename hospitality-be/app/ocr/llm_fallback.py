@@ -43,6 +43,19 @@ def _call_llm_with_fallback(messages: list, temperature: float = 0, model_name: 
             logger.warning(f"Secondary Text Model ({LLM_FALLBACK_MODEL}) extraction completed successfully.")
             return response
         except Exception as e:
+            if "402" in str(e) or "credits" in str(e).lower() or "payment" in str(e).lower():
+                logger.warning("Low balance 402 error on secondary model. Retrying with reduced max_tokens=1000...")
+                try:
+                    response = _client.chat.completions.create(
+                        model=LLM_FALLBACK_MODEL,
+                        temperature=temperature,
+                        messages=messages,
+                        max_tokens=5000,
+                    )
+                    return response
+                except Exception as retry_e:
+                    logger.error(f"Fallback retry with reduced max_tokens failed: {retry_e}")
+                    raise retry_e
             logger.error(f"Secondary Text Model ({LLM_FALLBACK_MODEL}) failed: {e}")
             raise e
 
@@ -59,6 +72,23 @@ def _call_llm_with_fallback(messages: list, temperature: float = 0, model_name: 
         logger.warning(f"Primary Text Model ({model_name}) extraction completed successfully.")
         return response
     except Exception as e:
+        if "402" in str(e) or "credits" in str(e).lower() or "payment" in str(e).lower():
+            logger.warning("Low balance 402 error on primary model. Retrying with reduced max_tokens=1000...")
+            try:
+                response = _client.chat.completions.create(
+                    model=model_name,
+                    temperature=temperature,
+                    messages=messages,
+                    max_tokens=5000,
+                )
+                content = response.choices[0].message.content
+                if not content or not content.strip():
+                    raise ValueError("Primary LLM (low-token retry) returned empty content.")
+                logger.warning(f"Primary Text Model ({model_name}) extraction (low-token retry) completed successfully.")
+                return response
+            except Exception as retry_e:
+                logger.warning(f"Primary low-token retry failed: {retry_e}. Falling back...")
+        
         logger.warning(f"Primary Text Model ({model_name}) failed: {e}. Falling back to {LLM_FALLBACK_MODEL}...")
         try:
             logger.warning(f"Starting Fallback Text Model extraction using: {LLM_FALLBACK_MODEL}...")
@@ -74,6 +104,19 @@ def _call_llm_with_fallback(messages: list, temperature: float = 0, model_name: 
             logger.warning(f"Fallback Text Model ({LLM_FALLBACK_MODEL}) extraction completed successfully.")
             return fallback_response
         except Exception as fallback_e:
+            if "402" in str(fallback_e) or "credits" in str(fallback_e).lower() or "payment" in str(fallback_e).lower():
+                logger.warning("Low balance 402 error on fallback model. Retrying with reduced max_tokens=1000...")
+                try:
+                    fallback_response = _client.chat.completions.create(
+                        model=LLM_FALLBACK_MODEL,
+                        temperature=temperature,
+                        messages=messages,
+                        max_tokens=5000,
+                    )
+                    return fallback_response
+                except Exception as retry_e:
+                    logger.error(f"Fallback retry with reduced max_tokens failed: {retry_e}")
+                    raise retry_e
             logger.error(f"Fallback Text Model ({LLM_FALLBACK_MODEL}) also failed: {fallback_e}")
             raise fallback_e
 
@@ -121,6 +164,7 @@ as the decimal separator regardless of source format):
     "contacts": number|null,
     "contactInfo": string|null
   },
+  "math_scratchpad": string, // REQUIRED. Do NOT omit. If table columns are split/jumbled, show your step-by-step calculations here FIRST (e.g., "Naranja: Qty=1.13, UnitPrice=2.99, Base=3.38 because 1.13 * 2.99 = 3.38. Lima: Qty=0.88, UnitPrice=3.99, Base=3.51 because 0.88 * 3.99 = 3.51") to pair them correctly before generating the items array.
   "items": [
     {
       "providerCode": string|null,
@@ -167,14 +211,18 @@ SYSTEM_PROMPT = (
     "You MUST identify the Supplier (seller) and the Customer (buyer) before doing anything else.\n"
     "For receipts from large retail brands (Apple, MediaMarkt, El Corte Inglés, Samsung, etc.):\n"
     "  • The STORE BRAND (e.g. 'Apple', 'Apple Passeig de Gràcia') is the SUPPLIER. Their legal entity + CIF (e.g. 'Apple Retail Spain, S.L.U., CIF ESB65130643') appear in the receipt footer/header. Extract as Supplier Name and Supplier VAT ID/CIF.\n"
-    "  • The CUSTOMER is the person/company who BOUGHT: their name and NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' (e.g. 'Rec 67 Partners SL', NIF B67019018). Show as Customer Name. If only one NIF/CIF is present in the document, treat it as the Supplier's VAT ID.\n"
+    "  • The CUSTOMER is the person/company who BOUGHT: their name and NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' (e.g. 'Rec 67 Partners SL', NIF B67019018). Show as Customer Name. If only one NIF/CIF is present in the document, treat it as the Supplier's VAT ID, EXCEPT if that NIF/CIF is explicitly next to or associated with the customer/buyer (e.g. under 'PARA', 'CLIENTE', 'REC 67 PARTNERS'). If it belongs to the customer, do NOT extract it as the supplier's VAT ID; leave `supplier.vatID` as null.\n"
     "  • 'Canon por copia privada' IS a real line item (regulatory levy). Include it in the line items table.\n"
     "DO NOT redact the Supplier Name, Supplier VAT ID, or Customer Name — they MUST appear explicitly in the output.\n"
     "PROVIDER CODES: Provider/Product codes are typically alphanumeric strings or integers (e.g. '08064313', '1344'). NEVER extract a decimal number with a period or comma (e.g., '1.750') as a provider code. If you see a decimal, it is likely a price or quantity.\n"
     "PRODUCT NAME CORRECTION: If the OCR text for a product description contains obvious spelling errors or garbled characters (e.g. 'Canon por oa rivada' instead of 'obra privada', or missing letters), you MUST gently correct the spelling to make it readable in the Markdown output.\n"
     "MISSING PRODUCT NAMES: If the OCR text is jumbled and a line item appears to have no product description, look at the surrounding lines. Product names are typically alphabetical strings (e.g., 'Product A', 'Fresh Milk 1L'). If a text string is floating on a nearby line, you MUST aggressively assign it as the `product` description for the nearest line item. NEVER leave the `product` field as null if there are unused alphabetical text strings nearby.\n"
     "CREDIT CARD RECEIPTS: If a credit card terminal receipt is stapled to the invoice, you will see text like 'MASTERCARD', 'VISA', 'TARJETA', 'TVR', or 'COMERCIO'. **NEVER extract 'MASTERCARD' or 'VISA' as the Supplier Name.** The actual supplier name is the store/company name printed on the main invoice (e.g. 'Artyplan').\n"
-    "SUPPLIER NAME EXTRACTION: The supplier name is usually the largest text at the top, or explicitly labeled. DO NOT use abbreviations or truncate the name. Extract the FULL legal name.\n"
+    "SUPPLIER NAME EXTRACTION: Distinguish between the commercial brand name and the formal legal entity.\n"
+    "  • `supplier.name` = The commercial brand or trade name (e.g., 'Apple', 'Discer', 'Artyplan'). This is usually the largest text, logo, or brand name at the top.\n"
+    "  • `supplier.legalName` = The formal registered legal entity name (e.g., 'Apple Retail Spain, S.L.U.', 'Discer S.L.', 'ARTYPLAN S.L.'). This is usually found in the smaller print, header, or footer next to the VAT ID.\n"
+    "  • Multi-line brand name: If the supplier's name is split across lines by the OCR (e.g., 'Escola' on line 1, and 'Vins i Destil.lats' on line 3), you MUST combine them into the full name 'Escola Vins i Destil.lats' in `supplier.name`. Do not throw away parts of the name or assign them to `legalName`.\n"
+    "Do NOT force the full legal name into `supplier.name` if there is a distinct shorter commercial brand name.\n"
     "INVOICE SUBTOTAL VALIDATION: The sum of the 'Amount' column for all Line Items MUST strictly equal the Invoice Subtotal (within a few cents). If your extracted line items sum to 4155.30 but the Subtotal is 1658.00, YOU HAVE FAILED. You MUST re-read the OCR text and find the correct quantities and prices such that their sum matches the Subtotal.\n"
     "=== CLUMPED PRICING AND DISCOUNTS (GENERAL HEURISTIC) ===\n"
     "On many distribution invoices, OCR will clump multiple pricing columns together into a single string (e.g., '[UnitPrice] [Discount] [Base] [TaxRate]').\n"
@@ -197,8 +245,13 @@ SYSTEM_PROMPT = (
     "  1   1,60\n"
     "CRITICAL SEQUENTIAL MAPPING RULE: If you see N products listed sequentially, followed by N detached prices or quantities, you MUST map them strictly 1-to-1 in sequential order! (The 1st product gets the 1st price, the 2nd gets the 2nd, etc). Do NOT skip products. If the invoice says '9 ARTIC.', there MUST be exactly 9 line items extracted.\n"
     "If the document contains a '--- DOCUMENT INFO COLUMN ---' separator, reconstruct the rows by matching the Nth product in the left section with the Nth price/total in the right section.\n"
+    "JUMBLED OR SPLIT COLUMN NUMBERS: If the invoice table columns are split or jumbled across multiple lines in the right column (e.g. quantities and prices are listed vertically as separate numbers), you MUST group the numbers mathematically for each product:\n"
+    "  • For the Nth product, find the printed Qty, Unit Price (Base Ud.), and Base Total in the corresponding jumbled numbers block.\n"
+    "  • They MUST satisfy: Qty * Unit Price ≈ Base Total (e.g. Qty 1.13 * Unit Price 2.99 ≈ Base Total 3.38). Use this arithmetic check to map the correct unit price and quantity to the product description.\n"
+    "  • STRICT ANTI-DEFAULT RULE: Do NOT default the quantity to 1.0 or unit price to the base total if it is a jumbled layout! You MUST find the actual printed decimal quantity (e.g. 1.13, 0.88, 1.75, 0.57) and the actual printed unit price (e.g. 2.99, 3.99, 2.89) in the text. It is strictly forbidden to output quantities or prices that do not appear in the text (like defaulting Limon to quantity 1, grossPrice 8.30, base 8.30 when the text has qty 1.75, unit price 2.89, total 5.06).\n"
+    "  • If a number in the block does not fit this math (like the tax rate 4% or the tax amount 0.14), do NOT extract it as price, quantity, or base.\n"
     "TAX-INCLUSIVE PRICES: If the sum of the printed line item prices equals the GRAND TOTAL (e.g., 25.75) instead of the SUBTOTAL, then those prices INCLUDE tax. You MUST back-calculate the pre-tax `base` (e.g., base = 1.50 / 1.21) and extract the pre-tax unit price as `grossPrice`.\n"
-    "ANTI-HALLUCINATION RULE: If prices are disconnected or jumbled, you MUST find the actual printed prices in the text. DO NOT invent, divide, or average out prices to make the math work (e.g., hallucinating a unit price by dividing the total base by the quantity). If OCR smashed numbers together without spaces (e.g. '16,2424.35'), you MAY split them logically at the decimal point ('16.24' and '24.35'), but do not invent new digits. Extract the exact printed digits and match them logically to the Nth product.\n"
+    "ANTI-HALLUCINATION RULE: If prices are disconnected or jumbled, you MUST find the actual printed prices in the text. DO NOT invent, divide, or average out prices to make the math work (e.g., hallucinating a unit price by dividing the total base by the quantity) UNLESS you are mathematically pairing printed numbers to satisfy Qty * Unit Price ≈ Base. If OCR smashed numbers together without spaces (e.g. '16,2424.35'), you MAY split them logically at the decimal point ('16.24' and '24.35'), but do not invent new digits. Extract the exact printed digits and match them logically to the Nth product.\n"
     "=== GENERAL INFO ===\n"
     "DATE PARSING: Spanish/Catalan dates are DD/MM/YY or DD/MM/YYYY. "
     "The LAST number is always the year, the FIRST is always the day. "
@@ -234,13 +287,9 @@ SYSTEM_PROMPT = (
     "DO NOT mix values from different rows! "
     "The `subtotal` for IVA 4% is 3.56, NOT 31.40. Read column by column, row by row.\n"
     "GRAND TOTAL RULE: The `total` field must be the final Grand Total of the entire invoice (e.g. Total Factura, Total a Pagar). NEVER map a single line item's total to the invoice `total` field. If the Grand Total is 8.67, output 8.67.\n"
-    "The overall `subtotal` MUST be the printed 'Subtotal' or 'BASE IMPONIBLE' (Total before tax, before adjustments and fees).\n"
-    "For 'total': extract it ONLY from an explicit printed total field (e.g. "
-    "'IMPORTE ALBARÁN', 'TOTAL A PAGAR', 'Total (EUR)', 'TOTAL FACTURA', 'TOTAL ENTREGA', 'IMPORTE TOTAL'). "
-    "Do NOT calculate total = subtotal + tax yourself. Do NOT subtract "
-    "any discounts from the total — the printed grand total already "
-    "accounts for them.\n"
-    "Do NOT use a subtotal as the total if there is a larger grand total.\n"
+    "The overall `subtotal` MUST be the pure `Base` sum of the line items (Total before tax, BEFORE eco-taxes, and before fees). DO NOT use 'B.Imponible' as the subtotal if it includes eco-taxes!\n"
+    "ECO-TAXES (CRITICAL MATH): If the invoice includes 'IBEE' or 'PVerd' (Punto Verde), you MUST extract their sums into `ibeeAmount` and `greenPointAmount`. If there are multiple tax brackets with eco-taxes (e.g. PVerd 1.80 and 0.27), sum them up for `greenPointAmount`. Do NOT include them in the `subtotal`. The math formula MUST perfectly equal: `subtotal` + `tax` + `ibeeAmount` + `greenPointAmount` = `total`.\n"
+    "For 'total': extract it ONLY from an explicit printed total field (e.g. 'IMPORTE ALBARÁN', 'TOTAL A PAGAR', 'Total (EUR)', 'TOTAL FACTURA', 'TOTAL ENTREGA', 'IMPORTE TOTAL'). Do NOT calculate total = subtotal + tax yourself. Do NOT subtract any discounts from the total — the printed grand total already accounts for them.\n"
     "Do NOT use a quantity (1,00) or page number (1/1) as the total.\n"
     "\n"
     "=== LINE ITEMS ===\n"
@@ -256,7 +305,7 @@ SYSTEM_PROMPT = (
     "- grossPrice: the unit price before discount (from PRECIO column).\n"
     "- nominalPrice: the unit price after discount.\n"
     "- base: the total line amount before tax (usually Quantity * nominalPrice).\n"
-    "When a table has multiple quantity-like columns (e.g. 'Cajas', 'Bultos', 'BOT.', 'UDS', 'Cantidad' in the same row), ALWAYS prefer the column whose header most directly means total units sold: prefer 'BOT.'/'UDS'/'Cantidad' over package-count columns like 'Cajas'/'Bultos'. Extract grossPrice as the exact printed price per that unit, exactly as printed.\n"
+    "When a table has multiple quantity-like columns (e.g. 'Cajas', 'Bultos', 'BOT.', 'UDS', 'Cantidad' in the same row), ALWAYS prefer the column whose header most directly means total units sold: prefer 'BOT.'/'UDS'/'Cantidad' over package-count columns like 'Cajas/Bultos'. Extract grossPrice as the exact printed price per that unit, exactly as printed.\n"
     "CRITICAL: Be extremely careful not to confuse numbers INSIDE a product description (e.g., 'PICOS DE METAL X 12 UDS', 'PUREE 1 KG') with the actual quantity or price columns. The actual quantity and price will be separate numeric blocks. You MUST strictly preserve the vertical order of the line items to avoid swapping values between rows!\n"
     "CRITICAL FAILSAFE: NEVER return an empty array `[]` for `items` if there are clearly products listed on the invoice. If the OCR text is extremely jumbled, or if the prices are garbled/missing, you MUST STILL extract the product names (e.g. 'ANBAR', 'MORITZ'), codes, and quantities, and simply leave the price fields as `null`. Returning an empty `items` array when products are visible is a CRITICAL FAILURE. An imperfectly mapped product list is always better than an empty list.\n"
     "GRA VS PRICE MISMATCH: Look carefully at the Spanish table headers (e.g. 'GRA.', 'PRECIO'). If the invoice does NOT have a 'GRA.' (alcohol degree) column, do NOT extract prices or other numbers into the `gra` field; leave it null. If both are present, map them strictly according to their columns.\n"
@@ -502,7 +551,7 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
         "=== APPLE / LARGE BRAND B2C RETAIL RECEIPTS ===\n"
         "If the receipt is issued by a large consumer-electronics or retail store such as Apple, El Corte Inglés, MediaMarkt, Samsung, or similar:\n"
         "  • The store brand (e.g. 'Apple', 'Apple Passeig de Gràcia') IS the Supplier. Their legal entity and CIF (e.g. 'Apple Retail Spain, S.L.U.' / 'ESB65130643') are in the footer or header — extract them as supplier.name and supplier.vatID.\n"
-        "  • The CUSTOMER is the buyer whose name/NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' in a dedicated customer block (e.g. 'Rec 67 Partners SL', NIF B67019018). If only one NIF/CIF is present in the document, extract it as supplier.vatID. Do NOT leave supplier.vatID empty if a NIF/CIF exists.\n"
+        "  • The CUSTOMER is the buyer whose name/NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' in a dedicated customer block (e.g. 'Rec 67 Partners SL', NIF B67019018). If only one NIF/CIF is present in the document, extract it as supplier.vatID, EXCEPT if that NIF/CIF is explicitly associated with the customer/buyer (e.g. next to 'CLIENTE' or 'REC 67 PARTNERS'). If it belongs to the customer, do NOT extract it as the supplier's VAT ID; leave `supplier.vatID` as null.\n"
         "  • 'Canon por copia privada' is a Spanish regulatory levy (Royal Decree) attached to electronic devices. It appears as a separate line item with a small price. Extract it as a real line item (not as taxableAdditionalCost) because it is already included in the printed Grand Total.\n"
         "  • All displayed item prices include IVA (B2C receipts). You MUST back-calculate the pre-tax unit price and extract it as `grossPrice` (e.g. grossPrice = printed_price / (1 + iva_pct/100)). Do NOT extract the tax-inclusive price as grossPrice! Also calculate `base = grossPrice * qty` so the sum of bases equals the invoice subtotal.\n"
         "  • The 'Artículo:' field on each line is the Apple part number — use it as `providerCode`.\n"
@@ -510,11 +559,16 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
         "You MUST identify the Supplier (seller) and the Customer (buyer) before doing anything else.\n"
         "For receipts from large retail brands (Apple, MediaMarkt, El Corte Inglés, Samsung, etc.):\n"
         "  • The STORE BRAND (e.g. 'Apple', 'Apple Passeig de Gràcia') is the SUPPLIER. Their legal entity + CIF (e.g. 'Apple Retail Spain, S.L.U., CIF ESB65130643') appear in the receipt footer/header. Extract as Supplier Name and Supplier VAT ID/CIF.\n"
-        "  • The CUSTOMER is the person/company who BOUGHT: their name and NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' (e.g. 'Rec 67 Partners SL', NIF B67019018). Show as Customer Name. If only one NIF/CIF is present in the document, treat it as the Supplier's VAT ID.\n"
+        "  • The CUSTOMER is the person/company who BOUGHT: their name and NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' (e.g. 'Rec 67 Partners SL', NIF B67019018). Show as Customer Name. If only one NIF/CIF is present in the document, treat it as the Supplier's VAT ID, EXCEPT if that NIF/CIF is explicitly next to or associated with the customer/buyer. If it belongs to the customer, do NOT extract it as the supplier's VAT ID; leave `supplier.vatID` as null.\n"
         "  • 'Canon por copia privada' IS a real line item (regulatory levy). Include it in the line items table.\n"
         "DO NOT redact the Supplier Name, Supplier VAT ID, or Customer Name — they MUST appear explicitly in the output.\n"
         "PRODUCT NAME CORRECTION: If the OCR text for a product description contains obvious spelling errors or garbled characters (e.g. 'Canon por oa rivada' instead of 'obra privada', or missing letters), you MUST gently correct the spelling to make it readable in the Markdown output.\n"
-        "SUPPLIER NAME EXTRACTION: The supplier name is usually the largest text at the top, or explicitly labeled. DO NOT use abbreviations or truncate the name. Extract the FULL legal name.\n"
+        "SUPPLIER NAME EXTRACTION: Distinguish between the commercial brand name and the formal legal entity.\n"
+        "  • `supplier.name` = The commercial brand or trade name (e.g., 'Apple', 'Discer', 'Artyplan'). This is usually the largest text, logo, or brand name at the top.\n"
+        "  • `supplier.legalName` = The formal registered legal entity name (e.g., 'Apple Retail Spain, S.L.U.', 'Discer S.L.', 'ARTYPLAN S.L.'). This is usually found in the smaller print, header, or footer next to the VAT ID.\n"
+        "  • Multi-line brand name: If the supplier's name is split across lines by the OCR (e.g., 'Escola' on line 1, and 'Vins i Destil.lats' on line 3), you MUST combine them into the full name 'Escola Vins i Destil.lats' in `supplier.name`. Do not throw away parts of the name or assign them to `legalName`.\n"
+        "Do NOT force the full legal name into `supplier.name` if there is a distinct shorter commercial brand name.\n"
+        "VENDOR ADDRESS: Ensure you capture the full address of the vendor/supplier. Look for the address block usually under the supplier name or in the footer.\n"
         "INVOICE SUBTOTAL VALIDATION: The sum of the 'Amount' column for all Line Items MUST strictly equal the Invoice Subtotal (within a few cents). If your extracted line items sum to 4155.30 but the Subtotal is 1658.00, YOU HAVE FAILED. You MUST re-read the OCR text and find the correct quantities and prices such that their sum matches the Subtotal.\n"
         "2. Identify the IVA/TAX BREAKDOWN section (which lists the tax rates, base amounts, and tax amounts). YOU MUST format this breakdown as a Markdown table (e.g. Rate, Base, IVA, Total). Even if the text is messy, do your best to extract it. Common IVA rates in Spain are 4%, 10%, and 21%. This is CRITICAL for data extraction downstream.\n"
         "3. Keep all the other information intact and well-structured using Markdown headings and lists. Be sure to explicitly extract the Supplier name, Supplier VAT ID/CIF, Customer name, Document Number, Date, Subtotal (of products only), ALL Taxes (e.g. IVA amounts), all Adjustments/Fees, and the Grand Total.\n"
@@ -527,6 +581,11 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
         "  - Text BEFORE this separator = LEFT COLUMN.\n"
         "  - Text AFTER this separator = RIGHT COLUMN.\n"
         "CRITICAL: If the invoice is scanned sideways, the Line Items table will be SPLIT IN HALF by this separator! The left column will contain the Code, Description, and Quantity, while the right column will contain the Price, Discount, and Total for those exact same items. You MUST match the Nth product in the left column with the Nth price in the right column and merge them into a single row in your Markdown table.\n"
+        "JUMBLED OR SPLIT COLUMN NUMBERS: If the invoice table columns are split or jumbled across multiple lines in the right column (e.g. quantities and prices are listed vertically as separate numbers), you MUST group the numbers mathematically for each product:\n"
+        "  - For the Nth product, find the printed Qty, Unit Price (Base Ud.), and Base Total in the corresponding jumbled numbers block.\n"
+        "  - They MUST satisfy: Qty * Unit Price ≈ Base Total (e.g. Qty 1.13 * Unit Price 2.99 ≈ Base Total 3.38). Use this arithmetic check to map the correct unit price and quantity to the product description.\n"
+        "  - STRICT ANTI-DEFAULT RULE: Do NOT default the quantity to 1.0 or unit price to the base total if it is a jumbled layout! You MUST find the actual printed decimal quantity (e.g. 1.13, 0.88, 1.75, 0.57) and the actual printed unit price (e.g. 2.99, 3.99, 2.89) in the text. It is strictly forbidden to output quantities or prices that do not appear in the text (like defaulting Limon to quantity 1, grossPrice 8.30, base 8.30 when the text has qty 1.75, unit price 2.89, total 5.06).\n"
+        "  - If a number in the block does not fit this math (like the tax rate 4% or the tax amount 0.14), do NOT extract it as price, quantity, or base.\n"
         "Do NOT confuse right-column numbers/codes with supplier or customer names.\n"
         "\n"
         "=== DISTRIBUTOR RECEIPT RULE ===\n"

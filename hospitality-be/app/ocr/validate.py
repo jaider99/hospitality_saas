@@ -135,7 +135,10 @@ def check_quantity_verbatim(inv: Invoice, raw_text: str) -> list:
         if li.quantity is None:
             continue
         qty_str = str(int(li.quantity)) if li.quantity == int(li.quantity) else str(li.quantity)
-        if qty_str not in raw_text:
+        
+        # Check both dot-decimal and comma-decimal formats
+        qty_str_comma = qty_str.replace('.', ',')
+        if qty_str not in raw_text and qty_str_comma not in raw_text:
             reasons.append(f"Quantity '{qty_str}' for item {i+1} not found in text")
     return reasons
 

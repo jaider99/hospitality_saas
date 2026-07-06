@@ -119,6 +119,9 @@ def extract_with_vl_model(image_bytes: bytes, missing_fields: Optional[list] = N
     "vatID": "B12345678",
     "address": "Street, City"
   },
+  "greenPointAmount": 0.0,
+  "ibeeAmount": 0.0,
+  "math_scratchpad": "Write your step-by-step arithmetic matching here to pair quantities and unit prices (e.g. Qty 1.13 * UnitPrice 2.99 ≈ Base 3.38) before generating the items array.",
   "items": [
     {"providerCode": "CODE1", "product": "Product Name", "quantity": 2.0, "unit": "und", "grossPrice": 12.70, "iva_pct": 10, "base": 25.40}
   ],
@@ -141,8 +144,10 @@ def extract_with_vl_model(image_bytes: bytes, missing_fields: Optional[list] = N
         "7. Return ONLY valid JSON starting with { and ending with }. Do not output any conversational text, reasoning, or <think> blocks.\n"
         "8. Use real values from the image, NOT the example placeholder values above.\n"
         "9. CRITICAL: Distinguish carefully between the SUPPLIER (who issued the receipt) and the CUSTOMER (the buyer). Only extract the SUPPLIER's VAT ID (CIF/NIF) and Name. If you see 'CLIENTE:' or 'REC 67 PARTNERS', that is the customer, NOT the supplier.\n"
-        "10. EXTREMELY IMPORTANT: Pay close attention to the difference between the GRAND TOTAL (\"TOTAL ALBARAN\", \"TOTAL FACTURA\") and the totals of individual tax brackets. Do NOT confuse a tax bracket total (e.g. 58.08) for the grand total if there is a clear \"TOTAL\" line at the bottom (e.g. 82.72). Make sure subtotal + tax = total!\n"
-        "11. ROTATED IMAGES & MISSING ITEMS: The image may be rotated 90 degrees. Read carefully sideways! If you see multiple distinct products (e.g. MacBook, iPhone, Canon por copia privada), you MUST extract each of them as a separate item in the `items` array. Find the individual price for each product. NEVER use the grand total as a product's price."
+        "10. EXTREMELY IMPORTANT: Pay close attention to the difference between the GRAND TOTAL (\"TOTAL ALBARAN\", \"TOTAL FACTURA\") and the totals of individual tax brackets. Do NOT confuse a tax bracket total (e.g. 58.08) for the grand total if there is a clear \"TOTAL\" line at the bottom (e.g. 82.72).\n"
+        "11. ECO-TAXES (MATH MUST MATCH): If the invoice includes 'IBEE' or 'PVerd' (Punto Verde), you MUST extract their sums into `ibeeAmount` and `greenPointAmount` at the root JSON level. If there are multiple tax brackets with eco-taxes (e.g. PVerd 1.80 and 0.27), sum them up for `greenPointAmount`. Do NOT include them in the `subtotal`. The math formula MUST perfectly equal: `subtotal` + `tax` + `ibeeAmount` + `greenPointAmount` = `total`!\n"
+        "12. ROTATED IMAGES & MISSING ITEMS: The image may be rotated 90 degrees. Read carefully sideways! If you see multiple distinct products (e.g. MacBook, iPhone, Canon por copia privada), you MUST extract each of them as a separate item in the `items` array. Find the individual price for each product. NEVER use the grand total as a product's price.\n"
+        "13. math_scratchpad = REQUIRED. If the invoice columns are split or jumbled, you MUST group the numbers mathematically for each product in this field before writing the items array. They must satisfy Qty * UnitPrice ≈ Base. STRICT ANTI-DEFAULT RULE: Do NOT default the quantity to 1.0 or price to base. You MUST extract the actual decimal quantities and unit prices printed on the page."
     )
 
     if missing_fields:
@@ -150,13 +155,14 @@ def extract_with_vl_model(image_bytes: bytes, missing_fields: Optional[list] = N
 
 
     dynamic_system_prompt = SYSTEM_PROMPT + "\n" + _build_bilingual_dictionary()
+    user_text = f"{dynamic_system_prompt}\n\n{user_prompt}"
 
     messages = [
         {"role": "system", "content": dynamic_system_prompt},
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": user_prompt},
+                {"type": "text", "text": user_text},
                 {
                     "type": "image_url",
                     "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
@@ -175,6 +181,7 @@ def extract_with_vl_model(image_bytes: bytes, missing_fields: Optional[list] = N
             temperature=0,
             messages=messages,
             max_tokens=VL_MAX_TOKENS,
+            response_format={"type": "json_object"}
         )
         message = response.choices[0].message
         raw_content = (message.content or "").strip() if message else ""
@@ -189,6 +196,7 @@ def extract_with_vl_model(image_bytes: bytes, missing_fields: Optional[list] = N
             temperature=0,
             messages=messages,
             max_tokens=VL_MAX_TOKENS,
+            response_format={"type": "json_object"}
         )
         message = response.choices[0].message
         raw_content = (message.content or "").strip() if message else ""

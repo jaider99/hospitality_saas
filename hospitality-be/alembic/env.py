@@ -28,10 +28,8 @@ from app.module.ai.model import AIInsight
 # Import OCR storage models as well
 from app.ocr.storage import Base as OCRBase
 
-# We need to manage both SQLModel metadata and OCR SQLAlchemy metadata
-# Alternatively, since we use same database, we can just point to one if we merged them,
-# but we have two metadatas now. Let's create a combined metadata or just use one.
-target_metadata = [SQLModel.metadata, OCRBase.metadata]
+# We use unified SQLModel metadata
+target_metadata = SQLModel.metadata
 
 db_url = settings.DATABASE_URL
 if "?" in db_url:
