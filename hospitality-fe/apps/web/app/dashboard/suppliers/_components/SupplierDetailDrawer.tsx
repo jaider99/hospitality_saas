@@ -99,7 +99,14 @@ export default function SupplierDetailDrawer({ supplier, isOpen, onClose, onUpda
         is_main_contact: c.is_main_contact
       })) as any[];
       
-      currentContacts[index] = { ...updatedContact, id: currentContacts[index].id };
+      currentContacts[index] = {
+        name: updatedContact.name,
+        position: updatedContact.position || '',
+        email: updatedContact.email || '',
+        phone: updatedContact.phone || '',
+        contact_preference: updatedContact.contact_preference || 'phone',
+        is_main_contact:  updatedContact.is_main_contact || false
+      };
 
       await onUpdateSupplier(supplier.id!, {
         contacts: currentContacts

@@ -139,7 +139,7 @@ export const navItems: NavItem[] = [
   { id: 'documents', label: 'Documents', icon: FileText, badge: 1 },
   { id: 'invoice-matching', label: 'OCR Matching', icon: FileCheck },
   { id: 'review', label: 'Review Center', icon: AlertCircle, badge: 28 },
-  { id: 'products', label: 'Extracted Items', icon: Package },
+  { id: 'products', label: 'Products', icon: Package },
   { id: 'recipes', label: 'Recipes', icon: Utensils },
   { id: 'suppliers', label: 'Suppliers', icon: Truck },
   { id: 'categories', label: 'Categories', icon: Tag },

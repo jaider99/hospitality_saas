@@ -852,11 +852,13 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
             raw_url = os.getenv("DATABASE_URL", "").strip().strip('"').strip("'")
             # psycopg2 doesn't accept ?schema=..., strip it; also replace asyncpg driver
             sync_url = re.sub(r'\?.*$', '', raw_url).replace("postgresql+asyncpg", "postgresql")
+            from sqlalchemy import create_engine
+            from sqlalchemy.orm import sessionmaker
             engine = create_engine(sync_url)
             SyncSessionLocal = sessionmaker(bind=engine)
             
+            from app.module.invoices.model import Invoice as DBInvoice
             with SyncSessionLocal() as session:
-                # The DB column is document_number or invoice_number. Let's check both or just document_number.
                 duplicate_match = session.query(DBInvoice).filter(
                     (DBInvoice.document_number == inv.serialNumber) | (DBInvoice.invoice_number == inv.serialNumber),
                     DBInvoice.id != invoice_id

@@ -28,7 +28,7 @@ from app.ocr.llm_fallback import (
 # VL Model configs
 VL_MODEL = os.environ.get("VL_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")
 VL_BASE_URL = os.environ.get("VL_BASE_URL", "https://integrate.api.nvidia.com/v1")
-VL_API_KEY = os.environ.get("NVIDIA_API_KEY", "").strip()
+VL_API_KEY = (os.environ.get("VL_API_KEY") or os.environ.get("NVIDIA_API_KEY") or "").strip()
 VL_MAX_TOKENS = int(os.environ.get("VL_MAX_TOKENS", 8192))
 
 VL_OCR_THRESHOLD = float(os.environ.get("VL_OCR_THRESHOLD", 0.80))

@@ -15,6 +15,7 @@ export type SupplierContactCreate = Omit<SupplierContact, 'id' | 'supplier_id' |
 
 export type SupplierContactUpdate = Partial<SupplierContactCreate> & { id?: number };
 
+
 export interface SupplierNote {
   title: string;
   content: string;

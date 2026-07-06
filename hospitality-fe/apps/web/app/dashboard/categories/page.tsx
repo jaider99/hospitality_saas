@@ -46,7 +46,8 @@ export default function CategoriesPage() {
       }
       await fetchCategories();
       setIsModalOpen(false);
-    } catch (error) {
+    } catch (error: any) {
+      console.error('[CategoriesPage] handleSubmit error:', error?.response?.status, error?.response?.data, error?.message);
       throw error;
     }
   };

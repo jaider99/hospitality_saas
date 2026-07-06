@@ -221,3 +221,72 @@ export interface Category {
   created_at: string;
   updated_at: string;
 }
+
+export interface ExpenseCategory {
+  id: number;
+  name: string;
+  description?: string | null;
+}
+
+export interface ProductFormat {
+  id: number;
+  name: string;
+  unit: string;
+  quantity: number;
+}
+
+export interface ProductListRow {
+  id: number;
+  name: string;
+  category_id?: string | null;
+  unit?: string | null;
+  price?: number | null;
+  stock?: number | null;
+}
+
+export interface ProductDetail {
+  id: number;
+  name: string;
+  description?: string | null;
+  category_id?: string | null;
+  formats?: ProductFormat[];
+  [key: string]: any;
+}
+
+export interface ProductManualCreatePayload {
+  name: string;
+  description?: string | null;
+  category_id?: string | null;
+  [key: string]: any;
+}
+
+export interface ProductUpdatePayload {
+  name?: string;
+  description?: string | null;
+  category_id?: string | null;
+  [key: string]: any;
+}
+
+export interface ReviewQueueItem {
+  id: number;
+  invoice_id: number;
+  status: string;
+  [key: string]: any;
+}
+
+export interface Inventory {
+  id: number;
+  name: string;
+  description?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InventoryItem {
+  id: number;
+  inventory_id: number;
+  product_id?: number | null;
+  quantity: number;
+  unit?: string | null;
+  [key: string]: any;
+}

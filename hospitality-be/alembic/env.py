@@ -26,6 +26,11 @@ from app.module.labor.model import StaffMember, StaffShift
 from app.module.ai.model import AIInsight
 from app.module.payroll.model import StaffPosition, StaffRole, StaffEmployee, MonthlyPayroll
 from app.module.categories.model import Category
+from app.module.products.model import (
+    ExpenseCategory, Product, ProductSupplier,
+    ReferencedItem, ProductReference, ProductFormat,
+    Inventory, InventoryItem,
+)
 
 # Import OCR storage models as well
 from app.ocr.storage import Base as OCRBase

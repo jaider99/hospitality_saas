@@ -61,7 +61,7 @@ services:
     ports:
       - "3567:3567"
     environment:
-      POSTGRES_CONNECTION_URI: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality"
+      POSTGRESQL_CONNECTION_URI: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality"
 
   # Backend API
   backend:

@@ -10,7 +10,7 @@ class Category(SQLModel, table=True):
     __tablename__ = "categories"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    category_id: str = Field(default_factory=generate_category_id, unique=True, index=True)
+    category_id: str = Field(default_factory=generate_category_id, unique=True)
     name: str = Field(unique=True, index=True)
     description: Optional[str] = Field(default=None)
     color: Optional[str] = Field(default="#000000")

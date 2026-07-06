@@ -1,6 +1,10 @@
 import axios, { AxiosInstance } from 'axios';
 import { API_BASE_URL } from '@hospitality-saas/constants';
-import { AuthResponse, Invoice, Recipe, OperationalIncident, StaffMember, AIInsight, Category } from '@hospitality-saas/shared-types';
+import {
+  AuthResponse, Invoice, Recipe, OperationalIncident, StaffMember, AIInsight, Category,
+  ExpenseCategory, ProductFormat, ProductListRow, ProductManualCreatePayload,
+  ProductUpdatePayload, ProductDetail, ReviewQueueItem, Inventory, InventoryItem
+} from '@hospitality-saas/shared-types';
 import { LoginInput } from '@hospitality-saas/validation';
 
 export class ApiClient {
@@ -35,11 +39,16 @@ export class ApiClient {
     this.instance.interceptors.response.use(
       (response) => response,
       async (error) => {
-        if (error.response?.status === 401) {
+        const requestUrl = error.config?.url || '';
+        // Don't redirect when the failure is from the refresh endpoint itself
+        // (that causes an infinite loop / false positive error on public routes)
+        const isRefreshEndpoint = requestUrl.includes('/session/refresh');
+        if (error.response?.status === 401 && !isRefreshEndpoint) {
           // If the request fails with 401 even after SuperTokens tries to refresh,
           // the session is expired or invalid. Trigger logout to clear local state.
           this.onUnauthorized();
         }
+        console.error('[ApiClient] Request error:', requestUrl, error.response?.status, error.response?.data);
         return Promise.reject(error);
       }
     );
@@ -290,5 +299,115 @@ export class ApiClient {
   async deleteCategory(id: number): Promise<void> {
     await this.instance.delete(`/categories/${id}`);
   }
+
+  // ─── Products & Inventory ─────────────────────────────────────────────────
+
+  async getProducts(params?: {
+    skip?: number;
+    limit?: number;
+    name?: string;
+    archived?: boolean;
+    bookmarked?: boolean;
+    category_id?: string;
+    supplier_id?: number;
+    sort_by?: string;
+    order?: string;
+    start_date?: string;
+    end_date?: string;
+  }): Promise<{
+    items: ProductListRow[];
+    total: number;
+    skip: number;
+    limit: number;
+    pending_review_count?: number;
+  }> {
+    const res = await this.instance.get('/products', { params });
+    return res.data;
+  }
+
+  async getProductDetail(productId: string): Promise<ProductDetail> {
+    const res = await this.instance.get<ProductDetail>(`/products/${productId}`);
+    return res.data;
+  }
+
+  async createProduct(data: ProductManualCreatePayload): Promise<ProductDetail> {
+    const res = await this.instance.post<ProductDetail>('/products', data);
+    return res.data;
+  }
+
+  async updateProduct(productId: string, data: ProductUpdatePayload): Promise<ProductDetail> {
+    const res = await this.instance.patch<ProductDetail>(`/products/${productId}`, data);
+    return res.data;
+  }
+
+  async toggleProductBookmark(productId: string): Promise<{ product_id: string; bookmarked: boolean }> {
+    const res = await this.instance.patch<{ product_id: string; bookmarked: boolean }>(`/products/${productId}/bookmark`);
+    return res.data;
+  }
+
+  async archiveProduct(productId: string, archived: boolean = true): Promise<{ product_id: string; archived: boolean }> {
+    const res = await this.instance.patch<{ product_id: string; archived: boolean }>(`/products/${productId}/archive`, null, {
+      params: { archived }
+    });
+    return res.data;
+  }
+
+
+
+  // Review Queue (New Articles Pending Review)
+  async getReviewQueue(params?: { skip?: number; limit?: number; name?: string }): Promise<{
+    items: ReviewQueueItem[];
+    total: number;
+    skip: number;
+    limit: number;
+  }> {
+    const res = await this.instance.get('/products/review-queue', { params });
+    return res.data;
+  }
+
+  async unifyLineWithProduct(lineId: number, productId: string): Promise<{
+    status: string;
+    line_id: number;
+    product_id: string;
+    ref_id: string;
+  }> {
+    const res = await this.instance.post(`/products/review-queue/${lineId}/unify`, { product_id: productId });
+    return res.data;
+  }
+
+  async markLineNoMatch(lineId: number): Promise<{
+    status: string;
+    line_id: number;
+    product_id: string;
+    ref_id: string;
+  }> {
+    const res = await this.instance.post(`/products/review-queue/${lineId}/no-match`);
+    return res.data;
+  }
+
+  // Inventories
+  async getInventories(params?: { skip?: number; limit?: number }): Promise<Inventory[]> {
+    const res = await this.instance.get<Inventory[]>('/inventories', { params });
+    return res.data;
+  }
+
+  async getInventory(inventoryId: string): Promise<Inventory> {
+    const res = await this.instance.get<Inventory>(`/inventories/${inventoryId}`);
+    return res.data;
+  }
+
+  async createInventory(data: { id: string; name?: string; inventory_date?: string; notes?: string; created_by?: string }): Promise<Inventory> {
+    const res = await this.instance.post<Inventory>('/inventories', data);
+    return res.data;
+  }
+
+  async getInventoryItems(inventoryId: string, params?: { kind?: string; skip?: number; limit?: number }): Promise<{
+    items: InventoryItem[];
+    total: number;
+  }> {
+    const res = await this.instance.get<{ items: InventoryItem[]; total: number }>(`/inventories/${inventoryId}/items`, { params });
+    return res.data;
+  }
 }
+
 
