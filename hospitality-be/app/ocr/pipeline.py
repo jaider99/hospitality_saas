@@ -495,7 +495,6 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
         base_name = os.path.splitext(os.path.basename(file_path))[0]
     md_path = os.path.join(md_outputs_dir, f"{base_name}_ocr.md")
 
-    from app.ocr.llm_fallback import format_ocr_markdown_with_llm
 
     if page_result.is_native_text:
         raw_md = f"# Invoice (Native Text)\n\n{page_result.raw_text}"
@@ -946,6 +945,11 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
             with open(md_path, "a", encoding="utf-8") as f:
                 f.write("\n\n# Final AI Extraction (JSON)\n\n")
                 f.write(f"```json\n{inv.to_json(indent=2)}\n```\n")
+                
+        # Also save the final GPT JSON to the json file
+        json_path = os.path.join(md_outputs_dir, f"{base_name}_paddle_ocr.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            f.write(inv.to_json(indent=2))
     except Exception as e:
         logger.error(f"Failed to append final JSON to markdown file: {e}")
     # ────────────────────────────────────────────────────────────────────────

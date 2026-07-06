@@ -156,27 +156,14 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
 
     aspect_ratio = max(h_init, w_init) / float(min(h_init, w_init)) if min(h_init, w_init) > 0 else 1.0
 
-    # Save the raw image BEFORE sharpening — the binary boost pass in
-    # get_marginal_texts needs un-processed pixel values to work correctly.
-    # Over-sharpening before binarization destroys thin letterforms (e.g. tiny CIF numbers).
-    img_raw = img.copy()
-
-    # Only apply aggressive sharpening to standard/A4 pages scanned at normal resolutions (<= 4500px).
-    # Extremely high-resolution documents (like Apple receipts which are 6250px) or 
-    # long thermal receipts (aspect_ratio > 2.5) do not need sharpening; sharpening creates halos.
-    if aspect_ratio <= 2.5 and max(h_init, w_init) <= 4500:
-        # Sharpen the image to make faint/small text bolder before OCR
-        if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = img
-        sharpened = cv2.addWeighted(gray, 1.8, cv2.GaussianBlur(gray, (0,0), 3), -0.8, 0)
-        img = cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR)
-    else:
-        # Convert to grayscale without sharpening
-        if len(img.shape) == 3:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    # We used to apply aggressive sharpening here (cv2.addWeighted), but it 
+    # destroyed very thin, tiny letterforms (like small CIF numbers in the header).
+    # PaddleOCR's DBNet handles standard scans perfectly well without our manual sharpening.
+    if len(img.shape) == 3:
+        # DBNet often prefers 3-channel input anyway, we can just leave it as BGR,
+        # but let's keep the existing format (it was converting to GRAY then back to BGR)
+        # to minimize side effects, or just leave it as BGR.
+        pass
 
     # Helper to extract tiny text from the margins at full resolution.
     # Runs TWO passes per crop:
@@ -263,11 +250,7 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
 
         return " ".join(marginal_texts)
 
-    # Pass the RAW (un-sharpened) image to marginal extraction so the binary
-    # boost pass inside get_marginal_texts gets clean pixel values.
-    margin_text = get_marginal_texts(img_raw, ocr)
-
-    # If the image exceeds PaddleOCR's internal max_side_limit (4000px), PaddleOCR will brutally squash it.
+    # Margin text extraction moved down after rotation    # If the image exceeds PaddleOCR's internal max_side_limit (4000px), PaddleOCR will brutally squash it.
     # We must slice it into chunks to preserve full resolution for the detection and recognition models.
     h, w = img.shape[:2]
     if h > 4000:
@@ -368,45 +351,6 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
         return PageResult(raw_text="", tokens=[], avg_confidence=0.0, is_native_text=False,
                            low_conf_ratio=1.0, token_count=0)
     
-    # ── Adaptive layout detection ──────────────────────────────────────────
-    # Strategy: cluster the X-coordinates of all text boxes to detect if there
-    # is a meaningful column gap. If so, split into Left/Right blocks so the
-    # LLM can reason correctly about which block is Customer vs Supplier.
-    #
-    # Works for ALL invoice types:
-    #  - Single-column (normal portrait invoices): no gap found → output as before
-    #  - Two-column (thermal/landscape receipts like Moritz): gap found → output
-    #    left block, then separator, then right block
-    #  - Rotated 90°: detected separately below
-
-    def _get_x_center(line):
-        xs = [pt[0] for pt in line[0]]
-        return (min(xs) + max(xs)) / 2.0
-
-    def _get_y_center(line):
-        ys = [pt[1] for pt in line[0]]
-        return (min(ys) + max(ys)) / 2.0
-
-    def _detect_column_gap(lines, img_w):
-        """Returns a split_x threshold if there is a clear column gap, or None."""
-        if len(lines) < 10:
-            return None
-        x_centers = sorted([_get_x_center(l) for l in lines])
-        # Compute differences between consecutive sorted X positions
-        gaps = [(x_centers[i+1] - x_centers[i], (x_centers[i] + x_centers[i+1]) / 2.0)
-                for i in range(len(x_centers) - 1)]
-        if not gaps:
-            return None
-        max_gap, gap_center = max(gaps, key=lambda g: g[0])
-        # Only treat as two-column if: gap is large relative to image width
-        # AND the gap is in the middle 30%-70% zone (not at the edges)
-        mid_zone_lo = img_w * 0.30
-        mid_zone_hi = img_w * 0.70
-        avg_gap = sum(g[0] for g in gaps) / len(gaps)
-        if max_gap > avg_gap * 3.5 and mid_zone_lo < gap_center < mid_zone_hi:
-            return gap_center
-        return None
-
     # Detect rotation first (mostly-vertical bboxes = rotated scan)
     horizontal_count = sum(1 for l in lines if (max(pt[0] for pt in l[0]) - min(pt[0] for pt in l[0])) > (max(pt[1] for pt in l[0]) - min(pt[1] for pt in l[0])))
     vertical_count = len(lines) - horizontal_count
@@ -415,33 +359,11 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
 
     h_img, w_img = img.shape[:2]
 
-    # Calculate median font size to dynamically size the grouping bucket
-    # This prevents merging adjacent rows (if bucket is too big) or splitting single rows (if too small)
-    if not lines:
-        bucket_size = 25
-    else:
-        font_sizes = []
-        for line in lines:
-            pts = line[0]
-            if is_rotated:
-                # height of text is its width on the X axis when rotated
-                font_sizes.append(max(pt[0] for pt in pts) - min(pt[0] for pt in pts))
-            else:
-                # height of text is its height on the Y axis normally
-                font_sizes.append(max(pt[1] for pt in pts) - min(pt[1] for pt in pts))
-        font_sizes.sort()
-        median_font_size = font_sizes[len(font_sizes)//2] if font_sizes else 25
-        bucket_size = max(10, median_font_size * 0.7) # 70% of font size for safe grouping
-
     if is_rotated:
-        # The image is portrait, but the text inside it is sideways.
-        # PaddleOCR returns upright vertical boxes for sideways text, making it impossible 
-        # to determine clockwise vs counter-clockwise reliably from coordinates alone.
-        # The foolproof solution: rotate the image 90 degrees clockwise and rerun OCR.
-        # This makes the text either 0 degrees (upright) or 180 degrees (upside down).
-        # PaddleOCR's use_angle_cls=True sometimes fails to auto-correct 180-degree cases on sparse receipts.
-        # So we must determine if it's clockwise or counter-clockwise BEFORE we rotate it!
-        # We can do this by looking at the X coordinates of common header vs footer words.
+        def _get_x_center(line):
+            xs = [pt[0] for pt in line[0]]
+            return (min(xs) + max(xs)) / 2.0
+
         top_words = ["factura", "fecha", "cliente", "cif", "nif", "nombre", "s.a.", "s.l.", "tel", "tlf", "www"]
         bottom_words = ["total", "importe", "iva", "efectivo", "tarjeta", "cambio", "gracias", "visita"]
         
@@ -460,105 +382,174 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
         
         import logging
         if avg_top > avg_bottom:
-            # Top of receipt is on the right (max X). Rotate counter-clockwise to bring it to the top.
             logging.getLogger("invoice_pipeline").info("Detected sideways text (Clockwise). Rotating counter-clockwise to upright...")
             img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
         else:
-            # Top of receipt is on the left (min X). Rotate clockwise to bring it to the top.
             logging.getLogger("invoice_pipeline").info("Detected sideways text (Counter-clockwise). Rotating clockwise to upright...")
             img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
 
         res = _do_ocr(ocr, img)
-        
-        # Unpack the new result
         if not res or not res[0]:
-            return None
+            return PageResult(raw_text="", tokens=[], avg_confidence=0.0, is_native_text=False, low_conf_ratio=1.0, token_count=0)
         lines = [line for line in res[0] if line]
         
-        # Calculate new median font size
-        font_sizes = []
-        for line in lines:
-            pts = line[0]
-            font_sizes.append(max(pt[1] for pt in pts) - min(pt[1] for pt in pts))
-        font_sizes.sort()
-        median_font_size = font_sizes[len(font_sizes)//2] if font_sizes else 25
-        bucket_size = max(10, median_font_size * 0.7)
+    # Extract marginal text NOW that the image is guaranteed upright
+    margin_text = get_marginal_texts(img, ocr)
         
-        # Image is now definitely horizontal
-        w_img, h_img = h_img, w_img  # swap dimensions since we rotated
-        
-    # --- Universal Horizontal Sorting ---
-    # By this point, the image is guaranteed to be horizontal (either natively, 
-    # or because we just reran OCR after a 90-degree rotation).
-    split_x = _detect_column_gap(lines, w_img)
-
-    if split_x is not None:
-        # Two-column layout detected: separate Left and Right
-        # To avoid splitting line items in half, we only apply the left/right split
-        # to the top section of the page (where Supplier and Customer headers are).
-        # The rest of the page (where line items are) is sorted as a single horizontal block.
-        header_threshold = h_img * 0.45
-        
-        header_lines = [l for l in lines if _get_y_center(l) <= header_threshold]
-        body_lines = [l for l in lines if _get_y_center(l) > header_threshold]
-
-        left_header  = [l for l in header_lines if _get_x_center(l) <= split_x]
-        right_header = [l for l in header_lines if _get_x_center(l) >  split_x]
-
-        def _sort_and_join(chunk):
-            chunk.sort(key=lambda l: (round(_get_y_center(l) / bucket_size) * bucket_size, _get_x_center(l)))
-            text_lines = []
-            current_line = []
-            current_y = None
-            for line in chunk:
-                y_val = round((_get_y_center(line) - border_size) / bucket_size) * bucket_size
-                if current_y is None:
-                    current_y = y_val
-                if y_val != current_y:
-                    text_lines.append(" ".join(current_line))
-                    current_line = []
-                    current_y = y_val
-                current_line.append(line[1][0])
-            if current_line:
-                text_lines.append(" ".join(current_line))
-            return "\n".join(text_lines)
-
-        left_text  = _sort_and_join(left_header)
-        right_text = _sort_and_join(right_header)
-        body_text  = _sort_and_join(body_lines)
-        
-        raw_text = f"{left_text}\n\n--- DOCUMENT INFO COLUMN ---\n{right_text}\n\n--- INVOICE BODY ---\n{body_text}"
-    else:
-        # Single-column layout — standard top-to-bottom, left-to-right sort
-        lines.sort(key=lambda l: (round(_get_y_center(l) / bucket_size) * bucket_size, _get_x_center(l)))
-        text_lines = []
-        current_line = []
-        current_axis = None
-        for line in lines:
-            axis_val = round((_get_y_center(line) - border_size) / bucket_size) * bucket_size
-            if current_axis is None:
-                current_axis = axis_val
-            if axis_val != current_axis:
-                text_lines.append(" ".join(current_line))
-                current_line = []
-                current_axis = axis_val
-            current_line.append(line[1][0])
-        if current_line:
-            text_lines.append(" ".join(current_line))
-        raw_text = "\n".join(text_lines)
+    # ── Table Extraction & Layout ──────────────────────────────────────────
+    # Extract tables using PPStructure and filter out text inside tables
+    table_bboxes = []
+    table_htmls = []
     
+    try:
+        from app.ocr.table_extract import _get_pp_structure
+        structure_engine = _get_pp_structure()
+        
+        # Use predict for 3.x, fallback to callable for 2.x
+        if hasattr(structure_engine, "predict"):
+            struct_res = structure_engine.predict(img)
+        else:
+            struct_res = structure_engine(img)
+            
+        for item in struct_res:
+            table_list = None
+            if isinstance(item, dict) and "table_res_list" in item:
+                table_list = item["table_res_list"]
+            elif hasattr(item, "table_res_list"):
+                table_list = item.table_res_list
+            elif hasattr(item, "get"):
+                try: table_list = item.get("table_res_list")
+                except Exception: pass
+            
+            if table_list:
+                for t in table_list:
+                    html = t.get("pred_html") if isinstance(t, dict) else getattr(t, "pred_html", None)
+                    bbox = t.get("bbox") if isinstance(t, dict) else getattr(t, "bbox", None)
+                    if html and bbox:
+                        table_htmls.append(html)
+                        table_bboxes.append(bbox)
+                continue
+                
+            if isinstance(item, dict) and item.get("type") == "table":
+                bbox = item.get("bbox")
+                html = item.get("res", {}).get("html", "")
+                if html and bbox:
+                    table_htmls.append(html)
+                    table_bboxes.append(bbox)
+    except Exception as e:
+        import logging
+        logging.getLogger("invoice_pipeline").warning(f"PPStructure failed during ingest: {e}")
+
+    def is_inside_box(pt, box):
+        return box[0] <= pt[0] <= box[2] and box[1] <= pt[1] <= box[3]
+
+    text_elements = []
+    tokens = []
+    confs = []
+    for line in lines:
+        pts = line[0]
+        text = line[1][0]
+        conf = line[1][1]
+        
+        x0 = min(pt[0] for pt in pts)
+        y0 = min(pt[1] for pt in pts)
+        x1 = max(pt[0] for pt in pts)
+        y1 = max(pt[1] for pt in pts)
+        tokens.append(Token(text=text, bbox=(x0, y0, x1, y1), confidence=conf))
+        confs.append(conf)
+
+        x_center = (x0 + x1) / 2
+        y_center = (y0 + y1) / 2
+        
+        in_table = False
+        for t_box in table_bboxes:
+            if is_inside_box([x_center, y_center], t_box):
+                in_table = True
+                break
+                
+        if not in_table:
+            text_elements.append({
+                'text': text,
+                'x': x_center,
+                'y': y_center
+            })
+
+    def _detect_column_gap(elements, img_w):
+        """Returns a split_x threshold if there is a clear column gap, or None."""
+        if len(elements) < 10:
+            return None
+        x_centers = sorted([el['x'] for el in elements])
+        gaps = [(x_centers[i+1] - x_centers[i], (x_centers[i] + x_centers[i+1]) / 2.0)
+                for i in range(len(x_centers) - 1)]
+        if not gaps:
+            return None
+        max_gap, gap_center = max(gaps, key=lambda g: g[0])
+        mid_zone_lo = img_w * 0.30
+        mid_zone_hi = img_w * 0.70
+        avg_gap = sum(g[0] for g in gaps) / len(gaps)
+        if max_gap > avg_gap * 3.5 and mid_zone_lo < gap_center < mid_zone_hi:
+            return gap_center
+        return None
+
+    # Group and sort non-table text
+    if text_elements:
+        split_x = _detect_column_gap(text_elements, w_img)
+        
+        def _sort_and_group(elements):
+            if not elements:
+                return []
+            elements.sort(key=lambda item: item['y'])
+            sorted_lines = []
+            current_line = [elements[0]]
+            y_threshold = 15 # pixels threshold for same line
+            for item in elements[1:]:
+                if abs(item['y'] - current_line[-1]['y']) <= y_threshold:
+                    current_line.append(item)
+                else:
+                    sorted_lines.append(current_line)
+                    current_line = [item]
+            if current_line:
+                sorted_lines.append(current_line)
+            
+            text_lines_out = []
+            for sl in sorted_lines:
+                sl.sort(key=lambda item: item['x'])
+                line_text = " \t ".join(item['text'] for item in sl)
+                text_lines_out.append(line_text)
+            return text_lines_out
+
+        if split_x is not None:
+            header_threshold = h_img * 0.45
+            header_elements = [el for el in text_elements if el['y'] <= header_threshold]
+            body_elements = [el for el in text_elements if el['y'] > header_threshold]
+            
+            left_header = [el for el in header_elements if el['x'] <= split_x]
+            right_header = [el for el in header_elements if el['x'] > split_x]
+            
+            left_text = "\n".join(_sort_and_group(left_header))
+            right_text = "\n".join(_sort_and_group(right_header))
+            body_text = "\n".join(_sort_and_group(body_elements))
+            
+            raw_text = f"{left_text}\n\n--- DOCUMENT INFO COLUMN ---\n{right_text}\n\n--- INVOICE BODY ---\n{body_text}"
+        else:
+            raw_text = "\n".join(_sort_and_group(text_elements))
+    else:
+        raw_text = ""
+        
+    if table_htmls:
+        raw_text = "\n\n".join(table_htmls) + "\n\n" + raw_text
+
     # Append the marginal text at the end so the LLM doesn't miss the tiny headers/footers
     if margin_text:
         raw_text += f"\n\n--- Marginal Text (Full Resolution) ---\n{margin_text}"
 
-    confs = [line[1][1] for line in lines]
     avg_conf = sum(confs) / len(confs) if confs else 0.0
     token_count = len(confs)
     low_conf_ratio = (sum(1 for c in confs if c < LOW_CONFIDENCE_CUTOFF) / token_count) if token_count else 1.0
 
     return PageResult(
         raw_text=raw_text,
-        tokens=[],
+        tokens=tokens,
         avg_confidence=avg_conf,
         is_native_text=False,
         page_images=[img],

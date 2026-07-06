@@ -37,8 +37,13 @@ def _call_llm_with_fallback(messages: list, temperature: float = 0, model_name: 
                 messages=messages,
                 max_tokens=LLM_MAX_TOKENS,
             )
-            content = response.choices[0].message.content
-            if not content or not content.strip():
+            content = ""
+            if response.choices[0].message.content:
+                content = response.choices[0].message.content.strip()
+            elif getattr(response.choices[0].message, "reasoning", None):
+                content = getattr(response.choices[0].message, "reasoning").strip()
+
+            if not content:
                 raise ValueError("Secondary LLM returned empty content.")
             logger.warning(f"Secondary Text Model ({LLM_FALLBACK_MODEL}) extraction completed successfully.")
             return response
@@ -277,11 +282,6 @@ SYSTEM_PROMPT = (
     "Your entire response MUST be valid JSON and nothing else."
     "Cross-check: sum of all item `base` values must be within ±0.15 € of the printed subtotal. "
     "If they do not match, re-read the text to find the missing rows.\n"
-    "If you see: 'PICOS DE METAL X 12 UDS' → Code: 'PIA-05321012', Qty: 1, Base: 0.0, IVA: 21.\n"
-    "If you see: 'ALBARICOQUE RAVIFRUIT' → Code: 'RAV-08010', Qty: 1, Base: 3.31, IVA: 21.\n"
-    "If you see: 'PUREE 1 KG.' → Code: 'TEG-N8012', Qty: 1, Base: 21.55, IVA: 21.\n"
-    "If you see: 'PELADOR INOX ANCHO' → Qty: 12, Base: 99.60, IVA: 10.\n"
-    "If you see: 'CUCHILLO PUNTILLA MONDADOR' → Code: 'BOH-188600', Qty: 1, Base: 4.40, IVA: 21.\n"
     "If you see spaced out letters like 'F a c t u r a' or 'M a k r o', remove the spaces when extracting (e.g. 'Factura', 'Makro').\n"
     "MERGED NUMBERS RULE: OCR sometimes glues numbers together without spaces (e.g. '362,0921.076,04' or '173,4921,00'). You MUST intelligently split them apart based on expected columns. For example, '362,09' (Base), '21.0' (IVA rate), and '76,04' (Tax amount). Use common sense to split them at the correct decimal boundaries.\n"
     "=== MESSY IVA / TOTALS SECTIONS ===\n"
@@ -342,11 +342,16 @@ def extract_with_llm(raw_text: str, missing_fields: Optional[list] = None, use_f
     )
     
     message = response.choices[0].message
-    if not message or not message.content:
+    content = ""
+    if message and message.content:
+        content = message.content.strip()
+    elif getattr(message, "reasoning", None):
+        logger.warning("LLM returned empty content, but reasoning field is populated. Using reasoning as fallback.")
+        content = getattr(message, "reasoning").strip()
+    
+    if not content:
         logger.error(f"LLM returned an empty response. Raw response: {response}")
         raise ValueError("LLM returned an empty response")
-    
-    content = message.content.strip()
     
     # Strip <think> blocks (often produced by reasoning models)
     import re
@@ -411,6 +416,7 @@ def merge_llm_result_into_invoice(inv: Invoice, llm_dict: dict, force_fields=Non
         supp_data = llm_dict["supplier"]
         if "name" in supp_data and supp_data["name"]:
             inv.supplier.name = supp_data["name"]
+            inv.supplierName = supp_data["name"]
         if "vatID" in supp_data and supp_data["vatID"]:
             inv.supplier.vatID = supp_data["vatID"]
         # Fill other fields only if empty
@@ -441,155 +447,4 @@ def merge_llm_result_into_invoice(inv: Invoice, llm_dict: dict, force_fields=Non
     return inv
 
 
-def format_ocr_markdown_with_llm(raw_text: str) -> str:
-    system_prompt = (
-        "You are an expert at reconstructing raw document text into clean, structured Markdown.\n"
-        "The following text is extracted from an invoice or delivery note. "
-        "Your task is to:\n"
-        "1. Identify the ACTUAL PRODUCTS/SERVICES and reconstruct them into a proper Markdown table. The table MUST retain ALL columns present in the original text. For wine/spirits invoices, you MUST include columns like 'GRA.' (alcohol percentage/degree, e.g. 17.0, 16.0, 40.0) and 'U/M' (unit of measure / volume size in liters, e.g. 0.700, 1.000). Reconstruct columns for: Code, Description, Graduación (GRA.), Unit Liters (U/M), Quantity, Gross Price (PRECIO before discount), Net Price, Discount %, IVA %, Amount/Total.\n"
-        "DISCOUNT PERCENTAGE: You MUST extract the discount percentage (DTO / % / Discount) for each line item if it exists. DO NOT output 0 or null if there is a discount applied! If Gross Price and Net Price differ, there is a discount, and you must find it in the text or calculate the percentage.\n"
-        "CRITICAL ARITHMETIC ALIGNMENT RULE: The Quantity multiplied by the Net Price (or Unit Price) should equal the Amount/Total. Use this to verify you have mapped the columns correctly! For example, if you see Qty=2 and Price=1.50, the Total must be 3.00. If your chosen Qty * Price does not match the Total printed on the page for that line item, YOU HAVE MAPPED THE COLUMNS WRONG and must try a different mapping. Ensure EVERY line item you extract is mathematically valid.\n"
-        "ALCOHOL/BEVERAGE INVOICE RULE (GRA vs PRECIO): ONLY apply this rule if the invoice actually contains 'GRA.' or 'U/M' columns (e.g., wine/liquor distributors). On such invoices, you MUST NEVER confuse 'GRA.' (Alcohol %) or 'U/M' with the Price! The true Gross Price is under the 'PRECIO' column. If the invoice does NOT have 'GRA.' or 'U/M' columns, completely ignore this rule and extract the base value and unit price exactly as printed without modifying or subtracting anything.\n"
-        "LINE ITEM QUANTITY RULE: If a table has multiple quantity-like columns (e.g. 'Cajas' vs 'UDS'/'CANTIDAD'), prefer the 'UDS' or 'CANTIDAD' column for the actual quantity, not the 'Cajas' column. Extract Gross Price as the exact printed price per that unit. DO NOT back-calculate the price.\n"
-        "QUANTITY EXTRACTION: If a product description appears to end with a standalone number (e.g. 'MORITZ 7 1/3 24BOT RET 28'), that trailing number is almost always the QUANTITY column value that wrapped onto the same line as the description — extract it into 'quantity', not as part of the product name. Cross-check: quantity × gross_price - applied_discount should equal base (within 0.05). If it does not match with quantity=1, look for a wrapped/misplaced quantity digit in the description text and re-extract it.\n"
-        "STRICT NO-INVENTION RULE: You MUST ONLY extract numbers that literally appear in the raw text! DO NOT perform calculations to generate/invent new numbers! If you see 3 decimal places (e.g. 5.702 or 1.198), extract them EXACTLY as printed. DO NOT round them to 2 decimals (e.g. 5.70 or 1.20)! If you invent a number or round a number that isn't exactly in the text, you fail.\n"
-        "LINE ITEM SEPARATION RULE: Do NOT merge multiple distinct products into a single row's description. Keep each line item separate on its own row just as they appear in the source.\n"
-        "MERGED NUMBERS RULE: OCR sometimes glues numbers together without spaces (e.g. '362,0921.076,04' or '173,4921,00'). You MUST intelligently split them apart based on expected columns. For example, '173,4921,00' means Base=173.49 and IVA Rate=21.00. Split them at the correct decimal boundaries.\n"
-        "OCR NOISE RULE: OCR text may contain merged lines, broken tables, duplicated regions, missing spaces, and incorrect decimal separators. Use nearby text and repeated patterns to logically associate values across broken columns. However, NEVER invent or hallucinate information that cannot be reasonably linked.\n"
-        "=== MESSY IVA / TOTALS SECTIONS ===\n"
-        "If you see jumbled totals at the bottom (e.g., '173,4921,00', '36,43', '209,92') or in the Marginal Text (e.g., 'otal€ 209,92'), you MUST logically split the merged strings and properly populate the IVA breakdown table and the Totals section (Subtotal, Taxes, Grand Total). Do not leave the table empty if these values exist!\n"
-        "B2B EXCLUSIVE TAX RULE (DEFAULT): On almost all B2B invoices, Line Item Prices DO NOT include IVA! The Amount/Total for a line item is strictly `Quantity * Gross Price` (minus discounts). DO NOT add IVA to the line item Amount. IVA is only added at the very end to the Subtotal.\n"
-        "B2C INCLUSIVE TAX RULE: If the line items on the receipt INCLUDE tax (i.e., their sum equals the Grand Total rather than the Subtotal), you MUST explicitly label the Amount column as 'Amount (Inc. IVA)'. Do NOT hallucinate '0%' for the IVA % of fees like 'Canon' if it is not explicitly printed as 0%; either leave it blank or use the general rate.\n"
-        "Do NOT hallucinate rows. Do NOT extract company logos or footers (like 'CONSERVAS ORTIZ') as line items if they have no valid quantity/price.\n"
-        "IMPORTANT: Do NOT extract 'Adjustments', 'Credits', 'Regulatory Operating Costs', 'DST Fees' or other additional fees as line items in the table! Leave them as raw text or standard lists outside the table.\n"
-        "PACKAGING/DEPOSITS EXCLUSION: If you see a section titled 'VALORACION ECONOMICA DE ENVASES' or similar containing lines like 'BOTELLA 1/3 LN RET' or 'PLASTICO VACIO' with negative/return quantities (e.g. '-21 CJ'), YOU MUST NOT extract them as products! Completely ignore these packaging deposit/return lines from the main Line Items table.\n"
-        "=== META / FACEBOOK INVOICES ===\n"
-        "Meta/Facebook ad invoices often print the Campaign name on one line, and the Ad Set sub-name on the next line WITH THE EXACT SAME PRICE REPEATED. (e.g. 'Campaña... €16.60' followed immediately by 'Nuevo conjunto... €16.60').\n"
-        "DO NOT extract these as two separate items! The second line is just a sub-description. Only extract one line item for that €16.60 charge. The sum of the line items MUST equal the invoice subtotal.\n"
-        "=== APPLE / LARGE BRAND B2C RETAIL RECEIPTS ===\n"
-        "If the receipt is issued by a large consumer-electronics or retail store such as Apple, El Corte Inglés, MediaMarkt, Samsung, or similar:\n"
-        "  • The store brand (e.g. 'Apple', 'Apple Passeig de Gràcia') IS the Supplier. Their legal entity and CIF (e.g. 'Apple Retail Spain, S.L.U.' / 'ESB65130643') are in the footer or header — extract them as supplier.name and supplier.vatID.\n"
-        "  • The CUSTOMER is the buyer whose name/NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' in a dedicated customer block (e.g. 'Rec 67 Partners SL', NIF B67019018). If only one NIF/CIF is present in the document, extract it as supplier.vatID. Do NOT leave supplier.vatID empty if a NIF/CIF exists.\n"
-        "  • 'Canon por copia privada' is a Spanish regulatory levy (Royal Decree) attached to electronic devices. It appears as a separate line item with a small price. Extract it as a real line item (not as taxableAdditionalCost) because it is already included in the printed Grand Total.\n"
-        "  • All displayed item prices include IVA (B2C receipts). You MUST back-calculate the pre-tax unit price and extract it as `grossPrice` (e.g. grossPrice = printed_price / (1 + iva_pct/100)). Do NOT extract the tax-inclusive price as grossPrice! Also calculate `base = grossPrice * qty` so the sum of bases equals the invoice subtotal.\n"
-        "  • The 'Artículo:' field on each line is the Apple part number — use it as `providerCode`.\n"
-        "=== SUPPLIER vs CUSTOMER (READ THIS FIRST) ===\n"
-        "You MUST identify the Supplier (seller) and the Customer (buyer) before doing anything else.\n"
-        "For receipts from large retail brands (Apple, MediaMarkt, El Corte Inglés, Samsung, etc.):\n"
-        "  • The STORE BRAND (e.g. 'Apple', 'Apple Passeig de Gràcia') is the SUPPLIER. Their legal entity + CIF (e.g. 'Apple Retail Spain, S.L.U., CIF ESB65130643') appear in the receipt footer/header. Extract as Supplier Name and Supplier VAT ID/CIF.\n"
-        "  • The CUSTOMER is the person/company who BOUGHT: their name and NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' (e.g. 'Rec 67 Partners SL', NIF B67019018). Show as Customer Name. If only one NIF/CIF is present in the document, treat it as the Supplier's VAT ID.\n"
-        "  • 'Canon por copia privada' IS a real line item (regulatory levy). Include it in the line items table.\n"
-        "DO NOT redact the Supplier Name, Supplier VAT ID, or Customer Name — they MUST appear explicitly in the output.\n"
-        "PRODUCT NAME CORRECTION: If the OCR text for a product description contains obvious spelling errors or garbled characters (e.g. 'Canon por oa rivada' instead of 'obra privada', or missing letters), you MUST gently correct the spelling to make it readable in the Markdown output.\n"
-        "SUPPLIER NAME EXTRACTION: The supplier name is usually the largest text at the top, or explicitly labeled. DO NOT use abbreviations or truncate the name. Extract the FULL legal name.\n"
-        "INVOICE SUBTOTAL VALIDATION: The sum of the 'Amount' column for all Line Items MUST strictly equal the Invoice Subtotal (within a few cents). If your extracted line items sum to 4155.30 but the Subtotal is 1658.00, YOU HAVE FAILED. You MUST re-read the OCR text and find the correct quantities and prices such that their sum matches the Subtotal.\n"
-        "2. Identify the IVA/TAX BREAKDOWN section (which lists the tax rates, base amounts, and tax amounts). YOU MUST format this breakdown as a Markdown table (e.g. Rate, Base, IVA, Total). Even if the text is messy, do your best to extract it. Common IVA rates in Spain are 4%, 10%, and 21%. This is CRITICAL for data extraction downstream.\n"
-        "3. Keep all the other information intact and well-structured using Markdown headings and lists. Be sure to explicitly extract the Supplier name, Supplier VAT ID/CIF, Customer name, Document Number, Date, Subtotal (of products only), ALL Taxes (e.g. IVA amounts), all Adjustments/Fees, and the Grand Total.\n"
-        "=== DOCUMENT NUMBER vs CLIENT NUMBER ===\n"
-        "In Spanish invoices, 'FACTURA', 'Nº FACTURA', or 'NUMERO' means Document Number (serialNumber). 'CLIENTE' or 'Nº CLIENTE' means Customer ID. You MUST extract the number next to 'FACTURA' or 'NUMERO' as the Document Number. DO NOT extract the 'CLIENTE' number as the Document Number!\n"
-        "VAT ID RULE: If the document has a NIF/CIF/CIN ID (e.g. B-67019018 or B67019018), you MUST consider it as the Supplier's VAT ID and explicitly extract it as the Supplier's VAT ID, even if it is positioned near or under the Customer ('PARA' / 'CLIENTE') block. Do NOT redact it! Ensure it is included in the output as the Supplier's VAT ID (e.g. `VAT: B67019018`). If multiple VAT IDs are present, extract the one in the supplier logo/header as the Supplier's VAT ID, but if only one is present anywhere in the document, treat it as the Supplier's VAT ID.\n"
-        "=== DATE PARSING ===\n"
-        "=== TWO-COLUMN LAYOUT RULE (CRITICAL FOR SIDEWAYS SCANS) ===\n"
-        "The raw text may contain a separator '--- DOCUMENT INFO COLUMN ---'. If present:\n"
-        "  - Text BEFORE this separator = LEFT COLUMN.\n"
-        "  - Text AFTER this separator = RIGHT COLUMN.\n"
-        "CRITICAL: If the invoice is scanned sideways, the Line Items table will be SPLIT IN HALF by this separator! The left column will contain the Code, Description, and Quantity, while the right column will contain the Price, Discount, and Total for those exact same items. You MUST match the Nth product in the left column with the Nth price in the right column and merge them into a single row in your Markdown table.\n"
-        "Do NOT confuse right-column numbers/codes with supplier or customer names.\n"
-        "\n"
-        "=== DISTRIBUTOR RECEIPT RULE ===\n"
-        "Some Spanish delivery notes are from food/beverage distributors (e.g. Moritz, Estrella, Heineken). They print TWO company names in the header:\n"
-        "  1. THE SUPPLIER: The distributor's legal company (e.g. 'DISTRIBUCIONES E.POZO S.L.') with 'C.I.F. B-XXXXXXX' attached directly on the same line or immediately after. This entity IS the Supplier.\n"
-        "  2. THE CUSTOMER BLOCK: A block with a client account code (e.g. 'FAROLA · 397118'), street address, city, company name (e.g. 'REC 67 PARTNERS SL'), and a standalone 'NIF: BXXXXXXX' label line. This ENTIRE block belongs to the CUSTOMER.\n"
-        "KEY RULE: A 'NIF:' or 'D.N.I.:' label on its own standalone line belongs to the CUSTOMER, but if there is no other C.I.F./N.I.F. printed on the document, it MUST be extracted/considered as the Supplier's VAT ID. The Supplier's CIF always appears directly after 'C.I.F.' on the same line as their legal company name if present, but falls back to any NIF/CIF present in the document if not.\n"
-        "Do NOT extract the Customer's delivery account code as the document serial number.\n"
-        "\n"
-        "=== INTERLEAVED LINE ITEMS (LA RIBERA / ROTATED RECEIPTS) ===\n"
-        "If you see this interleaved pattern where code, description, quantity, price and total are split onto different lines like:\n"
-        "  1.750 1.75\n"
-        "  08064313 1.000 10% 3.95\n"
-        "  1344 LATORRE ANX.FCO.90 GR.x12 1.000 10% 3.950 2.18\n"
-        "  6466 2.000 10% 1.090\n"
-        "  C.I.F. 4449 MARCHAPAN PICOS RUSTICOS 200 GR.x10\n"
-        "You MUST reconstruct 3 separate line items by matching codes to descriptions to quantities to prices:\n"
-        "  - Code 08064313: product=RIERA FUET EXTRA MINI 50 GR.x30 (from marginal text), Qty=1.000, IVA=10%, Price=1.750, Total=1.75\n"
-        "  - Code 1344: product=LATORRE ANX.FCO.90 GR.x12, Qty=1.000, IVA=10%, Price=3.950, Total=2.18 (price after discount)\n"  
-        "  - Code 6466: product=MARCHAPAN PICOS RUSTICOS 200 GR.x10 (from C.I.F. 4449 line), Qty=2.000, IVA=10%, Price=1.090, Total=implied\n"
-        "ALWAYS use the Marginal Text section to recover product names that are missing from main text!\n"
-        "\n"
-        "4. Output ONLY the reconstructed Markdown text. Do not add any conversational text or ```markdown fences.\n"
-        "CRITICAL: Do NOT just echo the raw text! You MUST actively reformat and restructure it into Markdown tables and clear lists/headings.\n\n"
-        "YOUR OUTPUT MUST EXACTLY FOLLOW THIS STRUCTURE (do not include the backticks):\n"
-        "# Reconstructed Invoice\n\n"
-        "## Supplier\n"
-        "- **Name:** (extracted name)\n"
-        "- **VAT ID:** (extracted vat id)\n\n"
-        "## Customer\n"
-        "- **Name / Code:** (extracted customer)\n\n"
-        "## Invoice\n"
-        "- **Number:** (extracted number)\n"
-        "- **Date:** (extracted date)\n\n"
-        "## Line Items\n\n"
-        "| Code | Description | Quantity | Gross Price | Discount % | IVA % | Amount (Inc. IVA) |\n"
-        "|------|-------------|----------|-------------|------------|-------|-------------------|\n"
-        "| ...  | ...         | ...      | ...         | ...        | ...   | ...               |\n\n"
-        "**Subtotal (products only):** ...\n\n"
-        "**IVA breakdown**\n\n"
-        "| Rate | Base | IVA | Total |\n"
-        "|------|------|-----|-------|\n"
-        "| ...  | ...  | ... | ...   |\n\n"
-        "**Grand Total:** ...\n"
-    )
-
-    user_prompt = (
-        "Here is the raw text to reconstruct into Markdown:\n\n"
-        f"```text\n{raw_text}\n```\n"
-    )
-
-    try:
-        response = _call_llm_with_fallback(
-            temperature=0,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-        )
-        content = response.choices[0].message.content
-
-        # Retry with a shorter prompt if model returned empty (context overload)
-        if not content or not content.strip():
-            logger.warning("LLM returned empty content for markdown formatting. Retrying with compact prompt.")
-            compact_prompt = (
-                "You are an invoice OCR formatter. Reformat the raw invoice text below into clean Markdown with:\n"
-                "- ## Supplier (Name, VAT ID)\n"
-                "- ## Customer (Name)\n"
-                "- ## Invoice (Number, Date)\n"
-                "- ## Line Items table: Code | Description | Qty | Price | IVA% | Amount\n"
-                "- ## Totals (Subtotal, IVA, Grand Total)\n"
-                "Output ONLY the Markdown, no fences, no commentary.\n"
-                "IMPORTANT: Do NOT invent values. Only extract what is literally in the text.\n"
-                "IMPORTANT: For sideways/rotated scans, codes and prices may be on separate lines — match them by order."
-            )
-            retry_response = _call_llm_with_fallback(
-                temperature=0,
-                messages=[
-                    {"role": "system", "content": compact_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-            )
-            content = retry_response.choices[0].message.content
-            if not content or not content.strip():
-                logger.error("LLM returned empty content for markdown formatting (both attempts).")
-                return raw_text
-
-        content = content.strip()
-        if content.startswith("```markdown"):
-            content = content[11:]
-        if content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-        return content.strip()
-    except Exception as e:
-        logger.error(f"Failed to format OCR markdown with LLM: {e}")
-        return raw_text
-
+    return inv

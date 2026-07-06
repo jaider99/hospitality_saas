@@ -61,12 +61,14 @@ def calculate_llm_score(inv: Invoice) -> float:
     success_rate = found_count / total_required
     
     # Deduct penalty for math/validation errors
-    num_reasons = len(temp_inv.review_reasons)
+    math_reasons = [r for r in temp_inv.review_reasons if not r.startswith("Missing ")]
+    num_reasons = len(math_reasons)
     penalty = min(num_reasons * 0.25, 1.0) # Deduct 25% per math error
     
-    # Deduct massive penalty if NO line items were extracted!
-    if not inv.items or len(inv.items) == 0:
-        logger.info("No line items extracted. Applying 50% penalty to LLM score.")
+    # Deduct massive penalty if NO valid line items were extracted (must have product or quantity)
+    valid_items = [li for li in inv.items if li.product or li.quantity] if inv.items else []
+    if not valid_items:
+        logger.info("No valid line items extracted (missing product/quantity). Applying 50% penalty to LLM score.")
         penalty += 0.50
         
     final_initial_score = max(success_rate - penalty, 0.0)

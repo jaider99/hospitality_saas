@@ -21,7 +21,11 @@ async_session_maker = sessionmaker(
 def init_db():
     """Creates all database tables defined in the modules."""
     # Models must be imported before calling create_all
-    SQLModel.metadata.create_all(engine)
+    try:
+        SQLModel.metadata.create_all(engine)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Error during create_all: {e}")
 
 def get_db():
     """FastAPI Dependency for database session."""

@@ -84,6 +84,8 @@ services:
       - redis
       - minio
       - supertokens
+    volumes:
+      - .:/app
 
   # ARQ Worker
   worker:
@@ -106,6 +108,7 @@ services:
       - redis
       - minio
     volumes:
+      - .:/app
       - paddleocr_models:/root/.paddleocr
 
 volumes:

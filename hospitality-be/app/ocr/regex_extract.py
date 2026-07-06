@@ -221,7 +221,7 @@ def extract_with_regex(raw_text: str) -> Invoice:
     inv.date = _parse_date(date_match) if date_match else None
 
     doc_num_match = _find_value_near_label(
-        text_norm, raw_text, LABELS["serialNumber"], re.compile(r"([A-Za-z0-9/\-\s]*\d[A-Za-z0-9/\-\s]*)")
+        text_norm, raw_text, LABELS["serialNumber"], re.compile(r"([A-Za-z0-9/\- ]*\d[A-Za-z0-9/\- ]*)")
     )
     candidate_sn = doc_num_match.group(1).strip() if doc_num_match else None
     # Reject phone-number-like candidates (e.g. '93 310 21 28')
