@@ -89,7 +89,18 @@ def check_line_item_internal_consistency(inv: Invoice) -> list:
             continue
         elif abs(expected_total_disc - li.base) <= TOLERANCE:
             continue
-        elif expected_per_unit != 0 and expected_total_disc != 0:
+            
+        if li.nominalPrice is not None:
+            expected_nom = li.quantity * li.nominalPrice + (li.otherFees or 0)
+            if abs(expected_nom - li.base) <= TOLERANCE:
+                continue
+                
+        if li.discountPct is not None:
+            expected_pct = li.quantity * (li.grossPrice * (1 - li.discountPct / 100.0)) + (li.otherFees or 0)
+            if abs(expected_pct - li.base) <= TOLERANCE:
+                continue
+
+        if expected_per_unit != 0 and expected_total_disc != 0:
              reasons.append(f"Line item {i+1} arithmetic is inconsistent")
     return reasons
 

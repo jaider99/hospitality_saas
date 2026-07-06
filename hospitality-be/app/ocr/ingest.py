@@ -497,7 +497,9 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
         # To avoid splitting line items in half, we only apply the left/right split
         # to the top section of the page (where Supplier and Customer headers are).
         # The rest of the page (where line items are) is sorted as a single horizontal block.
-        header_threshold = h_img * 0.45
+        # However, if the document was originally sideways (is_rotated), the table itself
+        # spans across columns, so we apply the split to the entire page.
+        header_threshold = h_img if is_rotated else h_img * 0.45
         
         header_lines = [l for l in lines if _get_y_center(l) <= header_threshold]
         body_lines = [l for l in lines if _get_y_center(l) > header_threshold]
