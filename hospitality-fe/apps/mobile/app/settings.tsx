@@ -1,16 +1,11 @@
 import React from 'react';
-import { ScrollView } from 'react-native';
-import { useAuthStore } from '../store/auth';
 import SettingsScreen from '../components/screens/SettingsScreen';
+import MainScreenLayout from '../components/MainScreenLayout';
 
 export default function SettingsPage() {
-  const { user, logout } = useAuthStore();
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: '#fafaf8', padding: 16 }} showsVerticalScrollIndicator={false}>
-      <SettingsScreen
-        user={user}
-        logout={logout}
-      />
-    </ScrollView>
+    <MainScreenLayout title="Settings">
+      <SettingsScreen />
+    </MainScreenLayout>
   );
 }

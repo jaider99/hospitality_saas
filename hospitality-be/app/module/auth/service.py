@@ -39,7 +39,8 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 def get_user_by_email(db: Session, email: str) -> Optional[User]:
     """Retrieves a user by email address."""
-    statement = select(User).where(User.email == email)
+    normalized_email = email.lower().strip() if email else ""
+    statement = select(User).where(User.email == normalized_email)
     return db.exec(statement).first()
 
 def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
@@ -50,24 +51,98 @@ from supertokens_python.recipe.session.framework.fastapi import verify_session
 from supertokens_python.recipe.session import SessionContainer
 from app.db.session import get_db
 
+from fastapi import Request
+
 async def get_current_user(
-    session: SessionContainer = Depends(verify_session()),
+    request: Request,
     db: Session = Depends(get_db)
 ) -> User:
     """
-    FastAPI dependency to retrieve the currently authenticated user from SuperTokens Session.
-    Throws 401 UNAUTHORIZED if session is invalid or user does not exist in local DB.
+    FastAPI dependency to retrieve the currently authenticated user.
+    Supports both custom JWT Bearer tokens and SuperTokens Sessions.
     """
-    st_user_id = session.get_user_id()
-    try:
-        from sqlmodel import select
-        statement = select(User).where(User.supertokens_id == st_user_id)
-        user = db.exec(statement).first()
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database query error during auth: {str(e)}"
-        )
+    from sqlmodel import select
+    user = None
+
+    # 1. Try custom JWT first (e.g. for mobile clients using Authorization Bearer tokens)
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        try:
+            payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.ALGORITHM])
+            email = payload.get("email")
+            user_id = payload.get("sub")
+            if user_id:
+                user = db.get(User, int(user_id))
+            if user is None and email:
+                user = get_user_by_email(db, email)
+        except jwt.PyJWTError:
+            # Let it fall through to SuperTokens session check in case it is a SuperTokens token
+            pass
+
+    # 2. Try SuperTokens session if no custom JWT was verified
+    if user is None:
+        from supertokens_python.recipe.session.framework.fastapi import verify_session
+        from supertokens_python.recipe.session.exceptions import SuperTokensSessionError
+        try:
+            dep = verify_session(session_required=True)
+            session = await dep(request)
+            if session:
+                st_user_id = session.get_user_id()
+                try:
+                    statement = select(User).where(User.supertokens_id == st_user_id)
+                    user = db.exec(statement).first()
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=f"Database query error during auth: {str(e)}"
+                    )
+
+                if user is None:
+                    # Self-healing logic: if user exists in SuperTokens, sync them to local DB
+                    try:
+                        from supertokens_python.asyncio import get_user
+                        st_user = await get_user(st_user_id)
+                        if st_user and st_user.emails:
+                            email = st_user.emails[0]
+                            
+                            # Fetch role from SuperTokens
+                            from supertokens_python.recipe.userroles.asyncio import get_roles_for_user
+                            try:
+                                tenant_id = "public"
+                                if hasattr(session, "get_tenant_id"):
+                                    tenant_id = session.get_tenant_id()
+                                roles_res = await get_roles_for_user(tenant_id, st_user_id)
+                                roles = roles_res.roles if hasattr(roles_res, "roles") else []
+                                role = roles[0] if roles else "SUPER_ADMIN"
+                            except Exception:
+                                role = "SUPER_ADMIN"
+                            
+                            from app.core.supertokens import sync_user_to_db
+                            sync_user_to_db(
+                                supertokens_id=st_user_id,
+                                email=email,
+                                role=role
+                            )
+                            
+                            # Re-query
+                            user = db.exec(statement).first()
+                    except Exception as sync_err:
+                        import logging
+                        logger = logging.getLogger("supertokens")
+                        logger.error(f"Failed to auto-sync user {st_user_id} in get_current_user: {sync_err}")
+        except SuperTokensSessionError:
+            # Let SuperTokens session exceptions propagate so the middleware handles them (e.g. for refresh flow)
+            raise
+        except Exception as db_or_sync_err:
+            import logging
+            logger = logging.getLogger("supertokens")
+            logger.error(f"Error during auth verification fallback: {db_or_sync_err}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Unauthorized: verification failed",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     if user is None:
         raise HTTPException(

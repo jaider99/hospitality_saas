@@ -180,6 +180,8 @@ class ProductDetail(BaseModel):
     merged: bool = False
     imported: bool = False
     config: Optional[Dict[str, Any]] = None
+    category_id: Optional[str] = None
+    app_category_id: Optional[str] = None
     category: Optional[CategoryRead] = None
     suppliers: List[Dict[str, Any]] = []
     formats: List[ProductFormatRow] = []

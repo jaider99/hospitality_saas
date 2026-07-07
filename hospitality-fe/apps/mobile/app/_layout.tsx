@@ -1,19 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { Slot, useRouter, useSegments } from 'expo-router';
+import { ActivityIndicator, View } from 'react-native';
 import { useAuthStore } from '../store/auth';
 
 export default function RootLayout() {
-  const { accessToken } = useAuthStore();
+  const { accessToken, isInitializing, loadSession } = useAuthStore();
   const segments = useSegments();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
+    loadSession();
   }, []);
 
   useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || isInitializing) return;
 
     const inTabsGroup = segments[0] === '(tabs)';
     const inLogin = segments[0] === 'login';
@@ -23,7 +25,15 @@ export default function RootLayout() {
     } else if (accessToken && (inLogin || !segments[0])) {
       router.replace('/(tabs)/dashboard');
     }
-  }, [accessToken, segments, mounted]);
+  }, [accessToken, segments, mounted, isInitializing]);
+
+  if (isInitializing) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fafaf8' }}>
+        <ActivityIndicator size="large" color="#1f8f5c" />
+      </View>
+    );
+  }
 
   return <Slot />;
 }

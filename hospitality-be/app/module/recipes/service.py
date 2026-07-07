@@ -284,9 +284,18 @@ def enrich_recipe_data(recipe: Recipe) -> Dict[str, Any]:
 def get_recipe_bom(db: Session, recipe_id: Any) -> Dict[str, Any]:
     """Generates the BOM Details response for a dish."""
     recipe = None
+    
+    # Parse recipe_id if it contains format like 'dish~1' or 'dish_1'
+    parsed_id = recipe_id
+    if isinstance(recipe_id, str):
+        if "~" in recipe_id:
+            parsed_id = recipe_id.split("~")[-1]
+        elif "_" in recipe_id:
+            parsed_id = recipe_id.split("_")[-1]
+
     # If recipe_id looks like an integer, try direct lookup first
     try:
-        r_id = int(recipe_id)
+        r_id = int(parsed_id)
         recipe = db.get(Recipe, r_id)
     except ValueError:
         pass

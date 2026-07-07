@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
-import { Home as HomeIcon, BarChart2, Plus, FileText, AlertCircle } from 'lucide-react-native';
+import { Home as HomeIcon, Utensils, Plus, FileText, AlertCircle } from 'lucide-react-native';
 import { usePathname, useRouter } from 'expo-router';
 import { useLayoutStore } from '../store/layout';
 
@@ -48,8 +48,8 @@ export default function BottomNavBar({ incidentsCount }: Props) {
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => router.push('/(tabs)/recipes')} style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
-          <BarChart2 size={20} color={activeTab === 'recipes' ? '#151515' : '#8c8c89'} />
-          <Text style={{ fontSize: 9, marginTop: 4, fontWeight: '600', color: activeTab === 'recipes' ? '#151515' : '#8c8c89', fontFamily: 'Sora' }}>Metrics</Text>
+          <Utensils size={20} color={activeTab === 'recipes' ? '#151515' : '#8c8c89'} />
+          <Text style={{ fontSize: 9, marginTop: 4, fontWeight: '600', color: activeTab === 'recipes' ? '#151515' : '#8c8c89', fontFamily: 'Sora' }}>Recipes</Text>
         </TouchableOpacity>
 
         {/* Central absolute positioned FAB */}

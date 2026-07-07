@@ -1,11 +1,11 @@
 import React from 'react';
-import { ScrollView } from 'react-native';
-import ExtractedItemsScreen from '../components/screens/ExtractedItemsScreen';
+import ProductsScreen from '../components/screens/ProductsScreen';
+import MainScreenLayout from '../components/MainScreenLayout';
 
 export default function ProductsPage() {
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: '#fafaf8', padding: 16 }} showsVerticalScrollIndicator={false}>
-      <ExtractedItemsScreen />
-    </ScrollView>
+    <MainScreenLayout title="Products Catalog">
+      <ProductsScreen />
+    </MainScreenLayout>
   );
 }

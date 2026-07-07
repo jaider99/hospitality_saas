@@ -11,7 +11,10 @@ import {
   AlertTriangle,
   Settings,
   Bot,
-  LogOut
+  LogOut,
+  Tag,
+  Truck,
+  Utensils
 } from 'lucide-react-native';
 import { usePathname, useRouter } from 'expo-router';
 
@@ -36,12 +39,11 @@ export default function NavigationDrawer({
   const getActiveId = () => {
     if (pathname.includes('/dashboard')) return 'dashboard';
     if (pathname.includes('/documents')) return 'documents';
-    if (pathname.includes('/invoice-matching')) return 'invoice-matching';
-    // if (pathname.includes('/review')) return 'review';
     if (pathname.includes('/products')) return 'products';
-    // if (pathname.includes('/recipes')) return 'recipes';
-    // if (pathname.includes('/labor')) return 'labor';
-    // if (pathname.includes('/incidents')) return 'incidents';
+    if (pathname.includes('/recipes')) return 'recipes';
+    if (pathname.includes('/suppliers')) return 'suppliers';
+    if (pathname.includes('/categories')) return 'categories';
+    if (pathname.includes('/labor')) return 'labor';
     if (pathname.includes('/settings')) return 'settings';
     return 'dashboard';
   };
@@ -51,12 +53,11 @@ export default function NavigationDrawer({
   const navigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: HomeIcon, route: '/(tabs)/dashboard' },
     { id: 'documents', label: 'Documents', icon: FileText, badge: 1, route: '/(tabs)/documents' },
-    // { id: 'invoice-matching', label: 'OCR Matching', icon: CheckCircle, route: '/invoice-matching' },
-    // { id: 'review', label: 'Review Center', icon: AlertCircle, badge: incidentsCount, route: '/(tabs)/review' },
-    { id: 'products', label: 'Extracted Items', icon: Package, route: '/products' },
-    // { id: 'recipes', label: 'Recipes Board', icon: BarChart2, route: '/(tabs)/recipes' },
-    // { id: 'labor', label: 'Staff & Labor', icon: Users, route: '/labor' },
-    // { id: 'incidents', label: 'Incidents Board', icon: AlertTriangle, route: '/incidents' },
+    { id: 'products', label: 'Products Catalog', icon: Package, route: '/products' },
+    { id: 'recipes', label: 'Recipes & Batches', icon: Utensils, route: '/(tabs)/recipes' },
+    { id: 'suppliers', label: 'Suppliers', icon: Truck, route: '/suppliers' },
+    { id: 'categories', label: 'Categories', icon: Tag, route: '/categories' },
+    { id: 'labor', label: 'Staff & Labor', icon: Users, route: '/labor' },
     { id: 'settings', label: 'Settings', icon: Settings, route: '/settings' }
   ];
 
