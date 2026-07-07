@@ -20,6 +20,56 @@ async def shutdown(ctx):
     """Worker shutdown hook."""
     logger.info("Shutting down background worker...")
 
+def trigger_webhook(invoice_id: int, status: str):
+    import urllib.request
+    import json
+    import os
+
+    # Determine Webhook URL
+    if settings.WEBHOOK_URL:
+        base_url = settings.WEBHOOK_URL.strip("\"'").rstrip("/")
+    elif settings.API_DOMAIN and "localhost:3000" not in settings.API_DOMAIN:
+        base_url = settings.API_DOMAIN.strip("\"'").rstrip("/")
+    else:
+        base_url = f"http://localhost:{settings.PORT}"
+
+    primary_url = f"{base_url}/api/v1/invoices/webhook"
+    candidate_urls = [primary_url]
+    
+    is_docker = os.path.exists('/.dockerenv')
+    if is_docker:
+        # Add internal docker network candidate hosts
+        internal_backend = f"http://backend:{settings.PORT}/api/v1/invoices/webhook"
+        internal_hospitality = f"http://hospitality-backend:{settings.PORT}/api/v1/invoices/webhook"
+        if internal_backend not in candidate_urls:
+            candidate_urls.append(internal_backend)
+        if internal_hospitality not in candidate_urls:
+            candidate_urls.append(internal_hospitality)
+
+    data = json.dumps({"invoice_id": invoice_id, "status": status}).encode("utf-8")
+    
+    last_err = None
+    for url in candidate_urls:
+        logger.info(f"Triggering webhook at {url}...")
+        req = urllib.request.Request(
+            url, 
+            data=data, 
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                logger.info(f"Webhook response from {url}: {response.status}")
+                return True
+        except Exception as e:
+            last_err = e
+            logger.warning(f"Failed to connect to webhook at {url}: {e}")
+            
+    if last_err:
+        raise last_err
+    return False
+
+
 async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str = "en"):
     """
     ARQ background task: downloads the invoice from MinIO to a temporary local file,
@@ -81,26 +131,9 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
 
         # Trigger Success Webhook
         try:
-            import urllib.request
-            import json
-            webhook_url = f"http://localhost:{settings.PORT}/api/v1/invoices/webhook"
-            logger.info(f"Triggering success webhook at {webhook_url}...")
-            
-            data = json.dumps({"invoice_id": invoice_id, "status": "PROCESSED"}).encode("utf-8")
-            req = urllib.request.Request(
-                webhook_url, 
-                data=data, 
-                headers={'Content-Type': 'application/json'},
-                method='POST'
-            )
-            logger.info(f"Triggering success webhook at {webhook_url}...")
-            try:
-                with urllib.request.urlopen(req, timeout=15) as response:
-                    logger.info(f"Webhook response: {response.status}")
-            except Exception as e:
-                logger.warning(f"Failed to trigger webhook on success: {e}. (This does not affect invoice processing)")
+            await asyncio.to_thread(trigger_webhook, invoice_id, "PROCESSED")
         except Exception as webhook_err:
-            logger.error(f"Failed to trigger webhook on success: {webhook_err}", exc_info=True)
+            logger.error(f"Failed to trigger webhook on success after all attempts: {webhook_err}")
 
     except Exception as e:
         logger.error(f"Error processing invoice ID {invoice_id}: {str(e)}", exc_info=True)
@@ -116,13 +149,9 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
 
         # Trigger Failure Webhook
         try:
-            import httpx
-            webhook_url = f"http://localhost:{settings.PORT}/api/v1/invoices/webhook"
-            logger.info(f"Triggering failure webhook at {webhook_url}...")
-            async with httpx.AsyncClient() as client:
-                await client.post(webhook_url, json={"invoice_id": invoice_id, "status": "FAILED"})
+            await asyncio.to_thread(trigger_webhook, invoice_id, "FAILED")
         except Exception as webhook_err:
-            logger.error(f"Failed to trigger webhook on failure: {webhook_err}")
+            logger.error(f"Failed to trigger webhook on failure after all attempts: {webhook_err}")
     finally:
         # Clean up temporary local file
         try:

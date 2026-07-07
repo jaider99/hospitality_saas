@@ -198,9 +198,7 @@ export default function DocumentsPage() {
 
   // Real-time EventSource listener to reload the documents list on webhook trigger
   useEffect(() => {
-    const protocol = window.location.protocol;
-    const hostname = window.location.hostname;
-    const sseUrl = `${protocol}//${hostname}:8000/api/v1/invoices/events`;
+    const sseUrl = `/api/v1/invoices/events`;
     const eventSource = new EventSource(sseUrl);
 
     eventSource.onmessage = (event) => {

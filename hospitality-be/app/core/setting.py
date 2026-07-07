@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET_NAME: str = "invoices"
+    WEBHOOK_URL: Optional[str] = None
 
 
     # SuperTokens Settings
@@ -42,3 +43,5 @@ class Settings(BaseSettings):
         extra = "ignore"
 
 settings = Settings()
+if settings.DATABASE_URL.startswith("postgres://"):
+    settings.DATABASE_URL = settings.DATABASE_URL.replace("postgres://", "postgresql://", 1)
