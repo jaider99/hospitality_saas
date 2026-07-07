@@ -145,3 +145,4 @@ android/app/build/
 # Turborepo
 .turbo/
 
+.env.production.example

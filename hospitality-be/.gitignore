@@ -180,3 +180,6 @@ hospitality.db
 # Accidental frontend dependencies in backend directory
 node_modules/
 yarn.lock
+
+
+.env.production.example

@@ -15,10 +15,12 @@ class Settings(BaseSettings):
     PORT: int = 8000
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 1 day
-    MINIO_ENDPOINT_URL: str = "http://localhost:9010"
+    MINIO_ENDPOINT_URL: str = ""
+    MINIO_PUBLIC_URL: str = ""
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET_NAME: str = "invoices"
+
 
     # SuperTokens Settings
     SUPERTOKENS_CONNECTION_URI: str = "http://localhost:3567"
