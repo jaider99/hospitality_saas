@@ -14,7 +14,7 @@ from app.ocr.schema import Invoice
 TOLERANCE = 0.02  # EUR cents tolerance for floating point / rounding noise
 
 REQUIRED_FIELDS = [
-    ("Document Number", lambda inv: inv.serialNumber),
+    ("Document Number", lambda inv: inv.serialNumber and inv.serialNumber.strip().upper() not in ["", "UNKNOWN", "N/A", "NONE"]),
     ("Date", lambda inv: inv.date),
     ("Supplier Name", lambda inv: inv.supplier.name),
     ("Supplier VAT ID", lambda inv: inv.supplier.vatID),

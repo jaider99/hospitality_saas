@@ -55,7 +55,7 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
 
         # Run in threadpool — PaddleOCR is CPU-bound and blocks the event loop
         base_name = os.path.splitext(object_key)[0]
-        ocr_invoice = await asyncio.to_thread(process_invoice, local_path, False, base_name)
+        ocr_invoice = await asyncio.to_thread(process_invoice, local_path, False, base_name, invoice_id)
 
         logger.info(
             f"OCR pipeline complete for invoice {invoice_id}: "

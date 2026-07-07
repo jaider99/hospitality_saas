@@ -179,6 +179,7 @@ SYSTEM_PROMPT = (
     "  • 'Canon por copia privada' IS a real line item (regulatory levy). Include it in the line items table.\n"
     "DO NOT redact the Supplier Name, Supplier VAT ID, or Customer Name — they MUST appear explicitly in the output.\n"
     "PROVIDER CODES: Provider/Product codes are typically alphanumeric strings or integers (e.g. '08064313', '1344'). NEVER extract a decimal number with a period or comma (e.g., '1.750') as a provider code. If you see a decimal, it is likely a price or quantity.\n"
+    "NEVER GROUP OR COMBINE LINE ITEMS: Even if two items appear logically related (e.g., similar or identical product names, sequential parts, or a product and its associated fee/tax), you MUST extract them as completely separate line items exactly as printed. Combining multiple rows into a single summarized product is STRICTLY FORBIDDEN. Each distinct printed row must correspond to exactly one extracted line item.\n"
     "PRODUCT NAME CORRECTION: If the OCR text for a product description contains obvious spelling errors or garbled characters (e.g. 'Canon por oa rivada' instead of 'obra privada', or missing letters), you MUST gently correct the spelling to make it readable in the Markdown output.\n"
     "MISSING PRODUCT NAMES: If the OCR text is jumbled and a line item appears to have no product description, look at the surrounding lines. Product names are typically alphabetical strings (e.g., 'Product A', 'Fresh Milk 1L'). If a text string is floating on a nearby line, you MUST aggressively assign it as the `product` description for the nearest line item. NEVER leave the `product` field as null if there are unused alphabetical text strings nearby.\n"
     "CREDIT CARD RECEIPTS: If a credit card terminal receipt is stapled to the invoice, you will see text like 'MASTERCARD', 'VISA', 'TARJETA', 'TVR', or 'COMERCIO'. **NEVER extract 'MASTERCARD' or 'VISA' as the Supplier Name.** The actual supplier name is the store/company name printed on the main invoice (e.g. 'Artyplan').\n"
@@ -254,7 +255,9 @@ SYSTEM_PROMPT = (
     "\n"
     "=== LINE ITEMS ===\n"
     "Each line item logically contains: [Code/ART] [Description] [Gra (graduación/degree)] [U/M (unit/liter size)] [Qty/BOT/UDS] [Price/PRECIO] [Base/Amount].\n"
-    "ONLY extract actual products/services as line items. DO NOT extract additional fees, regulatory costs, credits, or adjustments as line items.\n"
+    "UTILITY BILL RULE (ELECTRICITY/GAS): If the document is a utility bill with multiple pages, you are STRICTLY FORBIDDEN from extracting high-level summary rows that combine multiple underlying charges into broad categories (e.g., summaries like 'Total Energy Used' / 'Por energía utilizada', 'Contracted Power' / 'Por potencia contratada', or grouped 'Taxes and Fees' / 'Impuestos y bonos'). You MUST instead find and extract the detailed interleaved breakdown from the itemized pages (e.g., specific meter readings, individual power periods like 'P1'/'P2', and specific individual taxes/fees like 'Bono social' or 'Impuesto Eléctrico'). You must extract these detailed rows even if they are heavily garbled or interleaved with customer addresses. This is a hard requirement.\n"
+    "To ensure you comply with this rule, if the invoice is a utility bill, you MUST start your response with a `<think>...</think>` block. Inside the think block, explicitly identify which text represents the 'Summary Block' and which text represents the 'Garbled Detailed Block', and then state that you will only extract the detailed block. Then output the JSON.\n"
+    "ONLY extract actual products, services, fees, regulatory costs, or adjustments as line items IF they are printed as distinct rows with their own prices. If a fee or tax is printed as a distinct row in the items table, you MUST extract it as its own separate line item.\n"
     "Due to OCR limitations, these fields are often heavily INTERLEAVED across multiple lines.\n"
     "You MUST reconstruct the row by associating:\n"
     "- providerCode (ART.): the alphanumeric product code (e.g. 001783, 006115)\n"
@@ -272,7 +275,7 @@ SYSTEM_PROMPT = (
     "CRITICAL: You MUST extract the Unit Price into `grossPrice` (or `nominalPrice` if discounted) and the Total Amount (Qty * Price) into `base` for EVERY line item. Never omit them if they exist on the page.\n"
     "Always ensure EVERY extracted product gets its `base` and `iva_pct`.\n"
     "If the receipt is a B2C receipt (like Apple Retail, DOMOS SHOP, or Meta Ads) where line items are listed WITH tax, you MUST back-calculate the PRE-TAX Unit Price and extract that into `grossPrice`. e.g. Pre-tax Unit Price = Printed Price / (1 + iva_pct/100). Do NOT extract the tax-inclusive price as `grossPrice`. Also back-calculate the pre-tax `base` amount for each line item (Base = Pre-tax Unit Price * Qty) so that the sum of line item bases equals the invoice's overall `subtotal`. If the invoice has no tax (iva_pct = 0 or missing), then `base` MUST EXACTLY EQUAL `grossPrice` * qty.\n"
-    "Never put TAX-breakdown rows or general total rows as line items.\n"
+    "Never put VAT/IVA breakdown tables or general total rows as line items. However, if a specific tax or fee (e.g., 'Impuesto Eléctrico') is printed as a distinct row in the main products table, you MUST extract it as a line item.\n"
     "CRITICAL FOR DIGITAL AD INVOICES: If you see digital advertising campaigns (e.g. Meta Ads, Facebook, Google Ads), the main row contains the campaign name (e.g., 'Campaña de Interacción Farola') and its price. Directly beneath it there is often a descriptive row detailing the metrics (e.g., 'Nuevo conjunto de anuncios de Interacción - 238 Impresiones') with the EXACT SAME PRICE printed again. DO NOT extract the 'Impresiones' row as a separate line item! This will double-count the total. You must SKIP the 'Impresiones' row and only extract the main campaign row.\n"
     "\n"
     "=== ADDITIONAL FEES & ADJUSTMENTS ===\n"
@@ -290,6 +293,7 @@ SYSTEM_PROMPT = (
     "\n"
     "=== FEW-SHOT EXAMPLES OF OCR NOISE ===\n"
     "OCR can be garbled. Use these examples of garbled text to understand the intent:\n"
+    "If you see a utility bill summary like: 'Por energía utilizada 15.17' but later see a garbled detailed block interleaved with an address like 'NIF: Potencia [P1] 8.60 ... B22792121 Potencia [P2] 8.39 ... Dirección: Energía 15.17 ... CARDERS 31 Bono social 0.58 ... BARCELONA Impuesto Eléctrico 1.67 ... Alquiler de contador 0.80', you MUST completely ignore the 'Por energía utilizada' summary block and extract the 6 distinct details from the garbled block: Item 1: 'Potencia [P1]' Base 8.60. Item 2: 'Potencia [P2]' Base 8.39. Item 3: 'Energía' Base 15.17. Item 4: 'Bono social' Base 0.58. Item 5: 'Impuesto Eléctrico' Base 1.67. Item 6: 'Alquiler de contador' Base 0.80.\n"
     "If you see: 'Remolacha Fresca Amarilla / Mix' → Code: 'BverRemMIXkg', Product: 'Remolacha Fresca Amarilla / Mix Colores kg', Qty: 1.4, Gross: 2.54, IVA: 4, Base: 3.56.\n"
     "If you see: 'Puré Boiron Melón Cantalup' → Code: 'BpurMelonk1', Qty: 2, Gross: 12.7, IVA: 10, Base: 25.4.\n"
     "If you see: 'Hojas de Naranja tarr' → Code: 'HojDeNarTarr', Qty: 2, Gross: 3, IVA: 10, Base: 6.\n"
@@ -342,12 +346,11 @@ SYSTEM_PROMPT = (
     "=== CORRUPTED DATES ===\n"
     "Dates in OCR are frequently corrupted (e.g., '12/00/2025' instead of '12/05/2025', or '15-04-202' instead of '15-04-2024'). If a date appears invalid or truncated in the main text, look at the Marginal text or POS receipt text (e.g., 'Fecha...') to cross-reference and reconstruct the correct YYYY-MM-DD date. Use logical deduction to fix OCR typos in days, months or years.\n"
     "\n"
-    "=== REFUNDS AND NEGATIVE NUMBERS ===\n"
-    "If the invoice is a credit note or refund, the amounts will often be negative. "
-    "CRITICAL: In OCR, negative numbers are frequently printed with a TRAILING minus sign (e.g., '58.08-', '48.00-', '10.08-'). "
-    "If you see a trailing minus sign, you MUST output it as a valid negative JSON number (e.g., -58.08, -48.00). Do NOT ignore the minus sign! "
-    "If the totals are negative, you MUST set `isRefund: true`.\n"
-    "IMPORTANT FOR LINE ITEMS: On refunds, the unit price (grossPrice) might be printed as a positive number (e.g., 2.400), but the line item base/total will be negative (e.g., -19.20). Do not panic if `qty * positive_unit_price` equals the absolute value of the negative base. Just extract the negative base and the positive unit price as printed.\n"
+    "=== TRAILING DASHES & NEGATIVE NUMBERS ===\n"
+    "CRITICAL: Many suppliers use a trailing dash purely as a printing convention to prevent manual alteration (e.g., '58.08-', '48.00-') or as a unit suffix (e.g., '8-C' for 8 Cajas). "
+    "DO NOT parse trailing dashes as negative numbers! Treat '58.08-' as a POSITIVE 58.08 and '8-C' as a POSITIVE 8.\n"
+    "ONLY output negative numbers if the document explicitly states it is an 'ABONO' (Credit Note) or 'FACTURA RECTIFICATIVA' (Refund), or if it uses standard negative formatting (e.g., '-58.08'). "
+    "If it is a standard 'ALBARAN' (Delivery Note) or 'FACTURA' (Invoice), amounts and quantities with trailing dashes MUST be positive.\n"
     "\n"
     "=== ARITHMETIC RULES ===\n"
     "DO NOT compute sums for `subtotal` or `tax`. The pipeline does all arithmetic in Python. "
@@ -399,28 +402,42 @@ def extract_with_llm(raw_text: str, missing_fields: Optional[list] = None, use_f
         content = content[content.find("{"):content.rfind("}") + 1]
         
     try:
-        return json.loads(content)
-    except json.JSONDecodeError as e:
-        logger.warning(f"LLM JSON decode error: {e}. Attempting repair.")
+        data = json.loads(content)
+        
+        # Utility Bill Failsafe Validation
+        if data.get("category") == "Utilities" or any("potencia" in str(i.get("product", "")).lower() for i in data.get("items", [])):
+            bad_summaries = ["por energía utilizada", "por potencia contratada", "energía utilizada", "potencia contratada"]
+            has_bad_summary = any(any(bad in str(i.get("product", "")).lower() for bad in bad_summaries) for i in data.get("items", []))
+            
+            if has_bad_summary:
+                logger.warning("LLM extracted summary rows instead of detailed utility rows. Forcing retry...")
+                raise ValueError("Extracted high-level summary rows instead of interleaved detailed block")
+                
+        return data
+    except Exception as e:
+        logger.warning(f"LLM validation failed: {e}. Attempting repair.")
         repair_prompt = (
-            f"The following output is malformed JSON and must be corrected to match the schema: {SCHEMA_DESCRIPTION}\n"
-            f"Malformed output:\n{content}\n\nPlease return ONLY valid JSON."
+            f"Your previous output failed validation: {str(e)}\n\n"
+            f"If the error says 'Extracted high-level summary rows', you MUST look at the raw OCR text again, ignore the clean summary block (like 'Por energía utilizada 15.17' and 'Por potencia contratada 16.99'), and extract the highly garbled interleaved block containing 6 distinct lines (e.g., 'Potencia [P1] 8.60', 'Potencia [P2]', 'Energía 15.17', 'Bono social', 'Impuesto Eléctrico', 'Alquiler de contador') exactly as instructed in the UTILITY BILL RULE. Extract ALL 6 DISTINCT ITEMS.\n\n"
+            f"If the error is a JSON format error, fix the JSON.\n\n"
+            f"Please correct the output and return ONLY valid JSON matching the schema."
         )
         repair_resp = _call_llm_with_fallback(
             temperature=0,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": dynamic_system_prompt},
+                {"role": "user", "content": user_prompt},
+                {"role": "assistant", "content": content},
                 {"role": "user", "content": repair_prompt},
             ],
             use_fallback_model=use_fallback_model
         )
         repaired = repair_resp.choices[0].message.content.strip()
+        repaired = re.sub(r'<think>.*?</think>', '', repaired, flags=re.DOTALL).strip()
         if repaired.startswith("```"):
             repaired = repaired.strip("`")
             repaired = repaired[repaired.find("{"):repaired.rfind("}") + 1]
         return json.loads(repaired)
-    except Exception as e:
-        raise RuntimeError(f"LLM extraction failed: {e}")
 
 def merge_llm_result_into_invoice(inv: Invoice, llm_dict: dict, force_fields=None) -> Invoice:
     force_fields = force_fields or []
@@ -497,6 +514,7 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
         "QUANTITY EXTRACTION: If a product description appears to end with a standalone number (e.g. 'MORITZ 7 1/3 24BOT RET 28'), that trailing number is almost always the QUANTITY column value that wrapped onto the same line as the description — extract it into 'quantity', not as part of the product name. Cross-check: quantity × gross_price - applied_discount should equal base (within 0.05). If it does not match with quantity=1, look for a wrapped/misplaced quantity digit in the description text and re-extract it.\n"
         "STRICT NO-INVENTION RULE: You MUST ONLY extract numbers that literally appear in the raw text! DO NOT perform calculations to generate/invent new numbers! If you see 3 decimal places (e.g. 5.702 or 1.198), extract them EXACTLY as printed. DO NOT round them to 2 decimals (e.g. 5.70 or 1.20)! If you invent a number or round a number that isn't exactly in the text, you fail.\n"
         "LINE ITEM SEPARATION RULE: Do NOT merge multiple distinct products into a single row's description. Keep each line item separate on its own row just as they appear in the source.\n"
+        "UTILITY BILL RULE (ELECTRICITY/GAS): If the document is a multi-page utility bill and contains both a high-level summary of charges on the first page AND a detailed breakdown table on a later page (e.g., specific meter readings, distinct power periods, individual itemized fees), YOU MUST format the DETAILED BREAKDOWN as the Markdown table. Do NOT use the high-level summary for the table.\n"
         "MERGED NUMBERS RULE: OCR sometimes glues numbers together without spaces (e.g. '362,0921.076,04' or '173,4921,00'). You MUST intelligently split them apart based on expected columns. For example, '173,4921,00' means Base=173.49 and IVA Rate=21.00. Split them at the correct decimal boundaries.\n"
         "OCR NOISE RULE: OCR text may contain merged lines, broken tables, duplicated regions, missing spaces, and incorrect decimal separators. Use nearby text and repeated patterns to logically associate values across broken columns. However, NEVER invent or hallucinate information that cannot be reasonably linked.\n"
         "=== MESSY IVA / TOTALS SECTIONS ===\n"
@@ -504,7 +522,7 @@ def format_ocr_markdown_with_llm(raw_text: str) -> str:
         "B2B EXCLUSIVE TAX RULE (DEFAULT): On almost all B2B invoices, Line Item Prices DO NOT include IVA! The Amount/Total for a line item is strictly `Quantity * Gross Price` (minus discounts). DO NOT add IVA to the line item Amount. IVA is only added at the very end to the Subtotal.\n"
         "B2C INCLUSIVE TAX RULE: If the line items on the receipt INCLUDE tax (i.e., their sum equals the Grand Total rather than the Subtotal), you MUST explicitly label the Amount column as 'Amount (Inc. IVA)'. Do NOT hallucinate '0%' for the IVA % of fees like 'Canon' if it is not explicitly printed as 0%; either leave it blank or use the general rate.\n"
         "Do NOT hallucinate rows. Do NOT extract company logos or footers (like 'CONSERVAS ORTIZ') as line items if they have no valid quantity/price.\n"
-        "IMPORTANT: Do NOT extract 'Adjustments', 'Credits', 'Regulatory Operating Costs', 'DST Fees' or other additional fees as line items in the table! Leave them as raw text or standard lists outside the table.\n"
+        "IMPORTANT: You MAY extract 'Adjustments', 'Credits', 'Regulatory Operating Costs', 'DST Fees' or other additional fees as line items in the table IF they are printed as distinct rows with their own prices.\n"
         "PACKAGING/DEPOSITS EXCLUSION: If you see a section titled 'VALORACION ECONOMICA DE ENVASES' or similar containing lines like 'BOTELLA 1/3 LN RET' or 'PLASTICO VACIO' with negative/return quantities (e.g. '-21 CJ'), YOU MUST NOT extract them as products! Completely ignore these packaging deposit/return lines from the main Line Items table.\n"
         "=== META / FACEBOOK INVOICES ===\n"
         "Meta/Facebook ad invoices often print the Campaign name on one line, and the Ad Set sub-name on the next line WITH THE EXACT SAME PRICE REPEATED. (e.g. 'Campaña... €16.60' followed immediately by 'Nuevo conjunto... €16.60').\n"
