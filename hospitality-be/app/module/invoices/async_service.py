@@ -77,6 +77,8 @@ async def async_save_ocr_invoice(
             supplier.address = supplier_address
         if supplier_legal_name and not supplier.legal_name:
             supplier.legal_name = supplier_legal_name
+        if supplier_contacts_count and supplier.contacts_count < supplier_contacts_count:
+            supplier.contacts_count = supplier_contacts_count
         db.add(supplier)
         await db.commit()
         await db.refresh(supplier)
@@ -274,7 +276,8 @@ async def async_save_ocr_invoice(
                 await db.refresh(product)
         else:
             if not sku:
-                sku = f"{supplier_name[:3].upper()}-{random.randint(1000, 9999)}"
+                prefix = supplier_name[:3].upper() if supplier_name else "UNK"
+                sku = f"{prefix}-{random.randint(1000, 9999)}"
             else:
                 # Check if SKU is globally taken by another supplier
                 conflict_query = select(SuppliedProduct).where(SuppliedProduct.sku == sku)

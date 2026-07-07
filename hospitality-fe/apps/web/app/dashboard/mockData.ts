@@ -140,7 +140,7 @@ export const navItems: NavItem[] = [
   // { id: 'invoice-matching', label: 'OCR Matching', icon: FileCheck },
   // { id: 'review', label: 'Review Center', icon: AlertCircle, badge: 28 },
   { id: 'products', label: 'Products', icon: Package },
-  // { id: 'recipes', label: 'Recipes', icon: Utensils },
+  { id: 'recipes', label: 'Recipes', icon: Utensils },
   { id: 'suppliers', label: 'Suppliers', icon: Truck },
   { id: 'categories', label: 'Categories', icon: Tag },
   // { id: 'labor', label: 'Staff & Labor', icon: Users },

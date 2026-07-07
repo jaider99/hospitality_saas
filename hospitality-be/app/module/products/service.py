@@ -384,6 +384,8 @@ def get_product_detail(db: Session, product_id: str) -> Optional[dict]:
         "merged": product.merged,
         "imported": product.imported,
         "config": product.config,
+        "category_id": product.category_id,
+        "app_category_id": product.app_category_id,
         "category": category_chain,
         "suppliers": suppliers,
         "formats": [

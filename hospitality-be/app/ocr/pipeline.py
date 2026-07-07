@@ -467,7 +467,24 @@ def _is_below_review_floor(inv: Invoice, page_result) -> bool:
     return False
 
 
+def check_invoice_exists(invoice_id: int) -> bool:
+    if invoice_id is None:
+        return True
+    try:
+        from app.db.session import engine
+        from sqlmodel import Session
+        from app.module.invoices.model import Invoice
+        with Session(engine) as session:
+            return session.get(Invoice, invoice_id) is not None
+    except Exception as e:
+        import logging
+        logging.getLogger("invoice_pipeline").warning(f"Failed to check invoice {invoice_id} status: {e}")
+        return True
+
 def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = "", invoice_id: int | None = None) -> Invoice:
+    if not check_invoice_exists(invoice_id):
+        raise ValueError(f"Invoice {invoice_id} was deleted. Aborting pipeline.")
+
     logger.info(f"Processing: {file_path}")
 
     import time
@@ -579,6 +596,8 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
         missing.append("items")
 
     if _needs_llm_fallback(inv):
+        if not check_invoice_exists(invoice_id):
+            raise ValueError(f"Invoice {invoice_id} was deleted. Aborting before LLM extraction.")
         inv.extraction_method = "Stage 1 OCR Complete, Stage 2 LLM Extraction"
         logger.info(f"Triggering LLM fallback. Missing/weak fields: {missing}")
         try:
@@ -594,30 +613,51 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
                     if "subtotal" not in missing: missing.append("subtotal")
                     if "total" not in missing: missing.append("total")
 
+            import copy
+            from app.ocr.vl_fallback import calculate_llm_score, VL_LLM_THRESHOLD
+
+            original_inv = copy.deepcopy(inv)
             full_llm_input = ocr_text + "\n\n=== RAW OCR TEXT ===\n" + page_result.raw_text
-            _start_llm = time.time()
-            try:
-                llm_result = extract_with_llm(full_llm_input, missing_fields=missing)
-            finally:
-                llm_total_time += time.time() - _start_llm
-            logger.info(f"LLM returned dict: {llm_result}")
-            inv = merge_llm_result_into_invoice(inv, llm_result, force_fields=missing)
+            
+            for attempt, use_fallback in enumerate([False, True]):
+                if not check_invoice_exists(invoice_id):
+                    raise ValueError(f"Invoice {invoice_id} was deleted. Aborting before LLM extraction.")
+                _start_llm = time.time()
+                try:
+                    llm_result = extract_with_llm(full_llm_input, missing_fields=missing, use_fallback_model=use_fallback)
+                finally:
+                    llm_total_time += time.time() - _start_llm
+                
+                if not check_invoice_exists(invoice_id):
+                    raise ValueError(f"Invoice {invoice_id} was deleted during LLM extraction. Aborting.")
+                    
+                logger.info(f"LLM returned dict: {llm_result}")
+                
+                # Merge into the current invoice state
+                inv = merge_llm_result_into_invoice(inv, llm_result, force_fields=missing)
 
-            for adj_field in ["discount", "payeAmount", "greenPointAmount", "ibeeAmount", "taxableAdditionalCost", "netAdditionalCost"]:
-                val = getattr(inv, adj_field, 0.0)
-                if val and py_total and abs(val - py_total) < 0.05:
-                    setattr(inv, adj_field, 0.0)
-                elif val and py_base and abs(val - py_base) < 0.05:
-                    setattr(inv, adj_field, 0.0)
+                for adj_field in ["discount", "payeAmount", "greenPointAmount", "ibeeAmount", "taxableAdditionalCost", "netAdditionalCost"]:
+                    val = getattr(inv, adj_field, 0.0)
+                    if val and py_total and abs(val - py_total) < 0.05:
+                        setattr(inv, adj_field, 0.0)
+                    elif val and py_base and abs(val - py_base) < 0.05:
+                        setattr(inv, adj_field, 0.0)
 
-            if py_base and py_total:
-                if abs((py_base + (py_iva or 0)) - py_total) < 1.0:
-                    inv.subtotal = py_base
-                    inv.tax = py_iva
+                if not inv.total and py_total:
                     inv.total = py_total
-            elif py_total and not inv.total:
-                inv.total = py_total
+                    
+                # Evaluate semantic score
+                score = calculate_llm_score(inv)
+                if score >= VL_LLM_THRESHOLD:
+                    break # Good enough, don't need fallback text model
+                    
+                if not use_fallback:
+                    logger.warning(f"Primary Text Model semantic score ({score:.2f}) < {VL_LLM_THRESHOLD}. Discarding output and trying fallback text model...")
+                    inv = copy.deepcopy(original_inv) # Reset invoice to pre-LLM state
+                    
         except Exception as e:
+            if "was deleted" in str(e):
+                raise e
             logger.warning(f"LLM fallback failed: {e}")
             inv.review_reasons.append("AI extraction failed (requires manual review)")
             inv.needs_review = True
@@ -655,6 +695,9 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
                 finally:
                     llm_total_time += time.time() - _start_vl
                 
+                if not check_invoice_exists(invoice_id):
+                    raise ValueError(f"Invoice {invoice_id} was deleted during VL extraction. Aborting.")
+                    
                 logger.info(f"VL model returned dict: {vl_result}")
                 inv = merge_llm_result_into_invoice(inv, vl_result, force_fields=missing)
                 inv.extraction_method = "vision_model_fallback"
@@ -832,8 +875,10 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
     # --- Dynamic Database Fallback for Supplier VAT ID ---
     if not inv.supplier.vatID and inv.supplier.name:
         try:
-            from app.ocr.storage import SessionLocal, SupplierRecord
-            with SessionLocal() as session:
+            from sqlmodel import Session
+            from app.db.session import engine
+            from app.ocr.storage import SupplierRecord
+            with Session(engine) as session:
                 supplier_match = session.query(SupplierRecord).filter(
                     SupplierRecord.name.ilike(inv.supplier.name),
                     SupplierRecord.vat_id.isnot(None)
@@ -846,23 +891,23 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
             logger.error(f"Failed to query DB for supplier fallback: {e}")
 
     # --- Duplicate Invoice Check ---
-    if inv.serialNumber:
+    if inv.serialNumber and inv.serialNumber.strip().upper() not in ["", "UNKNOWN", "N/A", "NONE"]:
         try:
-
-            raw_url = os.getenv("DATABASE_URL", "").strip().strip('"').strip("'")
-            # psycopg2 doesn't accept ?schema=..., strip it; also replace asyncpg driver
-            sync_url = re.sub(r'\?.*$', '', raw_url).replace("postgresql+asyncpg", "postgresql")
-            from sqlalchemy import create_engine
-            from sqlalchemy.orm import sessionmaker
-            engine = create_engine(sync_url)
-            SyncSessionLocal = sessionmaker(bind=engine)
-            
+            from sqlmodel import Session
+            from app.db.session import engine
             from app.module.invoices.model import Invoice as DBInvoice
-            with SyncSessionLocal() as session:
-                duplicate_match = session.query(DBInvoice).filter(
-                    (DBInvoice.document_number == inv.serialNumber) | (DBInvoice.invoice_number == inv.serialNumber),
-                    DBInvoice.id != invoice_id
-                ).first()
+            
+            with Session(engine) as session:
+                query = session.query(DBInvoice).filter(DBInvoice.invoice_number == inv.serialNumber)
+                
+                if inv.supplier.vatID:
+                    query = query.filter(DBInvoice.supplier_tax_id == inv.supplier.vatID)
+                elif inv.supplier.name:
+                    query = query.filter(DBInvoice.supplier_display_name == inv.supplier.name)
+                    
+                if invoice_id is not None:
+                    query = query.filter(DBInvoice.id != invoice_id)
+                duplicate_match = query.first()
                 
                 if duplicate_match:
                     inv.isDuplicate = True

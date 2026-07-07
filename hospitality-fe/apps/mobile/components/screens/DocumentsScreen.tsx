@@ -27,18 +27,33 @@ import {
   MoreVertical,
   ExternalLink,
   ChevronRight,
-  User,
+  User as UserIcon,
   Clock,
-  Check
+  Check,
+  Plus
 } from 'lucide-react-native';
-import { documentsList } from '../../constants/mockData';
+import { useRouter } from 'expo-router';
+import * as DocumentPicker from 'expo-document-picker';
+import { useAuthStore } from '../../store/auth';
 import { sharedStyles as styles } from '../../styles/shared';
+import ConfirmAlert from '../ui/ConfirmAlert';
 
 export default function DocumentsScreen() {
+  const router = useRouter();
+  const { apiClient, user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'all' | 'processing' | 'completed' | 'flagged' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showBanner, setShowBanner] = useState(true);
   
+  // API States
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Deletion Confirm Modal
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+  const [alertConfig, setAlertConfig] = useState<{ title: string; message: string; isSuccess?: boolean } | null>(null);
+
   // Filter Bottom Sheet State
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [tempStatusFilter, setTempStatusFilter] = useState<'All' | 'completed' | 'processing' | 'flagged' | 'rejected'>('All');
@@ -70,24 +85,178 @@ export default function DocumentsScreen() {
     outputRange: ['0deg', '360deg'],
   });
 
-  // Calculate dynamic stats from mock list
-  const statDigitizing = documentsList.filter(d => d.status === 'processing').length;
-  const statReview = documentsList.filter(d => d.status === 'flagged').length;
-  const statRejected = documentsList.filter(d => d.status === 'rejected').length;
+  const fetchInvoices = async (showLoader = true) => {
+    if (showLoader) setLoading(true);
+    try {
+      const data = await apiClient.getInvoices();
+      if (Array.isArray(data)) {
+        // Map backend invoices to exact same format as web
+        const mapped = data.map((inv: any) => ({
+          id: inv.id,
+          supplier: inv.supplier_display_name || inv.supplier?.name || 'Unknown Supplier',
+          docNum: inv.document_number || inv.invoice_number || '—',
+          date: inv.document_date
+            ? new Date(inv.document_date).toLocaleDateString('en-US', {
+                month: '2-digit',
+                day: '2-digit',
+                year: 'numeric'
+              })
+            : inv.issue_date
+              ? new Date(inv.issue_date).toLocaleDateString('en-US', {
+                  month: '2-digit',
+                  day: '2-digit',
+                  year: 'numeric'
+                })
+              : '—',
+          rawDate: inv.document_date || inv.issue_date || null,
+          uploadDate: inv.created_at
+            ? new Date(inv.created_at).toLocaleDateString('en-US', {
+                month: '2-digit',
+                day: '2-digit',
+                year: 'numeric'
+              })
+            : new Date().toLocaleDateString('en-US', {
+                month: '2-digit',
+                day: '2-digit',
+                year: 'numeric'
+              }),
+          amount: inv.total_amount || inv.total_with_iva || 0.0,
+          type: inv.document_type || 'Invoice',
+          status: inv.needs_review
+            ? 'flagged'
+            : (inv.status === 'PROCESSED' || inv.status === 'completed')
+              ? 'completed'
+              : inv.status === 'FAILED'
+                ? 'rejected'
+                : 'processing',
+          icon: 'invoice',
+          paymentStatus: inv.payment_status || 'Pending',
+          userInitials: (inv.uploaded_by || 'SYS').slice(0, 2).toUpperCase(),
+          ocrConfidence: inv.ocr_confidence,
+          currency: inv.currency || 'EUR',
+        }));
+        setInvoices(mapped);
+      }
+    } catch (error) {
+      console.error("Error fetching invoices:", error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchInvoices();
+  }, []);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchInvoices(false);
+  };
+
+  const handleDeleteInvoice = async (id: number) => {
+    try {
+      await apiClient.deleteInvoice(id);
+      setInvoices((prev) => prev.filter((d) => d.id !== id));
+      setAlertConfig({
+        title: 'Success',
+        message: 'Document deleted successfully',
+        isSuccess: true
+      });
+    } catch (err) {
+      console.error(err);
+      setAlertConfig({
+        title: 'Error',
+        message: 'Could not delete document'
+      });
+    } finally {
+      setDeleteTargetId(null);
+    }
+  };
+
+  const handleFileUpload = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/*'],
+        copyToCacheDirectory: true
+      });
+
+      if (res.canceled || !res.assets || res.assets.length === 0) return;
+
+      const fileAsset = res.assets[0];
+
+      // Add temporary local placeholder
+      const tempId = `temp-${Date.now()}`;
+      const placeholder = {
+        id: tempId,
+        supplier: '—',
+        docNum: fileAsset.name || 'document',
+        date: '—',
+        uploadDate: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }),
+        amount: 0.0,
+        type: 'Invoice',
+        status: 'processing',
+        paymentStatus: 'Pending',
+        userInitials: (user?.name || 'SYS').slice(0, 2).toUpperCase(),
+      };
+      setInvoices((prev) => [placeholder, ...prev]);
+
+      const formData = new FormData();
+      // React Native FormData payload structure
+      formData.append('file', {
+        uri: fileAsset.uri,
+        name: fileAsset.name || 'invoice.pdf',
+        type: fileAsset.mimeType || 'application/pdf',
+      } as any);
+
+      const uploadRes = await apiClient.uploadInvoice(formData);
+      
+      // Update list with backend response
+      setInvoices((prev) =>
+        prev.map((d) =>
+          d.id === tempId
+            ? {
+                ...d,
+                id: uploadRes.invoiceId,
+                supplier: uploadRes.supplierName || 'Unknown Supplier',
+                amount: uploadRes.totalAmount || 0,
+                status: 'processing'
+              }
+            : d
+        )
+      );
+
+      // Trigger background reload after upload finishes
+      fetchInvoices(false);
+    } catch (err) {
+      console.error("Upload failed", err);
+      setAlertConfig({
+        title: 'Upload Failed',
+        message: 'An error occurred while uploading the file.'
+      });
+    }
+  };
+
+  // Get list of unique suppliers for filtering list
+  const uniqueSuppliers = Array.from(new Set(invoices.map((d) => d.supplier).filter(Boolean)));
+
+  // Calculate dynamic stats
+  const statDigitizing = invoices.filter(d => d.status === 'processing').length;
+  const statReview = invoices.filter(d => d.status === 'flagged').length;
+  const statRejected = invoices.filter(d => d.status === 'rejected').length;
 
   // Filter logic
-  const filteredDocs = documentsList.filter(d => {
+  const filteredDocs = invoices.filter(d => {
     // Top tab selection
     if (activeTab !== 'all' && d.status !== activeTab) return false;
 
     // Applied modal filters
     if (statusFilter !== 'All' && d.status !== statusFilter) return false;
-    if (supplierFilter !== 'All' && !d.supplier.toLowerCase().includes(supplierFilter.toLowerCase())) return false;
+    if (supplierFilter !== 'All' && d.supplier !== supplierFilter) return false;
     
     if (dateFilter !== 'All') {
-      // Mock date logic (last 7 or 30 days matching year 2026 data)
-      if (dateFilter === 'June 2026' && !d.date.includes('06/')) return false;
-      if (dateFilter === 'May 2026' && !d.date.includes('05/')) return false;
+      if (dateFilter === 'June 2026' && !d.date.includes('/06/')) return false;
+      if (dateFilter === 'May 2026' && !d.date.includes('/05/')) return false;
     }
 
     // Search query matching supplier or document number
@@ -137,15 +306,26 @@ export default function DocumentsScreen() {
     }
   };
 
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fafaf8' }}>
+        <ActivityIndicator size="large" color="#1f8f5c" />
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, gap: 14 }}>
       
       {/* Premium Header */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Text style={{ fontSize: 26, fontWeight: '700', color: '#151515', fontFamily: 'Sora' }}>Documents</Text>
-        <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-          <Text style={{ fontSize: 13, fontWeight: '600', color: '#2f6bb0', fontFamily: 'Sora' }}>Learn more</Text>
-          <ExternalLink size={12} color="#2f6bb0" />
+        <TouchableOpacity 
+          onPress={handleFileUpload}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#151515', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}
+        >
+          <Plus size={14} color="#ffffff" />
+          <Text style={{ fontSize: 11, fontWeight: '600', color: '#ffffff', fontFamily: 'Sora' }}>Upload</Text>
         </TouchableOpacity>
       </View>
 
@@ -164,7 +344,6 @@ export default function DocumentsScreen() {
           shadowRadius: 3,
           elevation: 1,
         }}>
-          {/* Close Button */}
           <TouchableOpacity 
             onPress={() => setShowBanner(false)} 
             style={{ position: 'absolute', top: 12, right: 12, padding: 4 }}
@@ -173,7 +352,6 @@ export default function DocumentsScreen() {
           </TouchableOpacity>
 
           <View style={{ flexDirection: 'row', gap: 12, paddingRight: 20 }}>
-            {/* WhatsApp Green Icon Wrapper */}
             <View style={{
               width: 36,
               height: 36,
@@ -193,21 +371,6 @@ export default function DocumentsScreen() {
               <Text style={{ fontSize: 11, color: '#8c8c89', lineHeight: 15, fontFamily: 'Sora' }}>
                 Send your invoices and receipts through WhatsApp to digitize them automatically
               </Text>
-              
-              <TouchableOpacity style={{
-                borderWidth: 1,
-                borderColor: '#e2e1dd',
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 8,
-                alignSelf: 'flex-start',
-                marginTop: 6,
-                backgroundColor: '#ffffff'
-              }}>
-                <Text style={{ fontSize: 11, fontWeight: '600', color: '#151515', fontFamily: 'Sora' }}>
-                  Add phone numbers
-                </Text>
-              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -215,51 +378,60 @@ export default function DocumentsScreen() {
 
       {/* Metrics Summary Ribbon */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-        {/* Digitizing Card */}
         <TouchableOpacity 
-          onPress={() => setActiveTab('processing')}
-          style={[styles.card, { flex: 1, padding: 12, gap: 6, backgroundColor: activeTab === 'processing' ? '#f1f1ee' : '#ffffff' }]}
+          onPress={() => setActiveTab(activeTab === 'processing' ? 'all' : 'processing')}
+          style={{
+            flex: 1,
+            backgroundColor: activeTab === 'processing' ? '#e6f4ec' : '#ffffff',
+            borderWidth: 1,
+            borderColor: activeTab === 'processing' ? '#1f8f5c' : '#e2e1dd',
+            borderRadius: 12,
+            padding: 12,
+            alignItems: 'center',
+            gap: 2
+          }}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#e6eef8', justifyContent: 'center', alignItems: 'center' }}>
-              <Clock size={11} color="#2f6bb0" />
-            </View>
-            <Text style={{ fontSize: 10, fontWeight: '700', color: '#8c8c89', fontFamily: 'Sora' }}>Digitizing</Text>
-          </View>
-          <Text style={{ fontSize: 22, fontWeight: '700', color: '#151515', fontFamily: 'DM Mono' }}>{statDigitizing}</Text>
+          <Text style={{ fontSize: 16, fontWeight: '700', color: '#151515', fontFamily: 'DM Mono' }}>{statDigitizing}</Text>
+          <Text style={{ fontSize: 9, fontWeight: '600', color: '#8c8c89', fontFamily: 'Sora' }}>Processing</Text>
         </TouchableOpacity>
 
-        {/* Review Required Card */}
         <TouchableOpacity 
-          onPress={() => setActiveTab('flagged')}
-          style={[styles.card, { flex: 1, padding: 12, gap: 6, backgroundColor: activeTab === 'flagged' ? '#f1f1ee' : '#ffffff' }]}
+          onPress={() => setActiveTab(activeTab === 'flagged' ? 'all' : 'flagged')}
+          style={{
+            flex: 1,
+            backgroundColor: activeTab === 'flagged' ? '#fbf1dd' : '#ffffff',
+            borderWidth: 1,
+            borderColor: activeTab === 'flagged' ? '#b07a1a' : '#e2e1dd',
+            borderRadius: 12,
+            padding: 12,
+            alignItems: 'center',
+            gap: 2
+          }}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fbf1dd', justifyContent: 'center', alignItems: 'center' }}>
-              <AlertTriangle size={10} color="#b07a1a" />
-            </View>
-            <Text style={{ fontSize: 10, fontWeight: '700', color: '#8c8c89', fontFamily: 'Sora' }}>Review req.</Text>
-          </View>
-          <Text style={{ fontSize: 22, fontWeight: '700', color: '#151515', fontFamily: 'DM Mono' }}>{statReview}</Text>
+          <Text style={{ fontSize: 16, fontWeight: '700', color: '#151515', fontFamily: 'DM Mono' }}>{statReview}</Text>
+          <Text style={{ fontSize: 9, fontWeight: '600', color: '#8c8c89', fontFamily: 'Sora' }}>Needs Review</Text>
         </TouchableOpacity>
 
-        {/* Rejected Card */}
         <TouchableOpacity 
-          onPress={() => setActiveTab('rejected')}
-          style={[styles.card, { flex: 1, padding: 12, gap: 6, backgroundColor: activeTab === 'rejected' ? '#f1f1ee' : '#ffffff' }]}
+          onPress={() => setActiveTab(activeTab === 'rejected' ? 'all' : 'rejected')}
+          style={{
+            flex: 1,
+            backgroundColor: activeTab === 'rejected' ? '#fceaea' : '#ffffff',
+            borderWidth: 1,
+            borderColor: activeTab === 'rejected' ? '#b23a3a' : '#e2e1dd',
+            borderRadius: 12,
+            padding: 12,
+            alignItems: 'center',
+            gap: 2
+          }}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fceaea', justifyContent: 'center', alignItems: 'center' }}>
-              <AlertCircle size={11} color="#b23a3a" />
-            </View>
-            <Text style={{ fontSize: 10, fontWeight: '700', color: '#8c8c89', fontFamily: 'Sora' }}>Rejected</Text>
-          </View>
-          <Text style={{ fontSize: 22, fontWeight: '700', color: '#151515', fontFamily: 'DM Mono' }}>{statRejected}</Text>
+          <Text style={{ fontSize: 16, fontWeight: '700', color: '#151515', fontFamily: 'DM Mono' }}>{statRejected}</Text>
+          <Text style={{ fontSize: 9, fontWeight: '600', color: '#8c8c89', fontFamily: 'Sora' }}>Rejected</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Search and Filter Row */}
-      <View style={{ flexDirection: 'row', gap: 8 }}>
+      {/* Filter and Search Bar */}
+      <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
         <View style={{
           flex: 1,
           flexDirection: 'row',
@@ -267,86 +439,50 @@ export default function DocumentsScreen() {
           backgroundColor: '#ffffff',
           borderWidth: 1,
           borderColor: '#e2e1dd',
-          borderRadius: 12,
+          borderRadius: 10,
           paddingHorizontal: 12,
+          height: 38
         }}>
-          <Search size={15} color="#8c8c89" style={{ marginRight: 8 }} />
+          <Search size={16} color="#8c8c89" style={{ marginRight: 8 }} />
           <TextInput
+            placeholder="Search supplier, doc number..."
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search documents, suppliers..."
-            placeholderTextColor="#a8a8a4"
-            style={{
-              flex: 1,
-              paddingVertical: 10,
-              fontSize: 13,
-              color: '#151515',
-              fontFamily: 'Sora',
-            }}
+            placeholderTextColor="#8c8c89"
+            style={{ flex: 1, fontSize: 12, color: '#151515', fontFamily: 'Sora', height: '100%', padding: 0 }}
           />
-          {searchQuery !== '' && (
-            <TouchableOpacity onPress={() => setSearchQuery('')} style={{ padding: 4 }}>
-              <X size={14} color="#8c8c89" />
-            </TouchableOpacity>
-          )}
         </View>
 
-        {/* Filter Trigger Button */}
         <TouchableOpacity 
           onPress={() => setFilterModalOpen(true)}
           style={{
-            width: 44,
-            height: 44,
-            backgroundColor: '#ffffff',
+            width: 38,
+            height: 38,
+            borderRadius: 10,
             borderWidth: 1,
             borderColor: isFiltersActive ? '#151515' : '#e2e1dd',
-            borderRadius: 12,
+            backgroundColor: isFiltersActive ? '#151515' : '#ffffff',
             justifyContent: 'center',
-            alignItems: 'center',
-            position: 'relative'
+            alignItems: 'center'
           }}
         >
-          <SlidersHorizontal size={16} color={isFiltersActive ? '#151515' : '#8c8c89'} />
-          
-          {/* Active Filter Dot Indicator */}
-          {isFiltersActive && (
-            <View style={{
-              position: 'absolute',
-              top: -2,
-              right: -2,
-              width: 8,
-              height: 8,
-              borderRadius: 4,
-              backgroundColor: '#2f6bb0',
-              borderWidth: 1.5,
-              borderColor: '#fafaf8'
-            }} />
-          )}
+          <SlidersHorizontal size={16} color={isFiltersActive ? '#ffffff' : '#151515'} />
         </TouchableOpacity>
       </View>
 
-      {/* Pill Tab Filtration */}
-      <View>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 6, paddingBottom: 2 }}
-        >
+      {/* Quick Filters Horizontal Scrolling List */}
+      <View style={{ height: 32 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 16 }}>
           {(['all', 'processing', 'completed', 'flagged', 'rejected'] as const).map((tab) => {
             const isActive = activeTab === tab;
-            let label = 'All Docs';
-            if (tab === 'processing') label = 'Processing';
-            if (tab === 'completed') label = 'Completed';
-            if (tab === 'flagged') label = 'Flagged';
-            if (tab === 'rejected') label = 'Rejected';
-
+            const label = tab === 'all' ? 'All' : tab === 'processing' ? 'Digitizing' : tab === 'flagged' ? 'Review Required' : tab === 'completed' ? 'Digitized' : tab;
             return (
               <TouchableOpacity
                 key={tab}
                 onPress={() => setActiveTab(tab)}
                 style={{
-                  paddingHorizontal: 14,
-                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                  justifyContent: 'center',
                   borderRadius: 999,
                   backgroundColor: isActive ? '#151515' : '#ffffff',
                   borderWidth: 1,
@@ -382,11 +518,12 @@ export default function DocumentsScreen() {
       {/* Document List Cards */}
       <FlatList
         data={filteredDocs}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => String(item.id)}
         showsVerticalScrollIndicator={false}
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
         contentContainerStyle={{ paddingBottom: 16 }}
         renderItem={({ item }) => {
-          // Document styling based on type in design.md mapping
           const isInvoice = item.type === 'Invoice';
           const isDelivery = item.type === 'Delivery Note';
           
@@ -395,35 +532,37 @@ export default function DocumentsScreen() {
           let IconComponent = Clock;
 
           if (isInvoice) {
-            iconBg = '#e6f4ec'; // 10% opacity equivalent / accent-container
-            iconColor = '#1f8f5c'; // accent
+            iconBg = '#e6f4ec';
+            iconColor = '#1f8f5c';
             IconComponent = Receipt;
           } else if (isDelivery) {
-            iconBg = '#f5f4f1'; // surface-container-low
+            iconBg = '#f5f4f1';
             iconColor = '#151515';
             IconComponent = Truck;
           }
 
-          // Payment badges
           const badgeStyle = getPaymentStatusColors(item.paymentStatus);
 
           return (
-            <View style={{
-              backgroundColor: '#ffffff',
-              borderWidth: 1,
-              borderColor: '#e2e1dd',
-              borderRadius: 14,
-              padding: 14,
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 10,
-              shadowColor: '#151515',
-              shadowOffset: { width: 0, height: 1 },
-              shadowOpacity: 0.02,
-              shadowRadius: 2,
-              elevation: 1,
-            }}>
+            <TouchableOpacity 
+              onPress={() => router.push({ pathname: '/documents/[id]', params: { id: item.id } })}
+              style={{
+                backgroundColor: '#ffffff',
+                borderWidth: 1,
+                borderColor: '#e2e1dd',
+                borderRadius: 14,
+                padding: 14,
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 10,
+                shadowColor: '#151515',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.02,
+                shadowRadius: 2,
+                elevation: 1,
+              }}
+            >
               {/* Left Side: Icon & Details */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, marginRight: 8 }}>
                 <View style={{
@@ -469,9 +608,9 @@ export default function DocumentsScreen() {
               {/* Right Side: Extraction status, total and avatar */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                  {item.amount != null ? (
+                  {item.status !== 'processing' ? (
                     <Text style={{ fontSize: 14, fontWeight: '700', color: '#151515', fontFamily: 'DM Mono' }}>
-                      €{item.amount.toFixed(2)}
+                      €{Number(item.amount).toFixed(2)}
                     </Text>
                   ) : (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -486,7 +625,6 @@ export default function DocumentsScreen() {
 
                   {/* Badges Stack */}
                   <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}>
-                    {/* Status Badges */}
                     {item.status === 'processing' && (
                       <View style={{ backgroundColor: '#f1f0ec', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 }}>
                         <Text style={{ fontSize: 9, fontWeight: '700', color: '#8c8c89', fontFamily: 'Sora' }}>Processing</Text>
@@ -508,8 +646,7 @@ export default function DocumentsScreen() {
                       </View>
                     )}
 
-                    {/* Payment status badge */}
-                    {item.paymentStatus && (
+                    {item.paymentStatus && item.status !== 'processing' && (
                       <View style={{ backgroundColor: badgeStyle.bg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 }}>
                         <Text style={{ fontSize: 9, fontWeight: '700', color: badgeStyle.text, fontFamily: 'Sora' }}>
                           {item.paymentStatus}
@@ -519,43 +656,22 @@ export default function DocumentsScreen() {
                   </View>
                 </View>
 
-                {/* Avatar and Menu */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                  {item.userInitials ? (
-                    <View style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: 12,
-                      backgroundColor: item.userInitials === '@' ? '#e6eef8' : '#f1f0ec',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      borderWidth: 1,
-                      borderColor: '#e2e1dd'
-                    }}>
-                      <Text style={{ 
-                        fontSize: 9, 
-                        fontWeight: '700', 
-                        color: item.userInitials === '@' ? '#2f6bb0' : '#151515',
-                        fontFamily: 'Sora'
-                      }}>
-                        {item.userInitials}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  <TouchableOpacity style={{ padding: 4 }}>
-                    <MoreVertical size={16} color="#8c8c89" />
-                  </TouchableOpacity>
-                </View>
+                {/* More / Action Menu */}
+                <TouchableOpacity 
+                  onPress={() => setDeleteTargetId(item.id)}
+                  style={{ padding: 6 }}
+                >
+                  <MoreVertical size={16} color="#8c8c89" />
+                </TouchableOpacity>
               </View>
-            </View>
+            </TouchableOpacity>
           );
         }}
         ListEmptyComponent={() => (
           <View style={{ padding: 24, alignItems: 'center', gap: 12, marginTop: 24 }}>
             <AlertCircle size={32} color="#8c8c89" />
             <Text style={{ fontSize: 13, fontWeight: '600', color: '#151515', fontFamily: 'Sora', textAlign: 'center' }}>
-              No documents matches your filters
+              No documents match your filters
             </Text>
             <Text style={{ fontSize: 11, color: '#8c8c89', fontFamily: 'Sora', textAlign: 'center' }}>
               Try searching for something else or clearing filters.
@@ -579,109 +695,26 @@ export default function DocumentsScreen() {
       />
 
       {/* Filter Bottom Sheet Modal */}
-      <Modal
-        visible={filterModalOpen}
-        animationType="slide"
-        transparent
-        statusBarTranslucent
-        onRequestClose={() => setFilterModalOpen(false)}
-      >
-        <View style={{
-          flex: 1,
-          backgroundColor: 'rgba(21, 21, 21, 0.4)',
-          justifyContent: 'flex-end',
-        }}>
-          {/* Backdrop click handlers to dismiss */}
-          <TouchableOpacity
-            activeOpacity={1}
-            onPress={() => setFilterModalOpen(false)}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-            }}
-          />
-
+      <Modal visible={filterModalOpen} animationType="slide" transparent>
+        <View style={{ flex: 1, backgroundColor: 'rgba(21, 21, 21, 0.4)', justifyContent: 'flex-end' }}>
           <View style={{
             backgroundColor: '#ffffff',
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
             padding: 20,
-            paddingBottom: 40,
-            maxHeight: '85%',
+            maxHeight: '80%'
           }}>
-            {/* Sheet Handle */}
-            <View style={{
-              width: 40,
-              height: 4,
-              backgroundColor: '#e2e1dd',
-              borderRadius: 2,
-              alignSelf: 'center',
-              marginBottom: 16,
-            }} />
-
-            {/* Header */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <Text style={{ fontSize: 20, fontWeight: '700', color: '#151515', fontFamily: 'Sora' }}>Filter by</Text>
-              <TouchableOpacity onPress={() => setFilterModalOpen(false)} style={{ padding: 4 }}>
-                <X size={18} color="#151515" />
+              <Text style={{ fontSize: 18, fontWeight: '700', color: '#151515', fontFamily: 'Sora' }}>Filters</Text>
+              <TouchableOpacity onPress={() => setFilterModalOpen(false)}>
+                <X size={20} color="#151515" />
               </TouchableOpacity>
             </View>
 
-            {/* Scrollable Filter List */}
-            <ScrollView showsVerticalScrollIndicator={false} style={{ marginBottom: 24 }}>
-              <View style={{ gap: 8 }}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={{ gap: 16, paddingBottom: 24 }}>
                 
-                {/* 1. Document Date */}
-                <View style={sheetStyles.itemContainer}>
-                  <TouchableOpacity 
-                    onPress={() => toggleSection('date')}
-                    style={sheetStyles.itemHeader}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                      <Calendar size={18} color="#151515" />
-                      <Text style={sheetStyles.itemTitle}>Document date</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      {tempDateFilter !== 'All' && (
-                        <Text style={{ fontSize: 12, fontWeight: '600', color: '#2f6bb0', fontFamily: 'Sora' }}>{tempDateFilter}</Text>
-                      )}
-                      <ChevronRight size={16} color="#8c8c89" style={{ transform: [{ rotate: expandedSection === 'date' ? '90deg' : '0deg' }] }} />
-                    </View>
-                  </TouchableOpacity>
-
-                  {expandedSection === 'date' && (
-                    <View style={sheetStyles.expandedContent}>
-                      {['All', 'June 2026', 'May 2026'].map((opt) => (
-                        <TouchableOpacity 
-                          key={opt} 
-                          onPress={() => setTempDateFilter(opt)}
-                          style={sheetStyles.optionRow}
-                        >
-                          <Text style={{ fontSize: 13, color: tempDateFilter === opt ? '#151515' : '#8c8c89', fontWeight: tempDateFilter === opt ? '600' : '400', fontFamily: 'Sora' }}>
-                            {opt === 'All' ? 'All Dates' : opt}
-                          </Text>
-                          {tempDateFilter === opt && <Check size={14} color="#1f8f5c" />}
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
-
-                {/* 2. Upload Date */}
-                <View style={sheetStyles.itemContainer}>
-                  <TouchableOpacity style={sheetStyles.itemHeader}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                      <Calendar size={18} color="#151515" />
-                      <Text style={sheetStyles.itemTitle}>Upload date</Text>
-                    </View>
-                    <ChevronRight size={16} color="#8c8c89" />
-                  </TouchableOpacity>
-                </View>
-
-                {/* 3. Supplier */}
+                {/* Supplier Filter Accordion */}
                 <View style={sheetStyles.itemContainer}>
                   <TouchableOpacity 
                     onPress={() => toggleSection('supplier')}
@@ -693,7 +726,7 @@ export default function DocumentsScreen() {
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       {tempSupplierFilter !== 'All' && (
-                        <Text style={{ fontSize: 12, fontWeight: '600', color: '#2f6bb0', fontFamily: 'Sora', maxWidth: 100 }} numberOfLines={1}>{tempSupplierFilter}</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: '#2f6bb0', fontFamily: 'Sora' }}>{tempSupplierFilter}</Text>
                       )}
                       <ChevronRight size={16} color="#8c8c89" style={{ transform: [{ rotate: expandedSection === 'supplier' ? '90deg' : '0deg' }] }} />
                     </View>
@@ -701,7 +734,7 @@ export default function DocumentsScreen() {
 
                   {expandedSection === 'supplier' && (
                     <View style={sheetStyles.expandedContent}>
-                      {['All', 'Re Pla Tres S.L.', 'MAKRO', 'Holaluz', 'La Tienda'].map((opt) => (
+                      {['All', ...uniqueSuppliers].map((opt) => (
                         <TouchableOpacity 
                           key={opt} 
                           onPress={() => setTempSupplierFilter(opt)}
@@ -717,18 +750,7 @@ export default function DocumentsScreen() {
                   )}
                 </View>
 
-                {/* 4. Categories */}
-                <View style={sheetStyles.itemContainer}>
-                  <TouchableOpacity style={sheetStyles.itemHeader}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                      <Folder size={18} color="#151515" />
-                      <Text style={sheetStyles.itemTitle}>Categories</Text>
-                    </View>
-                    <ChevronRight size={16} color="#8c8c89" />
-                  </TouchableOpacity>
-                </View>
-
-                {/* 5. Status */}
+                {/* Status Filter Accordion */}
                 <View style={sheetStyles.itemContainer}>
                   <TouchableOpacity 
                     onPress={() => toggleSection('status')}
@@ -764,26 +786,40 @@ export default function DocumentsScreen() {
                   )}
                 </View>
 
-                {/* 6. Due date */}
+                {/* Date Accordion */}
                 <View style={sheetStyles.itemContainer}>
-                  <TouchableOpacity style={sheetStyles.itemHeader}>
+                  <TouchableOpacity 
+                    onPress={() => toggleSection('date')}
+                    style={sheetStyles.itemHeader}
+                  >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                       <Calendar size={18} color="#151515" />
-                      <Text style={sheetStyles.itemTitle}>Due date</Text>
+                      <Text style={sheetStyles.itemTitle}>Due Date Range</Text>
                     </View>
-                    <ChevronRight size={16} color="#8c8c89" />
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      {tempDateFilter !== 'All' && (
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: '#2f6bb0', fontFamily: 'Sora' }}>{tempDateFilter}</Text>
+                      )}
+                      <ChevronRight size={16} color="#8c8c89" style={{ transform: [{ rotate: expandedSection === 'date' ? '90deg' : '0deg' }] }} />
+                    </View>
                   </TouchableOpacity>
-                </View>
 
-                {/* 7. More filters */}
-                <View style={sheetStyles.itemContainer}>
-                  <TouchableOpacity style={sheetStyles.itemHeader}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                      <SlidersHorizontal size={18} color="#151515" />
-                      <Text style={sheetStyles.itemTitle}>More filters</Text>
+                  {expandedSection === 'date' && (
+                    <View style={sheetStyles.expandedContent}>
+                      {['All', 'June 2026', 'May 2026'].map((opt) => (
+                        <TouchableOpacity 
+                          key={opt} 
+                          onPress={() => setTempDateFilter(opt)}
+                          style={sheetStyles.optionRow}
+                        >
+                          <Text style={{ fontSize: 13, color: tempDateFilter === opt ? '#151515' : '#8c8c89', fontWeight: tempDateFilter === opt ? '600' : '400', fontFamily: 'Sora' }}>
+                            {opt === 'All' ? 'All Dates' : opt}
+                          </Text>
+                          {tempDateFilter === opt && <Check size={14} color="#1f8f5c" />}
+                        </TouchableOpacity>
+                      ))}
                     </View>
-                    <ChevronRight size={16} color="#8c8c89" />
-                  </TouchableOpacity>
+                  )}
                 </View>
 
               </View>
@@ -804,7 +840,7 @@ export default function DocumentsScreen() {
                 }}
               >
                 <Text style={{ color: '#151515', fontSize: 13, fontWeight: '600', fontFamily: 'Sora' }}>
-                  Delete filters
+                  Clear
                 </Text>
               </TouchableOpacity>
 
@@ -827,6 +863,28 @@ export default function DocumentsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Delete Confirmation Alert */}
+      <ConfirmAlert
+        visible={deleteTargetId !== null}
+        title="Delete Document"
+        message="Are you sure you want to delete this document? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={() => deleteTargetId !== null && handleDeleteInvoice(deleteTargetId)}
+        onCancel={() => setDeleteTargetId(null)}
+        variant="danger"
+      />
+
+      {/* Success/Error Alerts */}
+      <ConfirmAlert
+        visible={alertConfig !== null}
+        title={alertConfig?.title || 'Notice'}
+        message={alertConfig?.message || ''}
+        confirmText="OK"
+        onConfirm={() => setAlertConfig(null)}
+        variant={alertConfig?.isSuccess ? 'success' : 'danger'}
+      />
 
     </View>
   );

@@ -63,8 +63,8 @@ app.add_middleware(
 async def on_startup():
     logger.info("Starting Hospitality backend service...")
     # Initialize SQL Database tables
-    logger.info("Initializing SQL Database schema...")
-    init_db()
+    logger.info("Skipping SQL Database schema creation (managed by Alembic)")
+    # init_db()
     # Initialize Qdrant Collection
     logger.info("Initializing Qdrant Vector Collection...")
     init_qdrant()

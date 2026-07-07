@@ -32,6 +32,7 @@ import { documents } from '../mockData';
 import { Btn } from '../_components/ui';
 import { getApiClient } from '../../../store/auth';
 import { API_BASE_URL } from '@hospitality-saas/constants';
+import ConfirmModal from '../suppliers/_components/ConfirmModal';
 
 export default function DocumentsPage() {
   const router = useRouter();
@@ -78,6 +79,7 @@ export default function DocumentsPage() {
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
+  const [alertConfig, setAlertConfig] = useState<{ title: string; message: string } | null>(null);
   const itemsPerPage = 5;
 
   // Server-Side API States
@@ -133,12 +135,12 @@ export default function DocumentsPage() {
           amount: inv.total_amount || inv.total_with_iva || 0.0,
           type: inv.document_type || 'Invoice',
           status:
-            inv.needs_review
-              ? 'flagged'
-              : (inv.status === 'PROCESSED' || inv.status === 'completed')
-                ? 'completed'
-                : inv.status === 'FAILED'
-                  ? 'rejected'
+            inv.status === 'FAILED'
+              ? 'rejected'
+              : inv.needs_review
+                ? 'flagged'
+                : (inv.status === 'PROCESSED' || inv.status === 'completed')
+                  ? 'completed'
                   : 'processing',
           icon: 'invoice',
           paymentStatus: inv.payment_status || 'Pending',
@@ -301,6 +303,7 @@ export default function DocumentsPage() {
     try {
       const client = getApiClient();
       await client.deleteInvoice(id);
+      setUploadedDocs((prev) => prev.filter((d) => d.id !== id));
       await fetchInvoices();
       setActiveRowMenu(null);
       setErrorMessage(null);
@@ -316,11 +319,12 @@ export default function DocumentsPage() {
     try {
       const client = getApiClient();
       await client.bulkDeleteInvoices(selectedIds);
+      setUploadedDocs((prev) => prev.filter((d) => !selectedIds.includes(d.id as number)));
       setSelectedIds([]);
       await fetchInvoices();
     } catch (e) {
       console.error(e);
-      alert('Failed to delete selected invoices');
+      setAlertConfig({ title: 'Error', message: 'Failed to delete selected invoices' });
     }
   };
 
@@ -954,7 +958,7 @@ export default function DocumentsPage() {
 
       {/* Duplicate detection panel */}
       {(() => {
-        const doc = allDocuments.find((d) => d.isDuplicate);
+        const doc = allDocuments.find((d) => d.isDuplicate && d.needsReview);
         if (doc) {
           return (
             <div key="duplicate-panel" className="bg-[#fceaea] border border-[#ffb4ab] rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs mb-4">
@@ -1663,6 +1667,16 @@ export default function DocumentsPage() {
             </div>
           </div>
         </div>
+      )}
+      {alertConfig && (
+        <ConfirmModal
+          isOpen={alertConfig !== null}
+          title={alertConfig.title}
+          message={alertConfig.message}
+          confirmText="OK"
+          onConfirm={() => setAlertConfig(null)}
+          onCancel={() => setAlertConfig(null)}
+        />
       )}
     </div>
   );

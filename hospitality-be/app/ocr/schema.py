@@ -47,15 +47,15 @@ class LineItem:
     quantity: Optional[float] = None
     unit: Optional[str] = None
     grossPrice: Optional[float] = None
-    discountPct: Optional[float] = None
-    appliedDiscount: Optional[float] = None
-    otherFees: Optional[float] = None
-    nominalPrice: Optional[float] = None
+    discountPct: Optional[float] = 0.0
+    appliedDiscount: Optional[float] = 0.0
+    otherFees: Optional[float] = 0.0
+    nominalPrice: Optional[float] = 0.0
     totalPrice: Optional[float] = None
     gra: Optional[float] = None
     u_m: Optional[float] = None
     # For compatibility with some extraction modules that might set these:
-    iva_pct: Optional[float] = None
+    iva_pct: Optional[float] = 0.0
     base: Optional[float] = None
 
 

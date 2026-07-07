@@ -14,7 +14,7 @@ from app.ocr.schema import Invoice
 TOLERANCE = 0.02  # EUR cents tolerance for floating point / rounding noise
 
 REQUIRED_FIELDS = [
-    ("Document Number", lambda inv: inv.serialNumber),
+    ("Document Number", lambda inv: inv.serialNumber and inv.serialNumber.strip().upper() not in ["", "UNKNOWN", "N/A", "NONE"]),
     ("Date", lambda inv: inv.date),
     ("Supplier Name", lambda inv: inv.supplier.name),
     ("Supplier VAT ID", lambda inv: inv.supplier.vatID),
@@ -89,7 +89,18 @@ def check_line_item_internal_consistency(inv: Invoice) -> list:
             continue
         elif abs(expected_total_disc - li.base) <= TOLERANCE:
             continue
-        elif expected_per_unit != 0 and expected_total_disc != 0:
+            
+        if li.nominalPrice is not None:
+            expected_nom = li.quantity * li.nominalPrice + (li.otherFees or 0)
+            if abs(expected_nom - li.base) <= TOLERANCE:
+                continue
+                
+        if li.discountPct is not None:
+            expected_pct = li.quantity * (li.grossPrice * (1 - li.discountPct / 100.0)) + (li.otherFees or 0)
+            if abs(expected_pct - li.base) <= TOLERANCE:
+                continue
+
+        if expected_per_unit != 0 and expected_total_disc != 0:
              reasons.append(f"Line item {i+1} arithmetic is inconsistent")
     return reasons
 
@@ -123,9 +134,11 @@ def check_quantity_verbatim(inv: Invoice, raw_text: str) -> list:
     for i, li in enumerate(inv.items):
         if li.quantity is None:
             continue
-        qty_str = str(int(li.quantity)) if li.quantity == int(li.quantity) else str(li.quantity)
-        if qty_str not in raw_text:
-            reasons.append(f"Quantity '{qty_str}' for item {i+1} not found in text")
+        qty_str_dot = str(int(li.quantity)) if li.quantity == int(li.quantity) else str(li.quantity)
+        qty_str_comma = qty_str_dot.replace('.', ',')
+        
+        if qty_str_dot not in raw_text and qty_str_comma not in raw_text:
+            reasons.append(f"Quantity '{qty_str_dot}' for item {i+1} not found in text")
     return reasons
 
 

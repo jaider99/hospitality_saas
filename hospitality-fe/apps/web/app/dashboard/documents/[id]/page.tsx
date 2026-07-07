@@ -19,6 +19,7 @@ import {
   ZoomOut
 } from 'lucide-react';
 import { getApiClient } from '../../../../store/auth';
+import ConfirmModal from '../../suppliers/_components/ConfirmModal';
 
 interface SupplierData {
   id?: number;
@@ -108,6 +109,8 @@ export default function DocumentDetailPage() {
   const [supplierVatId, setSupplierVatId] = useState('');
 
   const [editGeneral, setEditGeneral] = useState(false);
+  const [alertConfig, setAlertConfig] = useState<{ title: string; message: string } | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<number | null>(null);
   const [docType, setDocType] = useState('Invoice');
   const [docNum, setDocNum] = useState('');
   const [docDate, setDocDate] = useState('');
@@ -405,7 +408,7 @@ export default function DocumentDetailPage() {
         } as any);
       } catch (e) {
         console.error('Failed to update line items', e);
-        alert('Failed to update line items.');
+        setAlertConfig({ title: 'Error', message: 'Failed to update line items.' });
       }
     }
     setEditLines(false);
@@ -425,7 +428,7 @@ export default function DocumentDetailPage() {
         setInvoice({ ...invoice, tax_brackets: vatData } as any);
       } catch (e) {
         console.error('Failed to update VAT breakdown', e);
-        alert('Failed to update VAT breakdown.');
+        setAlertConfig({ title: 'Error', message: 'Failed to update VAT breakdown.' });
       }
     }
     setEditVat(false);
@@ -435,6 +438,17 @@ export default function DocumentDetailPage() {
     const updated = [...vatData];
     updated[index] = { ...updated[index], [field]: value };
     setVatData(updated);
+  };
+
+  const handleRetry = async () => {
+    try {
+      const client = getApiClient();
+      await client.retryInvoice(Number(id));
+      router.push('/dashboard/documents');
+    } catch (e) {
+      console.error('Failed to retry invoice', e);
+      setAlertConfig({ title: 'Error', message: 'Failed to retry invoice processing.' });
+    }
   };
 
   return (
@@ -466,6 +480,33 @@ export default function DocumentDetailPage() {
           </span>
         </div>
       </div>
+
+      {/* Error Alert Panel */}
+      {invoice.status === 'FAILED' && (
+        <div className="bg-[#fceaea] border border-[#ffb4ab] rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle size={17} className="text-[#b23a3a] shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <span className="text-sm font-bold text-[#7a2828]">Processing Failed</span>
+              <p className="text-xs text-[#7a2828] opacity-90 max-w-2xl">
+                {invoice.review_reasons ? (
+                  Array.isArray(invoice.review_reasons)
+                    ? invoice.review_reasons.join(', ')
+                    : invoice.review_reasons
+                ) : (
+                  "The background worker encountered an error while processing this document."
+                )}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleRetry}
+            className="shrink-0 bg-white border border-[#ffb4ab] text-[#b23a3a] hover:bg-[#fff5f5] hover:text-[#7a2828] transition-colors rounded-lg px-4 py-2 text-xs font-semibold shadow-sm"
+          >
+            Retry OCR
+          </button>
+        </div>
+      )}
 
       {/* Duplicate Alert Panel */}
       {invoice.is_duplicate && (
@@ -539,10 +580,10 @@ export default function DocumentDetailPage() {
                 });
               } catch (e) {
                 console.error(e);
-                // Revert on failure
-                setInvoice({ ...invoice } as any);
-                alert('Failed to update status');
-              }
+                 // Revert on failure
+                 setInvoice({ ...invoice } as any);
+                 setAlertConfig({ title: 'Error', message: 'Failed to update status.' });
+               }
             }}
             className="absolute top-4 right-4 bg-[#b07a1a] text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-[#8f6315] transition-colors"
           >
@@ -1520,24 +1561,8 @@ export default function DocumentDetailPage() {
                     </td>
                     <td className="px-5 py-3 text-center whitespace-nowrap">
                       <button
-                        onClick={async () => {
-                          if (confirm('Are you sure you want to delete this line item?')) {
-                            if (line.id) {
-                              try {
-                                const client = getApiClient();
-                                await client.deleteInvoiceLine(invoice.id, line.id);
-                                const updated = linesData.filter((_, i) => i !== idx);
-                                setLinesData(updated);
-                                setInvoice({ ...invoice, lines: updated } as any);
-                              } catch (e) {
-                                console.error(e);
-                                alert('Failed to delete line item');
-                              }
-                            } else {
-                              const updated = linesData.filter((_, i) => i !== idx);
-                              setLinesData(updated);
-                            }
-                          }
+                        onClick={() => {
+                          setItemToDelete(idx);
                         }}
                         className="p-1.5 hover:bg-[#fceaea] text-[#b23a3a] rounded-lg transition-colors"
                         title="Delete line"
@@ -1558,6 +1583,46 @@ export default function DocumentDetailPage() {
           </table>
         </div>
       </div>
+      <ConfirmModal
+        isOpen={itemToDelete !== null}
+        title="Delete Line Item"
+        message="Are you sure you want to delete this line item? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={async () => {
+          if (itemToDelete === null || !invoice) return;
+          const idx = itemToDelete;
+          const line = linesData[idx];
+          if (line && line.id) {
+            try {
+              const client = getApiClient();
+              await client.deleteInvoiceLine(invoice.id, line.id);
+              const updated = linesData.filter((_, i) => i !== idx);
+              setLinesData(updated);
+              setInvoice({ ...invoice, lines: updated } as any);
+            } catch (e) {
+              console.error(e);
+              setAlertConfig({ title: 'Error', message: 'Failed to delete line item' });
+            }
+          } else {
+            const updated = linesData.filter((_, i) => i !== idx);
+            setLinesData(updated);
+          }
+          setItemToDelete(null);
+        }}
+        onCancel={() => setItemToDelete(null)}
+      />
+
+      {alertConfig && (
+        <ConfirmModal
+          isOpen={alertConfig !== null}
+          title={alertConfig.title}
+          message={alertConfig.message}
+          confirmText="OK"
+          onConfirm={() => setAlertConfig(null)}
+          onCancel={() => setAlertConfig(null)}
+        />
+      )}
     </div>
   );
 }

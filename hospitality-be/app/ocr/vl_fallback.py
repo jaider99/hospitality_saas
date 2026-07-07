@@ -26,15 +26,64 @@ from app.ocr.llm_fallback import (
 )
 
 # VL Model configs
-VL_MODEL = os.environ.get("VL_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")
-VL_BASE_URL = os.environ.get("VL_BASE_URL", "https://integrate.api.nvidia.com/v1")
-VL_API_KEY = (os.environ.get("VL_API_KEY") or os.environ.get("NVIDIA_API_KEY") or "").strip()
+VL_MODEL = os.environ.get("VL_MODEL", "gemini-3.1-flash-lite")
+VL_BASE_URL = os.environ.get("VL_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
+VL_API_KEY = os.environ.get("VL_API_KEY", "").strip()
 VL_MAX_TOKENS = int(os.environ.get("VL_MAX_TOKENS", 8192))
+
+# NVIDIA fallback config
+NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "").strip()
+NVIDIA_VL_MODEL = os.environ.get("NVIDIA_VL_MODEL", "meta/llama-3.2-11b-vision-instruct")
+NVIDIA_BASE_URL = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 
 VL_OCR_THRESHOLD = float(os.environ.get("VL_OCR_THRESHOLD", 0.80))
 VL_LLM_THRESHOLD = float(os.environ.get("VL_LLM_THRESHOLD", 0.80))
 
-_client = OpenAI(base_url=VL_BASE_URL, api_key=VL_API_KEY)
+_client = OpenAI(base_url=VL_BASE_URL, api_key=VL_API_KEY, max_retries=0)
+_nvidia_client = OpenAI(base_url=NVIDIA_BASE_URL, api_key=NVIDIA_API_KEY, max_retries=0) if NVIDIA_API_KEY else None
+
+
+def calculate_llm_score(inv: Invoice) -> float:
+    from app.ocr.validate import validate
+    import copy
+    
+    # Run a temporary validation check to see if the current extraction fails arithmetic
+    temp_inv = copy.deepcopy(inv)
+    temp_inv = validate(temp_inv, raw_text="")
+    
+    # Calculate LLM extraction success rate
+    total_required = len(REQUIRED_FIELDS)
+    if total_required == 0:
+        return 1.0
+        
+    found_count = sum(1 for _, getter in REQUIRED_FIELDS if getter(inv))
+    success_rate = found_count / total_required
+    
+    # Deduct penalty for math/validation errors (ignoring "Missing..." which is already in success_rate)
+    math_reasons = [r for r in temp_inv.review_reasons if not r.startswith("Missing ")]
+    num_reasons = len(math_reasons)
+    penalty = min(num_reasons * 0.25, 1.0) # Deduct 25% per math error
+    
+    # Deduct massive penalty if NO line items were extracted!
+    if not inv.items or len(inv.items) == 0:
+        logger.info("No line items extracted. Applying 50% penalty to LLM score.")
+        penalty += 0.50
+    else:
+        # Check if line items are missing qty or grossPrice/base
+        missing_fields_penalty = 0.0
+        for item in inv.items:
+            if item.quantity is None:
+                missing_fields_penalty += 0.05
+            if item.grossPrice is None and item.base is None:
+                missing_fields_penalty += 0.05
+        
+        if missing_fields_penalty > 0:
+            logger.info(f"Line items missing key fields. Applying {missing_fields_penalty:.2f} penalty to LLM score.")
+            penalty += missing_fields_penalty
+            
+    final_initial_score = max(success_rate - penalty, 0.0)
+    inv.llm_confidence = final_initial_score
+    return final_initial_score
 
 
 def should_trigger_vl_fallback(ocr_confidence: Optional[float], inv: Invoice) -> bool:
@@ -48,30 +97,13 @@ def should_trigger_vl_fallback(ocr_confidence: Optional[float], inv: Invoice) ->
         logger.info(f"Triggering VL fallback: OCR confidence {ocr_confidence:.2f} < {VL_OCR_THRESHOLD}")
         return True
         
-    # Check if the text-based LLM extraction is mathematically or structurally broken
-    from app.ocr.validate import validate
-    import copy
+    final_initial_score = calculate_llm_score(inv)
     
-    # Run a temporary validation check to see if the current extraction fails arithmetic
-    temp_inv = copy.deepcopy(inv)
-    temp_inv = validate(temp_inv, raw_text="")
-    
-    # Calculate LLM extraction success rate
-    total_required = len(REQUIRED_FIELDS)
-    if total_required > 0:
-        found_count = sum(1 for _, getter in REQUIRED_FIELDS if getter(inv))
-        success_rate = found_count / total_required
-        
-        # Deduct penalty for math/validation errors
-        num_reasons = len(temp_inv.review_reasons)
-        penalty = min(num_reasons * 0.25, 1.0) # Deduct 25% per math error
-        
-        final_initial_score = max(success_rate - penalty, 0.0)
-        inv.llm_confidence = final_initial_score
-        
-        if final_initial_score < VL_LLM_THRESHOLD:
-            logger.info(f"Triggering VL fallback: GPT OSS Score {final_initial_score:.2f} < {VL_LLM_THRESHOLD}. (Math errors: {num_reasons})")
-            return True
+    if final_initial_score < VL_LLM_THRESHOLD:
+        import logging
+        logger = logging.getLogger("invoice_pipeline")
+        logger.info(f"Triggering VL fallback: LLM Score {final_initial_score:.2f} < {VL_LLM_THRESHOLD}.")
+        return True
 
     return False
 
@@ -84,37 +116,46 @@ def extract_with_vl_model(image_bytes: bytes, missing_fields: Optional[list] = N
     base64_image = base64.b64encode(image_bytes).decode('utf-8')
 
     # Build explicit vision prompt with a concrete example (NOT type annotations)
-    # Nemotron echoes back "string|null" literally if given a schema, so we use a filled example instead
     example_json = '''{
-  "serialNumber": "INV-001",
+  "serialNumber": "",
   "type": "Invoice",
-  "date": "2026-06-09",
-  "subtotal": 34.96,
-  "tax": 3.28,
-  "total": 38.24,
+  "date": "YYYY-MM-DD",
+  "subtotal": 0.0,
+  "tax": 0.0,
+  "total": 0.0,
   "supplier": {
-    "name": "Supplier Company Name",
-    "legalName": "Supplier Legal S.L.",
-    "vatID": "B12345678",
-    "address": "Street, City"
+    "name": "",
+    "legalName": "",
+    "vatID": "",
+    "address": ""
   },
   "items": [
-    {"providerCode": "CODE1", "product": "Product Name", "quantity": 2.0, "unit": "und", "grossPrice": 12.70, "iva_pct": 10, "base": 25.40}
+    {"providerCode": "", "product": "", "quantity": 0.0, "unit": "", "grossPrice": 0.0, "iva_pct": 0, "base": 0.0}
   ],
   "taxBrackets": [
-    {"taxRate": 10, "subtotal": 31.40, "tax": 3.14, "total": 34.54}
+    {"taxRate": 0, "subtotal": 0.0, "tax": 0.0, "total": 0.0}
   ]
 }'''
 
     user_prompt = (
+        "CRITICAL: YOUR ENTIRE RESPONSE MUST BE A SINGLE, VALID JSON OBJECT STARTING WITH '{'. NO MARKDOWN. NO EXPLANATIONS. NO 'Here is the data'. JUST THE RAW JSON.\n"
         "Look at this invoice/delivery-note image. Extract ALL data you see directly from the image.\n"
         "Return a single JSON object following this structure (replace example values with real ones from the image):\n\n"
         f"{example_json}\n\n"
         "CRITICAL RULES:\n"
-        "1. supplier.name = the company/vendor name printed on the document (NOT the customer name)\n"
-        "2. items = EVERY row in the product table — do NOT leave this array empty\n"
-        "3. Return ONLY valid JSON. No markdown fences. No explanations. No type annotations.\n"
-        "4. Use real values from the image, NOT the example placeholder values above."
+        "1. supplier.name = the company/vendor name printed on the document header or logo (e.g., 'The Store Name', 'BBVA'). Do NOT use the customer/client name (e.g., 'REC 67 PARTNERS S.L.').\n"
+        "2. supplier.vatID = Look for the supplier's NIF/CIF (e.g. in the footer, header, or side margins like 'C.I.F. - A...'). Do NOT extract the client's NIF/CIF (which is usually next to the client's name or 'CLIENTE:').\n"
+        "3. document_number = Look for 'Albarà', 'Factura', 'Ticket', or 'Nº'. NEVER use a currency amount, a VAT ID/NIF/CIF (like B67019018), or a credit card transaction number as the document number.\n"
+        "4. date = Look for 'Data', 'Fecha', or 'Date'. Format as YYYY-MM-DD.\n"
+        "5. items = Extract EVERY SINGLE ITEM individually. DO NOT combine them. DO NOT guess, invent, or divide prices! Extract the exact printed 'price per unit' and 'total amount' for each specific item directly from the image.\n"
+        "6. taxBrackets = You MUST extract the VAT/Tax breakdown (Resumen IVA, Base Imponible, Tipo IVA, Cuota IVA) usually found at the bottom of the invoice.\n"
+        "7. Return ONLY valid JSON starting with { and ending with }. Do not output any conversational text, reasoning, markdown headers, or <think> blocks.\n"
+        "8. Use real values from the image, NOT the example placeholder values above.\n"
+        "9. CRITICAL: Distinguish carefully between the SUPPLIER (who issued the receipt) and the CUSTOMER (the buyer). Only extract the SUPPLIER's VAT ID (CIF/NIF) and Name. If you see 'CLIENTE:', 'Client', or 'REC 67 PARTNERS', that is the customer, NOT the supplier. The supplier's NIF is usually printed in small text in the header/footer (e.g. 'NIF B...'). CREDIT CARD MERCHANT IDs: If you see numbers labeled 'COMERCIO', 'FUC', or 'Merchant ID' (e.g., '0185...'), NEVER extract these as the Supplier VAT ID!\n"
+        "10. EXTREMELY IMPORTANT: Pay close attention to the difference between the GRAND TOTAL (\"TOTAL ALBARAN\", \"TOTAL FACTURA\") and the totals of individual tax brackets. Do NOT confuse a tax bracket total (e.g. 58.08) for the grand total if there is a clear \"TOTAL\" line at the bottom (e.g. 82.72). Make sure subtotal + tax = total!\n"
+        "11. ROTATED IMAGES & MISSING ITEMS: The image may be rotated 90 degrees. Read carefully sideways! If you see multiple distinct products, you MUST extract each of them as a separate item in the `items` array. Find the individual price for each product. NEVER use the grand total as a product's price.\n"
+        "12. MULTI-COLUMN TABLES: Pay close attention to how products and prices are aligned horizontally. Do NOT copy the same price for all products. Match each product name to its exact corresponding quantity and price on the same horizontal row.\n"
+        "OUTPUT FORMAT REQUIREMENT: Your entire response must be a single JSON object. No intro, no outro, no markdown fences."
     )
 
     if missing_fields:
@@ -123,27 +164,50 @@ def extract_with_vl_model(image_bytes: bytes, missing_fields: Optional[list] = N
 
     dynamic_system_prompt = SYSTEM_PROMPT + "\n" + _build_bilingual_dictionary()
 
-    response = _client.chat.completions.create(
-        model=VL_MODEL,
-        temperature=0,
-        messages=[
-            {"role": "system", "content": dynamic_system_prompt},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": user_prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
-                    }
-                ]
-            }
-        ],
-        max_tokens=VL_MAX_TOKENS,
-    )
+    messages = [
+        {"role": "system", "content": dynamic_system_prompt},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": user_prompt},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                }
+            ]
+        }
+    ]
 
-    message = response.choices[0].message
-    raw_content = (message.content or "").strip() if message else ""
+    try:
+        if not _nvidia_client:
+            raise ValueError("NVIDIA_API_KEY is not set for primary VL model")
+            
+        logger.warning(f"Starting Primary Vision Model extraction using: {NVIDIA_VL_MODEL}...")
+        response = _nvidia_client.chat.completions.create(
+            model=NVIDIA_VL_MODEL,
+            temperature=0,
+            messages=messages,
+            max_tokens=VL_MAX_TOKENS,
+            response_format={"type": "json_object"},
+        )
+        message = response.choices[0].message
+        raw_content = (message.content or "").strip() if message else ""
+        logger.warning(f"Primary Vision Model ({NVIDIA_VL_MODEL}) extraction completed successfully.")
+    except Exception as e:
+        logger.warning(f"Primary VL model ({NVIDIA_VL_MODEL}) failed: {e}. Falling back to {VL_MODEL}...")
+        
+        # Fallback to standard client (Gemini/OpenAI)
+        logger.warning(f"Starting Secondary Vision Model extraction using: {VL_MODEL}...")
+        response = _client.chat.completions.create(
+            model=VL_MODEL,
+            temperature=0,
+            messages=messages,
+            max_tokens=VL_MAX_TOKENS,
+            response_format={"type": "json_object"},
+        )
+        message = response.choices[0].message
+        raw_content = (message.content or "").strip() if message else ""
+        logger.warning(f"Secondary Vision Model ({VL_MODEL}) extraction completed successfully.")
 
     if not raw_content:
         logger.error("VL model returned an empty response — model may not support vision for this input.")
