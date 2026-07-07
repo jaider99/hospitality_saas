@@ -14,7 +14,7 @@ from app.ocr.schema import Invoice
 TOLERANCE = 0.02  # EUR cents tolerance for floating point / rounding noise
 
 REQUIRED_FIELDS = [
-    ("Document Number", lambda inv: inv.serialNumber),
+    ("Document Number", lambda inv: inv.serialNumber and inv.serialNumber.strip().upper() not in ["", "UNKNOWN", "N/A", "NONE"]),
     ("Date", lambda inv: inv.date),
     ("Supplier Name", lambda inv: inv.supplier.name),
     ("Supplier VAT ID", lambda inv: inv.supplier.vatID),
@@ -134,9 +134,11 @@ def check_quantity_verbatim(inv: Invoice, raw_text: str) -> list:
     for i, li in enumerate(inv.items):
         if li.quantity is None:
             continue
-        qty_str = str(int(li.quantity)) if li.quantity == int(li.quantity) else str(li.quantity)
-        if qty_str not in raw_text:
-            reasons.append(f"Quantity '{qty_str}' for item {i+1} not found in text")
+        qty_str_dot = str(int(li.quantity)) if li.quantity == int(li.quantity) else str(li.quantity)
+        qty_str_comma = qty_str_dot.replace('.', ',')
+        
+        if qty_str_dot not in raw_text and qty_str_comma not in raw_text:
+            reasons.append(f"Quantity '{qty_str_dot}' for item {i+1} not found in text")
     return reasons
 
 

@@ -149,12 +149,12 @@ export default function DocumentsPage() {
           amount: inv.total_amount || inv.total_with_iva || 0.0,
           type: inv.document_type || 'Invoice',
           status:
-            inv.needs_review
-              ? 'flagged'
-              : (inv.status === 'PROCESSED' || inv.status === 'completed')
-                ? 'completed'
-                : inv.status === 'FAILED'
-                  ? 'rejected'
+            inv.status === 'FAILED'
+              ? 'rejected'
+              : inv.needs_review
+                ? 'flagged'
+                : (inv.status === 'PROCESSED' || inv.status === 'completed')
+                  ? 'completed'
                   : 'processing',
           icon: 'invoice',
           paymentStatus: inv.payment_status || 'Pending',
@@ -317,6 +317,7 @@ export default function DocumentsPage() {
     try {
       const client = getApiClient();
       await client.deleteInvoice(id);
+      setUploadedDocs((prev) => prev.filter((d) => d.id !== id));
       await fetchInvoices();
       setActiveRowMenu(null);
     } catch (e) {
@@ -330,6 +331,7 @@ export default function DocumentsPage() {
     try {
       const client = getApiClient();
       await client.bulkDeleteInvoices(selectedIds);
+      setUploadedDocs((prev) => prev.filter((d) => !selectedIds.includes(d.id as number)));
       setSelectedIds([]);
       await fetchInvoices();
     } catch (e) {
@@ -952,7 +954,7 @@ export default function DocumentsPage() {
 
       {/* Duplicate detection panel */}
       {(() => {
-        const doc = allDocuments.find((d) => d.isDuplicate);
+        const doc = allDocuments.find((d) => d.isDuplicate && d.needsReview);
         if (doc) {
           return (
             <div key="duplicate-panel" className="bg-[#fceaea] border border-[#ffb4ab] rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs mb-4">

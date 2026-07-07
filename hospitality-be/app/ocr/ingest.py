@@ -154,6 +154,39 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
         img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
         h_init, w_init = img.shape[:2]
 
+    # Deskewing (Angle Correction)
+    import math
+    # Fast detection pass just for skew angle
+    det_result = ocr.ocr(img, cls=False, rec=False)
+    if det_result and det_result[0]:
+        angles = []
+        for box in det_result[0]:
+            if not box: continue
+            dx = box[1][0] - box[0][0]
+            dy = box[1][1] - box[0][1]
+            if dx != 0:
+                angle = math.degrees(math.atan2(dy, dx))
+                if angle > 45: angle -= 90
+                elif angle < -45: angle += 90
+                angles.append(angle)
+        
+        if angles:
+            import numpy as np
+            median_angle = np.median(angles)
+            if abs(median_angle) >= 0.5:
+                import logging
+                logging.getLogger("invoice_pipeline").info(f"Deskewing image by {-median_angle:.2f} degrees...")
+                center = (w_init // 2, h_init // 2)
+                M = cv2.getRotationMatrix2D(center, median_angle, 1.0)
+                abs_cos = abs(M[0,0])
+                abs_sin = abs(M[0,1])
+                bound_w = int(h_init * abs_sin + w_init * abs_cos)
+                bound_h = int(h_init * abs_cos + w_init * abs_sin)
+                M[0, 2] += (bound_w / 2) - center[0]
+                M[1, 2] += (bound_h / 2) - center[1]
+                img = cv2.warpAffine(img, M, (bound_w, bound_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                h_init, w_init = img.shape[:2]
+
     aspect_ratio = max(h_init, w_init) / float(min(h_init, w_init)) if min(h_init, w_init) > 0 else 1.0
 
     # Save the raw image BEFORE sharpening — the binary boost pass in
@@ -410,8 +443,8 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
     # Detect rotation first (mostly-vertical bboxes = rotated scan)
     horizontal_count = sum(1 for l in lines if (max(pt[0] for pt in l[0]) - min(pt[0] for pt in l[0])) > (max(pt[1] for pt in l[0]) - min(pt[1] for pt in l[0])))
     vertical_count = len(lines) - horizontal_count
-    # Require 70% supermajority to avoid flipping on borderline cases (old: >50%, very flaky)
-    is_rotated = len(lines) > 0 and (vertical_count / len(lines)) > 0.70
+    # Require 55% supermajority to avoid flipping on borderline cases (old: >50%, very flaky)
+    is_rotated = len(lines) > 0 and (vertical_count / len(lines)) > 0.55
 
     h_img, w_img = img.shape[:2]
 
@@ -487,71 +520,113 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
         # Image is now definitely horizontal
         w_img, h_img = h_img, w_img  # swap dimensions since we rotated
         
-    # --- Universal Horizontal Sorting ---
-    # By this point, the image is guaranteed to be horizontal (either natively, 
-    # or because we just reran OCR after a 90-degree rotation).
-    split_x = _detect_column_gap(lines, w_img)
-
-    if split_x is not None:
-        # Two-column layout detected: separate Left and Right
-        # To avoid splitting line items in half, we only apply the left/right split
-        # to the top section of the page (where Supplier and Customer headers are).
-        # The rest of the page (where line items are) is sorted as a single horizontal block.
-        # However, if the document was originally sideways (is_rotated), the table itself
-        # spans across columns, so we apply the split to the entire page.
-        header_threshold = h_img if is_rotated else h_img * 0.45
-        
-        header_lines = [l for l in lines if _get_y_center(l) <= header_threshold]
-        body_lines = [l for l in lines if _get_y_center(l) > header_threshold]
-
-        left_header  = [l for l in header_lines if _get_x_center(l) <= split_x]
-        right_header = [l for l in header_lines if _get_x_center(l) >  split_x]
-
-        def _sort_and_join(chunk):
-            chunk.sort(key=lambda l: (round(_get_y_center(l) / bucket_size) * bucket_size, _get_x_center(l)))
-            text_lines = []
-            current_line = []
-            current_y = None
-            for line in chunk:
-                y_val = round((_get_y_center(line) - border_size) / bucket_size) * bucket_size
-                if current_y is None:
-                    current_y = y_val
-                if y_val != current_y:
-                    text_lines.append(" ".join(current_line))
-                    current_line = []
-                    current_y = y_val
-                current_line.append(line[1][0])
-            if current_line:
-                text_lines.append(" ".join(current_line))
-            return "\n".join(text_lines)
-
-        left_text  = _sort_and_join(left_header)
-        right_text = _sort_and_join(right_header)
-        body_text  = _sort_and_join(body_lines)
-        
-        raw_text = f"{left_text}\n\n--- DOCUMENT INFO COLUMN ---\n{right_text}\n\n--- INVOICE BODY ---\n{body_text}"
-    else:
-        # Single-column layout — standard top-to-bottom, left-to-right sort
-        lines.sort(key=lambda l: (round(_get_y_center(l) / bucket_size) * bucket_size, _get_x_center(l)))
-        text_lines = []
-        current_line = []
-        current_axis = None
-        for line in lines:
-            axis_val = round((_get_y_center(line) - border_size) / bucket_size) * bucket_size
-            if current_axis is None:
-                current_axis = axis_val
-            if axis_val != current_axis:
-                text_lines.append(" ".join(current_line))
-                current_line = []
-                current_axis = axis_val
-            current_line.append(line[1][0])
-        if current_line:
-            text_lines.append(" ".join(current_line))
-        raw_text = "\n".join(text_lines)
+    # Check for 180-degree upside-down orientation (Works universally for ALL invoice types)
+    top_words = ["factura", "fecha", "date", "invoice", "albara", "albarán", "cliente", "client", "cif", "nif", "nombre", "s.a.", "s.l.", "tel", "tlf", "www"]
+    bottom_words = ["total", "importe", "iva", "tax", "subtotal", "efectivo", "tarjeta", "cambio", "gracias", "visita"]
+    top_y = []
+    bottom_y = []
+    for line in lines:
+        text = line[1][0].lower()
+        y_center = sum(pt[1] for pt in line[0]) / 4.0
+        if any(w in text for w in top_words):
+            top_y.append(y_center)
+        if any(w in text for w in bottom_words):
+            bottom_y.append(y_center)
+            
+    avg_top = sum(top_y) / len(top_y) if top_y else 0
+    avg_bottom = sum(bottom_y) / len(bottom_y) if bottom_y else h_img
     
-    # Append the marginal text at the end so the LLM doesn't miss the tiny headers/footers
-    if margin_text:
-        raw_text += f"\n\n--- Marginal Text (Full Resolution) ---\n{margin_text}"
+    # If the "top" words are physically below the "bottom" words in the image, it's upside down
+    if avg_top > avg_bottom + (h_img * 0.1) and top_y and bottom_y:
+        import logging
+        logging.getLogger("invoice_pipeline").info("Detected upside-down text. Inverting coordinates mathematically...")
+        for line in lines:
+            for pt in line[0]:
+                pt[0] = w_img - pt[0]
+                pt[1] = h_img - pt[1]
+        
+    # --- Visual Text Layout (VTL) Formatting ---
+    # Preserves physical 2D layout as 1D text by mapping X coordinates to spaces.
+    
+    # 1. Prepare elements
+    elements = []
+    vertical_elements = []
+    for line in lines:
+        pts = line[0]
+        text, conf = line[1]
+        y_center = sum(pt[1] for pt in pts) / 4.0
+        min_x = min(pt[0] for pt in pts)
+        min_y = min(pt[1] for pt in pts)
+        max_y = max(pt[1] for pt in pts)
+        
+        # Detect if this specific text box is vertical (sideways text)
+        width = max(pt[0] for pt in pts) - min(pt[0] for pt in pts)
+        height = max_y - min_y
+        
+        if height > width * 1.5:
+            # It's sideways text! Don't mix it into the horizontal line sorting.
+            vertical_elements.append(text)
+        else:
+            elements.append({"text": text, "x": min_x, "y": y_center, "min_y": min_y, "max_y": max_y})
+        
+    # 2. Group into lines using vertical overlap (robust against slanted/perspective distortion)
+    elements.sort(key=lambda e: e["y"])
+    grouped_lines = []
+    
+    for item in elements:
+        item_h = item["max_y"] - item["min_y"]
+        matched_line = None
+        for line in grouped_lines:
+            # Check overlap with the current average vertical span of this line
+            line_min_y = sum(e["min_y"] for e in line) / len(line)
+            line_max_y = sum(e["max_y"] for e in line) / len(line)
+            overlap_min = max(line_min_y, item["min_y"])
+            overlap_max = min(line_max_y, item["max_y"])
+            overlap_height = max(0, overlap_max - overlap_min)
+            
+            # If at least 40% of this item overlaps vertically with the line, it belongs here
+            if overlap_height > (item_h * 0.4):
+                matched_line = line
+                break
+                
+        if matched_line:
+            matched_line.append(item)
+        else:
+            grouped_lines.append([item])
+
+    # Sort each line internally by X, and then sort all lines by their average Y
+    for line in grouped_lines:
+        line.sort(key=lambda e: e["x"])
+    grouped_lines.sort(key=lambda line: sum(e["y"] for e in line) / len(line))
+
+    text_lines = []
+    CHARS_PER_LINE = 140
+    char_width = max(w_img / CHARS_PER_LINE, 1.0)
+    
+    def _flush_line(line_elements):
+        formatted = ""
+        last_idx = 0
+        for e in line_elements:
+            idx = max(0, int(e["x"] / char_width))
+            if idx > last_idx + 1:
+                formatted += " " * (idx - last_idx)
+            else:
+                formatted += " " if formatted else ""
+            formatted += e["text"]
+            last_idx = len(formatted)
+        return formatted.strip()
+
+    for g_line in grouped_lines:
+        text_lines.append(_flush_line(g_line))
+        
+    raw_text = "\n".join(text_lines)
+    
+    # Append the marginal text and any vertical elements at the end so the LLM doesn't miss them
+    if vertical_elements:
+        margin_text += "\n" + " ".join(vertical_elements)
+        
+    if margin_text.strip():
+        raw_text += f"\n\n--- Marginal Text (Full Resolution) ---\n{margin_text.strip()}"
 
     confs = [line[1][1] for line in lines]
     avg_conf = sum(confs) / len(confs) if confs else 0.0

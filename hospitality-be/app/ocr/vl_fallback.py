@@ -26,9 +26,9 @@ from app.ocr.llm_fallback import (
 )
 
 # VL Model configs
-VL_MODEL = os.environ.get("VL_MODEL", "meta/llama-3.2-11b-vision-instruct")
-VL_BASE_URL = os.environ.get("VL_BASE_URL", "https://integrate.api.nvidia.com/v1")
-VL_API_KEY = os.environ.get("VL_API_KEY") or os.environ.get("NVIDIA_API_KEY", "").strip()
+VL_MODEL = os.environ.get("VL_MODEL", "gemini-3.1-flash-lite")
+VL_BASE_URL = os.environ.get("VL_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
+VL_API_KEY = os.environ.get("VL_API_KEY", "").strip()
 VL_MAX_TOKENS = int(os.environ.get("VL_MAX_TOKENS", 8192))
 
 # NVIDIA fallback config
@@ -39,8 +39,8 @@ NVIDIA_BASE_URL = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidi
 VL_OCR_THRESHOLD = float(os.environ.get("VL_OCR_THRESHOLD", 0.80))
 VL_LLM_THRESHOLD = float(os.environ.get("VL_LLM_THRESHOLD", 0.80))
 
-_client = OpenAI(base_url=VL_BASE_URL, api_key=VL_API_KEY)
-_nvidia_client = OpenAI(base_url=NVIDIA_BASE_URL, api_key=NVIDIA_API_KEY) if NVIDIA_API_KEY else None
+_client = OpenAI(base_url=VL_BASE_URL, api_key=VL_API_KEY, max_retries=0)
+_nvidia_client = OpenAI(base_url=NVIDIA_BASE_URL, api_key=NVIDIA_API_KEY, max_retries=0) if NVIDIA_API_KEY else None
 
 
 def calculate_llm_score(inv: Invoice) -> float:
@@ -59,15 +59,28 @@ def calculate_llm_score(inv: Invoice) -> float:
     found_count = sum(1 for _, getter in REQUIRED_FIELDS if getter(inv))
     success_rate = found_count / total_required
     
-    # Deduct penalty for math/validation errors
-    num_reasons = len(temp_inv.review_reasons)
+    # Deduct penalty for math/validation errors (ignoring "Missing..." which is already in success_rate)
+    math_reasons = [r for r in temp_inv.review_reasons if not r.startswith("Missing ")]
+    num_reasons = len(math_reasons)
     penalty = min(num_reasons * 0.25, 1.0) # Deduct 25% per math error
     
     # Deduct massive penalty if NO line items were extracted!
     if not inv.items or len(inv.items) == 0:
         logger.info("No line items extracted. Applying 50% penalty to LLM score.")
         penalty += 0.50
+    else:
+        # Check if line items are missing qty or grossPrice/base
+        missing_fields_penalty = 0.0
+        for item in inv.items:
+            if item.quantity is None:
+                missing_fields_penalty += 0.05
+            if item.grossPrice is None and item.base is None:
+                missing_fields_penalty += 0.05
         
+        if missing_fields_penalty > 0:
+            logger.info(f"Line items missing key fields. Applying {missing_fields_penalty:.2f} penalty to LLM score.")
+            penalty += missing_fields_penalty
+            
     final_initial_score = max(success_rate - penalty, 0.0)
     inv.llm_confidence = final_initial_score
     return final_initial_score
@@ -103,44 +116,47 @@ def extract_with_vl_model(image_bytes: bytes, missing_fields: Optional[list] = N
     base64_image = base64.b64encode(image_bytes).decode('utf-8')
 
     # Build explicit vision prompt with a concrete example (NOT type annotations)
-    # Nemotron echoes back "string|null" literally if given a schema, so we use a filled example instead
     example_json = '''{
-  "serialNumber": "INV-001",
+  "serialNumber": "",
   "type": "Invoice",
-  "date": "2026-06-09",
-  "subtotal": 34.96,
-  "tax": 3.28,
-  "total": 38.24,
+  "date": "YYYY-MM-DD",
+  "subtotal": 0.0,
+  "tax": 0.0,
+  "total": 0.0,
   "supplier": {
-    "name": "Supplier Company Name",
-    "legalName": "Supplier Legal S.L.",
-    "vatID": "B12345678",
-    "address": "Street, City"
+    "name": "",
+    "legalName": "",
+    "vatID": "",
+    "address": ""
   },
   "items": [
-    {"providerCode": "CODE1", "product": "Product Name", "quantity": 2.0, "unit": "und", "grossPrice": 12.70, "iva_pct": 10, "base": 25.40}
+    {"providerCode": "", "product": "", "quantity": 0.0, "unit": "", "grossPrice": 0.0, "iva_pct": 0, "base": 0.0}
   ],
   "taxBrackets": [
-    {"taxRate": 10, "subtotal": 31.40, "tax": 3.14, "total": 34.54}
+    {"taxRate": 0, "subtotal": 0.0, "tax": 0.0, "total": 0.0}
   ]
 }'''
 
     user_prompt = (
+        "CRITICAL: YOUR ENTIRE RESPONSE MUST BE A SINGLE, VALID JSON OBJECT STARTING WITH '{'. NO MARKDOWN. NO EXPLANATIONS. NO 'Here is the data'. JUST THE RAW JSON.\n"
         "Look at this invoice/delivery-note image. Extract ALL data you see directly from the image.\n"
         "Return a single JSON object following this structure (replace example values with real ones from the image):\n\n"
         f"{example_json}\n\n"
         "CRITICAL RULES:\n"
         "1. supplier.name = the company/vendor name printed on the document header or logo (e.g., 'The Store Name', 'BBVA'). Do NOT use the customer/client name (e.g., 'REC 67 PARTNERS S.L.').\n"
         "2. supplier.vatID = Look for the supplier's NIF/CIF (e.g. in the footer, header, or side margins like 'C.I.F. - A...'). Do NOT extract the client's NIF/CIF (which is usually next to the client's name or 'CLIENTE:').\n"
-        "3. document_number = Look for 'Albarà', 'Factura', 'Ticket', or 'Nº'. NEVER use a currency amount (like '3.58') as the document number.\n"
+        "3. document_number = Look for 'Albarà', 'Factura', 'Ticket', or 'Nº'. NEVER use a currency amount, a VAT ID/NIF/CIF (like B67019018), or a credit card transaction number as the document number.\n"
         "4. date = Look for 'Data', 'Fecha', or 'Date'. Format as YYYY-MM-DD.\n"
-        "5. items = Extract EVERY SINGLE ITEM individually. DO NOT combine them. For each item, extract its specific line price. Do NOT mistakenly use the invoice total as the item price.\n"
+        "5. items = Extract EVERY SINGLE ITEM individually. DO NOT combine them. DO NOT guess, invent, or divide prices! Extract the exact printed 'price per unit' and 'total amount' for each specific item directly from the image.\n"
         "6. taxBrackets = You MUST extract the VAT/Tax breakdown (Resumen IVA, Base Imponible, Tipo IVA, Cuota IVA) usually found at the bottom of the invoice.\n"
-        "7. Return ONLY valid JSON starting with { and ending with }. Do not output any conversational text, reasoning, or <think> blocks.\n"
+        "7. Return ONLY valid JSON starting with { and ending with }. Do not output any conversational text, reasoning, markdown headers, or <think> blocks.\n"
         "8. Use real values from the image, NOT the example placeholder values above.\n"
-        "9. CRITICAL: Distinguish carefully between the SUPPLIER (who issued the receipt) and the CUSTOMER (the buyer). Only extract the SUPPLIER's VAT ID (CIF/NIF) and Name. If you see 'CLIENTE:' or 'REC 67 PARTNERS', that is the customer, NOT the supplier.\n"
+        "9. CRITICAL: Distinguish carefully between the SUPPLIER (who issued the receipt) and the CUSTOMER (the buyer). Only extract the SUPPLIER's VAT ID (CIF/NIF) and Name. If you see 'CLIENTE:', 'Client', or 'REC 67 PARTNERS', that is the customer, NOT the supplier. The supplier's NIF is usually printed in small text in the header/footer (e.g. 'NIF B...'). CREDIT CARD MERCHANT IDs: If you see numbers labeled 'COMERCIO', 'FUC', or 'Merchant ID' (e.g., '0185...'), NEVER extract these as the Supplier VAT ID!\n"
         "10. EXTREMELY IMPORTANT: Pay close attention to the difference between the GRAND TOTAL (\"TOTAL ALBARAN\", \"TOTAL FACTURA\") and the totals of individual tax brackets. Do NOT confuse a tax bracket total (e.g. 58.08) for the grand total if there is a clear \"TOTAL\" line at the bottom (e.g. 82.72). Make sure subtotal + tax = total!\n"
-        "11. ROTATED IMAGES & MISSING ITEMS: The image may be rotated 90 degrees. Read carefully sideways! If you see multiple distinct products (e.g. MacBook, iPhone, Canon por copia privada), you MUST extract each of them as a separate item in the `items` array. Find the individual price for each product. NEVER use the grand total as a product's price."
+        "11. ROTATED IMAGES & MISSING ITEMS: The image may be rotated 90 degrees. Read carefully sideways! If you see multiple distinct products, you MUST extract each of them as a separate item in the `items` array. Find the individual price for each product. NEVER use the grand total as a product's price.\n"
+        "12. MULTI-COLUMN TABLES: Pay close attention to how products and prices are aligned horizontally. Do NOT copy the same price for all products. Match each product name to its exact corresponding quantity and price on the same horizontal row.\n"
+        "13. VAT-INCLUSIVE PRICING: If the receipt only shows VAT-inclusive (Gross) prices and does NOT show a separate Base/Net price, DO NOT mathematically calculate the Base price by subtracting VAT. Extract the exact printed amount into BOTH `grossPrice` and `base`. For example, if it prints '1.20', extract 1.20, do NOT extract 0.99.\n"
+        "OUTPUT FORMAT REQUIREMENT: Your entire response must be a single JSON object. No intro, no outro, no markdown fences."
     )
 
     if missing_fields:
@@ -173,6 +189,7 @@ def extract_with_vl_model(image_bytes: bytes, missing_fields: Optional[list] = N
             temperature=0,
             messages=messages,
             max_tokens=VL_MAX_TOKENS,
+            response_format={"type": "json_object"},
         )
         message = response.choices[0].message
         raw_content = (message.content or "").strip() if message else ""
@@ -187,6 +204,7 @@ def extract_with_vl_model(image_bytes: bytes, missing_fields: Optional[list] = N
             temperature=0,
             messages=messages,
             max_tokens=VL_MAX_TOKENS,
+            response_format={"type": "json_object"},
         )
         message = response.choices[0].message
         raw_content = (message.content or "").strip() if message else ""

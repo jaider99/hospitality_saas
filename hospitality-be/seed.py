@@ -56,7 +56,7 @@ async def async_main():
         except Exception as e:
             logger.info(f"Alter table note/warning: {e}")
             
-    SQLModel.metadata.create_all(engine)
+    # SQLModel.metadata.create_all(engine)
     Base.metadata.create_all(engine)
 
 

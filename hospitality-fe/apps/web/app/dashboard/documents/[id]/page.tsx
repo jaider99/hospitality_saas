@@ -456,6 +456,17 @@ export default function DocumentDetailPage() {
     setVatData(updated);
   };
 
+  const handleRetry = async () => {
+    try {
+      const client = getApiClient();
+      await client.retryInvoice(Number(id));
+      router.push('/dashboard/documents');
+    } catch (e) {
+      console.error('Failed to retry invoice', e);
+      setAlertConfig({ title: 'Error', message: 'Failed to retry invoice processing.' });
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1440px] mx-auto font-sans flex flex-col gap-6">
       {/* Back Header */}
@@ -485,6 +496,33 @@ export default function DocumentDetailPage() {
           </span>
         </div>
       </div>
+
+      {/* Error Alert Panel */}
+      {invoice.status === 'FAILED' && (
+        <div className="bg-[#fceaea] border border-[#ffb4ab] rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle size={17} className="text-[#b23a3a] shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <span className="text-sm font-bold text-[#7a2828]">Processing Failed</span>
+              <p className="text-xs text-[#7a2828] opacity-90 max-w-2xl">
+                {invoice.review_reasons ? (
+                  Array.isArray(invoice.review_reasons)
+                    ? invoice.review_reasons.join(', ')
+                    : invoice.review_reasons
+                ) : (
+                  "The background worker encountered an error while processing this document."
+                )}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleRetry}
+            className="shrink-0 bg-white border border-[#ffb4ab] text-[#b23a3a] hover:bg-[#fff5f5] hover:text-[#7a2828] transition-colors rounded-lg px-4 py-2 text-xs font-semibold shadow-sm"
+          >
+            Retry OCR
+          </button>
+        </div>
+      )}
 
       {/* Duplicate Alert Panel */}
       {invoice.is_duplicate && (

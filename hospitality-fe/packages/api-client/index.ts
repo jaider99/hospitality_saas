@@ -116,6 +116,11 @@ export class ApiClient {
     return res.data;
   }
 
+  async retryInvoice(id: number): Promise<{ status: string; message: string }> {
+    const res = await this.instance.post<{ status: string; message: string }>(`/invoices/${id}/retry`);
+    return res.data;
+  }
+
   async getInvoiceStatus(id: number): Promise<{
     id: number;
     status: string;

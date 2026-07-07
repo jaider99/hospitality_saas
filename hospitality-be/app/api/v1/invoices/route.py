@@ -198,6 +198,38 @@ async def events_endpoint():
         }
     )
 
+@router.post("/{invoice_id}/retry")
+async def retry_invoice_processing(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Retries OCR processing for a failed invoice.
+    """
+    invoice = db.get(Invoice, invoice_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    if invoice.status != "FAILED":
+        raise HTTPException(status_code=400, detail="Only failed invoices can be retried")
+        
+    if not invoice.source_file:
+        raise HTTPException(status_code=400, detail="Invoice is missing source_file for source file")
+        
+    # Reset status
+    invoice.status = "PENDING"
+    invoice.needs_review = False
+    invoice.review_reasons = "[]"
+    db.add(invoice)
+    db.commit()
+    db.refresh(invoice)
+    
+    await enqueue_invoice_processing(invoice.id, invoice.source_file, "en")
+    await broadcast_event("reload")
+    
+    return {"status": "success", "message": "Invoice processing retried"}
+
 
 @router.get("/{invoice_id}", response_model=InvoiceDetailsResponse)
 def get_invoice(
@@ -248,6 +280,50 @@ async def delete_invoice_api(
     if not inv:
         raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
     
+    import json
+    # Clear duplicate tag from any invoice that was marked as a duplicate of this one
+    duplicates = db.query(Invoice).filter(Invoice.is_duplicate == True).all()
+    target_str = f"duplicate_invoice: matches #{invoice_id}"
+    for dup in duplicates:
+        if dup.review_reasons and target_str in dup.review_reasons:
+            try:
+                reasons = json.loads(dup.review_reasons)
+                if isinstance(reasons, list):
+                    reasons = [r for r in reasons if r != target_str]
+                    dup.review_reasons = json.dumps(reasons) if reasons else None
+                    if not reasons:
+                        dup.needs_review = False
+            except Exception:
+                pass
+            dup.is_duplicate = False
+            db.add(dup)
+            
+    # Delete from MinIO if source_file exists
+    if inv.source_file:
+        try:
+            from app.core.minio import delete_from_minio
+            delete_from_minio(inv.source_file)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger("fastapi_app")
+            logger.error(f"Failed to delete invoice {invoice_id} from MinIO: {e}")
+            
+    # Cancel the background processing job if it is still running or pending
+    try:
+        from arq import create_pool
+        from arq.connections import RedisSettings
+        from arq.jobs import Job
+        from app.core.setting import settings
+        redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
+        redis_pool = await create_pool(redis_settings)
+        job = Job(f"process_invoice_{invoice_id}", redis_pool)
+        await job.abort()
+        await redis_pool.aclose()
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("fastapi_app")
+        logger.warning(f"Failed to abort ARQ job for invoice {invoice_id}: {e}")
+
     db.delete(inv)
     db.commit()
     return None
@@ -275,9 +351,37 @@ async def bulk_delete_invoices_api(
     payload: BulkDeletePayload,
     db: Session = Depends(get_db)
 ):
+    import json
     for inv_id in payload.invoice_ids:
         inv = db.get(Invoice, inv_id)
         if inv:
+            # Clear duplicate tag from any invoice that was marked as a duplicate of this one
+            duplicates = db.query(Invoice).filter(Invoice.is_duplicate == True).all()
+            target_str = f"duplicate_invoice: matches #{inv_id}"
+            for dup in duplicates:
+                if dup.review_reasons and target_str in dup.review_reasons:
+                    try:
+                        reasons = json.loads(dup.review_reasons)
+                        if isinstance(reasons, list):
+                            reasons = [r for r in reasons if r != target_str]
+                            dup.review_reasons = json.dumps(reasons) if reasons else None
+                            if not reasons:
+                                dup.needs_review = False
+                    except Exception:
+                        pass
+                    dup.is_duplicate = False
+                    db.add(dup)
+            
+            # Delete from MinIO if source_file exists
+            if inv.source_file:
+                try:
+                    from app.core.minio import delete_from_minio
+                    delete_from_minio(inv.source_file)
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger("fastapi_app")
+                    logger.error(f"Failed to delete invoice {inv_id} from MinIO: {e}")
+                    
             db.delete(inv)
     db.commit()
     return None

@@ -170,7 +170,7 @@ class ReferencedItem(SQLModel, table=True):
 
     # Optional FK to our invoice_lines table (matched by OCR pipeline)
     invoice_line_id: Optional[int] = Field(
-        default=None, foreign_key="invoice_lines.id", nullable=True
+        default=None, foreign_key="invoice_lines.id", ondelete="SET NULL", nullable=True
     )
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
