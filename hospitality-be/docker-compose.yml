@@ -73,7 +73,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality?schema=public"
+      DATABASE_URL: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality_dev?schema=public"
       QDRANT_URL: "http://hospitality-qdrant:6333"
       REDIS_URL: "redis://hospitality-redis:6379"
       MINIO_ENDPOINT_URL: "http://hospitality-minio:9000"
@@ -94,7 +94,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality?schema=public"
+      DATABASE_URL: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality_dev?schema=public"
       QDRANT_URL: "http://hospitality-qdrant:6333"
       REDIS_URL: "redis://hospitality-redis:6379"
       MINIO_ENDPOINT_URL: "http://hospitality-minio:9000"
@@ -104,9 +104,12 @@ services:
       - qdrant
       - redis
       - minio
+    volumes:
+      - paddleocr_data:/root/.paddleocr
 
 volumes:
   postgres_data:
   qdrant_data:
   redis_data:
   minio_data:
+  paddleocr_data:

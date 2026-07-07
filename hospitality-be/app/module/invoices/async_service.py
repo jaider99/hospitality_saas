@@ -2,12 +2,15 @@ import logging
 import json
 import random
 import asyncio
+import uuid
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlalchemy.future import select
 
 from app.module.invoices.model import Supplier, SuppliedProduct, ProductCostHistory, Invoice, InvoiceLine, InvoiceTaxBracket
+from app.module.products.mapping_service import match_invoice_items
+from app.module.products.model import Product
 from app.module.recipes.model import Recipe, RecipeIngredient
 from app.module.incidents.model import OperationalIncident
 from app.core.config import PRICE_SPIKE_THRESHOLD, PRICE_SPIKE_HIGH_THRESHOLD
@@ -58,9 +61,7 @@ async def async_save_ocr_invoice(
             name=supplier_name or "Unknown Supplier",  # Only default to "Unknown" if creating new
             vat_id=supplier_tax_id,
             address=supplier_address,
-            contact_info=supplier_contact_info,
             legal_name=supplier_legal_name,
-            contacts=supplier_contacts_count or 0,
         )
         db.add(supplier)
         await db.commit()
@@ -74,12 +75,8 @@ async def async_save_ocr_invoice(
             supplier.name = supplier_name
         if supplier_address and not supplier.address:
             supplier.address = supplier_address
-        if supplier_contact_info and not supplier.contact_info:
-            supplier.contact_info = supplier_contact_info
         if supplier_legal_name and not supplier.legal_name:
             supplier.legal_name = supplier_legal_name
-        if supplier_contacts_count and supplier.contacts < supplier_contacts_count:
-            supplier.contacts = supplier_contacts_count
         db.add(supplier)
         await db.commit()
         await db.refresh(supplier)
@@ -168,14 +165,56 @@ async def async_save_ocr_invoice(
 
     processed_lines = []
 
-    # --- Process each line item ---
+    # --- Phase 2: AI Product Mapping for new Products Module ---
+    # Prepare items for mapping
+    items_to_map = []
     for line in getattr(ocr_invoice, 'items', []):
-        description = getattr(line, 'product', "Unknown Item")
-        quantity = getattr(line, 'quantity', 0.0)
+        items_to_map.append({
+            "name": getattr(line, 'product', "Unknown Item") or "Unknown Item",
+            "price": getattr(line, 'grossPrice', 0.0) or 0.0,
+            "line_ref": line
+        })
+    
+    mapped_items = await match_invoice_items(db, current_supplier_id, items_to_map)
+    
+    # Process the mappings and create new products
+    resolved_product_ids = {}  # Map line item name to existing/new product_id
+    for mapped in mapped_items:
+        match_type = mapped.get("match_type")
+        if match_type == "none":
+            new_prod_id = f"prod~{uuid.uuid4().hex[:16]}"
+            logger.info(f"Creating brand new catalog product '{mapped['name']}' ({new_prod_id})...")
+            new_product = Product(
+                id=new_prod_id,
+                name=mapped["name"],
+                status="ACTIVE",
+                reference_price=mapped.get("price", 0.0)
+            )
+            db.add(new_product)
+            
+            # Link to the supplier via the junction table
+            from app.module.products.model import ProductSupplier
+            product_supplier = ProductSupplier(
+                product_id=new_prod_id,
+                supplier_id=current_supplier_id,
+            )
+            db.add(product_supplier)
+            resolved_product_ids[mapped["name"]] = new_prod_id
+        elif match_type == "exact":
+            resolved_product_ids[mapped["name"]] = mapped.get("matched_product_id")
+        # For llm (fuzzy match), we do NOT set resolved_product_ids.
+        # This keeps the item unlinked so it goes to the Review Queue!
+    
+    await db.commit()
+
+    # --- Phase 3: Process each line item for legacy SuppliedProduct/InvoiceLine ---
+    for line in getattr(ocr_invoice, 'items', []):
+        description = getattr(line, 'product', "Unknown Item") or "Unknown Item"
+        quantity = getattr(line, 'quantity', 0.0) or 0.0
         gp = getattr(line, 'grossPrice', None)
         np = getattr(line, 'nominalPrice', None)
         unit_price = gp if gp is not None else (np if np is not None else 0.0)
-        total_price = getattr(line, 'base', 0.0)
+        total_price = getattr(line, 'base', 0.0) or 0.0
         sku = getattr(line, 'providerCode', None)
 
         # Find or create SuppliedProduct
@@ -295,9 +334,42 @@ async def async_save_ocr_invoice(
         
         await db.commit()
         await db.refresh(invoice_line)
+        
+        invoice_line_id = invoice_line.id
+
+        # --- Automatically link exact matches and newly created products ---
+        # This prevents them from showing up in the 'Review Queue' and updates their stats
+        resolved_prod_id = resolved_product_ids.get(description)
+        if resolved_prod_id:
+            logger.info(f"Linking '{description}' to global product {resolved_prod_id} to bypass review queue...")
+            from app.module.products.model import ReferencedItem, ProductReference
+            ref_id = f"item~local_{invoice_line_id}"
+            ref = ReferencedItem(
+                id=ref_id,
+                expense_item_name=description,
+                supplier_name=supplier_name,
+                invoice_line_id=invoice_line_id,
+            )
+            db.add(ref)
+            
+            prod_ref = ProductReference(
+                product_id=resolved_prod_id,
+                referenced_item_id=ref_id
+            )
+            db.add(prod_ref)
+            
+            global_product = await db.get(Product, resolved_prod_id)
+            if global_product:
+                global_product.quantity = (global_product.quantity or 0) + quantity
+                global_product.total = (global_product.total or 0) + total_price
+                global_product.last_price = unit_price
+                global_product.updated_at = datetime.utcnow()
+                db.add(global_product)
+                
+            await db.commit()
 
         processed_lines.append({
-            "id": invoice_line.id,
+            "id": invoice_line_id,
             "invoice_id": current_invoice_id,
             "description": description,
             "quantity": quantity,

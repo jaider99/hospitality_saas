@@ -83,6 +83,7 @@ export default function DocumentsPage() {
   // Server-Side API States
   const [apiDocs, setApiDocs] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Document Upload States
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
@@ -302,9 +303,11 @@ export default function DocumentsPage() {
       await client.deleteInvoice(id);
       await fetchInvoices();
       setActiveRowMenu(null);
-    } catch (e) {
+      setErrorMessage(null);
+    } catch (e: any) {
       console.error(e);
-      alert('Failed to delete invoice');
+      const detail = e?.response?.data?.detail;
+      setErrorMessage(detail || 'Failed to delete invoice');
     }
   };
 
@@ -569,6 +572,22 @@ export default function DocumentsPage() {
           Learn more <ExternalLink size={13} />
         </a>
       </div>
+
+      {/* Delete Error Banner */}
+      {errorMessage && (
+        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-xl p-4 flex items-start justify-between animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex gap-3 items-start">
+            <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
+            <p className="text-sm text-red-700 dark:text-red-400">{errorMessage}</p>
+          </div>
+          <button
+            onClick={() => setErrorMessage(null)}
+            className="text-red-400 hover:text-red-600 p-1 rounded-lg shrink-0"
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
 
       {/* WhatsApp Digitization Banner */}
       {showBanner && (

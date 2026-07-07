@@ -102,6 +102,21 @@ def create_product(
     return detail
 
 
+@router.delete(
+    "/products/{product_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete Product",
+    tags=["Products & Inventory"],
+)
+def delete_product(product_id: str, db: Session = Depends(get_session)):
+    try:
+        service.delete_product(db, product_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return None
+
 @router.get(
     "/products",
     response_model=ProductListResponse,

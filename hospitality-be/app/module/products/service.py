@@ -92,6 +92,14 @@ def get_supplier(db: Session, supplier_id: int) -> Optional[Supplier]:
 # Product CRUD - Manual Create
 # ---------------------------------------------------------------------------
 
+def delete_product(db: Session, product_id: str) -> None:
+    product = db.get(Product, product_id)
+    if not product:
+        raise ValueError(f"Product {product_id} not found")
+    db.delete(product)
+    db.commit()
+
+
 def create_product_manual(db: Session, data: "ProductManualCreate") -> Product:
     """
     Manual product creation (from the 'Create product manually' UI form).

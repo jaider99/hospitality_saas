@@ -22,7 +22,8 @@ import {
   Calendar as CalendarIcon,
   Activity,
   DollarSign,
-  Search
+  Search,
+  Trash2
 } from 'lucide-react';
 import { getApiClient } from '../../../store/auth';
 import { Badge, Btn } from '../_components/ui';
@@ -31,6 +32,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { DateRange } from 'react-day-picker';
 import { format } from 'date-fns';
 import { cn } from '@/components/ui/utils';
+import ConfirmModal from '../suppliers/_components/ConfirmModal';
 
 interface Category {
   id: number;
@@ -72,6 +74,7 @@ export default function ProductsPage() {
   const [detailTab, setDetailTab] = useState<'purchases' | 'recipes'>('purchases');
   const [docFilter, setDocFilter] = useState<'all' | 'invoices' | 'delivery_notes'>('all');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   // Totals & Counts
   const [totalCount, setTotalCount] = useState(0);
@@ -392,6 +395,21 @@ export default function ProductsPage() {
       loadData();
     } catch (err) {
       console.error('Failed to toggle archive:', err);
+    }
+  };
+
+  // Delete Product
+  const handleDeleteProduct = async (productId: string) => {
+    try {
+      const client = getApiClient();
+      await client.deleteProduct(productId);
+      setIsDeleteModalOpen(false);
+      setView('list');
+      setSelectedProductId(null);
+      setProductDetail(null);
+      loadData();
+    } catch (err: any) {
+      console.error('Failed to delete product:', err);
     }
   };
 
@@ -978,6 +996,12 @@ export default function ProductsPage() {
                       className="w-full text-left px-4 py-3 text-sm text-foreground hover:bg-muted transition-colors flex items-center gap-2"
                     >
                       <Pencil size={14} /> Configuration
+                    </button>
+                    <button 
+                      onClick={() => { setIsDeleteModalOpen(true); setMenuOpen(false); }}
+                      className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors flex items-center gap-2 border-t border-border/50"
+                    >
+                      <Trash2 size={14} /> Delete Product
                     </button>
                     {/* <button 
                       onClick={() => { alert('Merge tool selected'); setMenuOpen(false); }}
@@ -2058,6 +2082,18 @@ export default function ProductsPage() {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={isDeleteModalOpen}
+        onConfirm={() => {
+          if (productDetail) handleDeleteProduct(productDetail.id);
+        }}
+        onCancel={() => setIsDeleteModalOpen(false)}
+        title="Delete Product"
+        message={`Are you sure you want to delete ${productDetail?.name || 'this product'}? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+      />
     </div>
   );
 }

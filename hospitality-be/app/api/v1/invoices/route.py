@@ -243,12 +243,21 @@ async def delete_invoice_api(
     invoice_id: int,
     db: Session = Depends(get_db)
 ):
+    from sqlalchemy.exc import IntegrityError
+    
     inv = db.get(Invoice, invoice_id)
     if not inv:
         raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
     
-    db.delete(inv)
-    db.commit()
+    try:
+        db.delete(inv)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="the invoice item is already associated with the product so you cannot delete the invoice"
+        )
     return None
 
 @router.delete("/{invoice_id}/lines/{line_id}", status_code=status.HTTP_204_NO_CONTENT)

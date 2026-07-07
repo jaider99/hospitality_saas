@@ -84,6 +84,8 @@ class Product(SQLModel, table=True):
     tax_rate: Optional[float] = Field(default=None)
 
     # Status flags
+    status: str = Field(default="ACTIVE") # 'ACTIVE', 'PENDING_NEW', 'PENDING_MERGE'
+    suggested_master_product_id: Optional[str] = Field(default=None, index=True)
     bookmarked: bool = Field(default=False)
     archived: bool = Field(default=False)
     merged: bool = Field(default=False)
@@ -170,7 +172,7 @@ class ReferencedItem(SQLModel, table=True):
 
     # Optional FK to our invoice_lines table (matched by OCR pipeline)
     invoice_line_id: Optional[int] = Field(
-        default=None, foreign_key="invoice_lines.id", nullable=True
+        default=None, foreign_key="invoice_lines.id", nullable=True, ondelete="CASCADE"
     )
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -379,3 +381,18 @@ class InventoryItem(SQLModel, table=True):
     referenced_item: Optional[ReferencedItem] = Relationship(
         back_populates="inventory_items"
     )
+
+# ---------------------------------------------------------------------------
+# 7. Product Alias
+# ---------------------------------------------------------------------------
+
+class ProductAlias(SQLModel, table=True):
+    """
+    Stores learned aliases for products (e.g. "Aloo" -> "Potato").
+    """
+    __tablename__ = "product_aliases"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    alias_name: str = Field(index=True)
+    master_product_id: str = Field(foreign_key="products.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
