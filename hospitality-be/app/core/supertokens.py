@@ -46,6 +46,13 @@ def sync_user_to_db(
                 resolved_restaurant_id = restaurant.id
                 logger.info(f"Created new Restaurant '{res_name}' with ID: {resolved_restaurant_id}")
 
+            # Fallback: if restaurant_id is not set, link to the first available restaurant in DB
+            if not resolved_restaurant_id:
+                first_restaurant = db_session.exec(select(Restaurant)).first()
+                if first_restaurant:
+                    resolved_restaurant_id = first_restaurant.id
+                    logger.info(f"Fallback: Associated user {email} with restaurant ID {resolved_restaurant_id}")
+
             # 1. Look up by supertokens_id
             stmt = select(User).where(User.supertokens_id == supertokens_id)
             user = db_session.exec(stmt).first()
@@ -191,7 +198,7 @@ def override_emailpassword_functions(original_implementation: EPInterface) -> EP
                 logger.warning(f"Sign-in blocked for Inactive user: {email}")
                 return WrongCredentialsError()
 
-        return await original_sign_in(
+        result = await original_sign_in(
             email=email,
             password=password,
             tenant_id=tenant_id,
@@ -199,6 +206,33 @@ def override_emailpassword_functions(original_implementation: EPInterface) -> EP
             should_try_linking_with_session_user=should_try_linking_with_session_user,
             user_context=user_context
         )
+
+        from supertokens_python.recipe.emailpassword.interfaces import SignInOkResult
+        if isinstance(result, SignInOkResult) and hasattr(result, "user") and result.user is not None:
+            user_id = result.user.id
+            
+            with Session(engine) as db_session:
+                stmt = select(User).where(User.email == email)
+                user = db_session.exec(stmt).first()
+                
+            if not user:
+                logger.info(f"User {email} authenticated successfully in SuperTokens but missing from local DB. Syncing...")
+                try:
+                    from supertokens_python.recipe.userroles.asyncio import get_roles_for_user
+                    roles_res = await get_roles_for_user(tenant_id, user_id)
+                    roles = roles_res.roles if hasattr(roles_res, "roles") else []
+                    role = roles[0] if roles else "SUPER_ADMIN"
+                except Exception as role_err:
+                    logger.error(f"Error fetching roles for {email}: {role_err}")
+                    role = "SUPER_ADMIN"
+
+                sync_user_to_db(
+                    supertokens_id=user_id,
+                    email=email,
+                    role=role
+                )
+
+        return result
 
     original_implementation.sign_up = sign_up
     original_implementation.sign_in = sign_in

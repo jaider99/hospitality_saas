@@ -14,16 +14,29 @@ export class ApiClient {
     private getAccessToken: () => string | null,
     private setAccessToken: (token: string) => void,
     private getRefreshToken: () => string | null,
-    private onUnauthorized: () => void
+    private onUnauthorized: () => void,
+    customBaseUrl?: string
   ) {
     this.instance = axios.create({
-      baseURL: API_BASE_URL,
+      baseURL: customBaseUrl || API_BASE_URL,
       timeout: 60000,
       withCredentials: true,
       headers: {
         'Content-Type': 'application/json',
       },
     });
+
+    // Request interceptor to inject Authorization header if access token exists
+    this.instance.interceptors.request.use(
+      (config) => {
+        const token = this.getAccessToken();
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
 
     // Add SuperTokens interceptors to axios instance
     if (typeof window !== 'undefined') {
@@ -169,6 +182,11 @@ export class ApiClient {
 
   async getDishes(params?: { preparations?: boolean }): Promise<any[]> {
     const res = await this.instance.get<any[]>('/recipes/dishes', { params });
+    return res.data;
+  }
+
+  async getRecipeById(recipeId: number): Promise<any> {
+    const res = await this.instance.get<any>(`/recipes/${recipeId}`);
     return res.data;
   }
 
