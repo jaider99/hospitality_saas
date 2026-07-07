@@ -618,12 +618,7 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
                     elif val and py_base and abs(val - py_base) < 0.05:
                         setattr(inv, adj_field, 0.0)
 
-                if py_base and py_total:
-                    if abs((py_base + (py_iva or 0)) - py_total) < 1.0:
-                        inv.subtotal = py_base
-                        inv.tax = py_iva
-                        inv.total = py_total
-                elif py_total and not inv.total:
+                if not inv.total and py_total:
                     inv.total = py_total
                     
                 # Evaluate semantic score

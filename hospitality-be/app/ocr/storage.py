@@ -551,7 +551,7 @@ def list_all_invoices(session: Optional[Session] = None, limit: int = 100, offse
             session.close()
 
 def init_db():
-    Base.metadata.create_all(engine)
+    # Base.metadata.create_all(engine)
     print(f"Tables created on {DATABASE_URL}")
 
 if __name__ == "__main__":

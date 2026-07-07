@@ -134,12 +134,12 @@ export default function DocumentsPage() {
           amount: inv.total_amount || inv.total_with_iva || 0.0,
           type: inv.document_type || 'Invoice',
           status:
-            inv.needs_review
-              ? 'flagged'
-              : (inv.status === 'PROCESSED' || inv.status === 'completed')
-                ? 'completed'
-                : inv.status === 'FAILED'
-                  ? 'rejected'
+            inv.status === 'FAILED'
+              ? 'rejected'
+              : inv.needs_review
+                ? 'flagged'
+                : (inv.status === 'PROCESSED' || inv.status === 'completed')
+                  ? 'completed'
                   : 'processing',
           icon: 'invoice',
           paymentStatus: inv.payment_status || 'Pending',

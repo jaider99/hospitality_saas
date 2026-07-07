@@ -197,6 +197,38 @@ async def events_endpoint():
         }
     )
 
+@router.post("/{invoice_id}/retry")
+async def retry_invoice_processing(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Retries OCR processing for a failed invoice.
+    """
+    invoice = db.get(Invoice, invoice_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    if invoice.status != "FAILED":
+        raise HTTPException(status_code=400, detail="Only failed invoices can be retried")
+        
+    if not invoice.object_key:
+        raise HTTPException(status_code=400, detail="Invoice is missing object_key for source file")
+        
+    # Reset status
+    invoice.status = "PENDING"
+    invoice.needs_review = False
+    invoice.review_reasons = "[]"
+    db.add(invoice)
+    db.commit()
+    db.refresh(invoice)
+    
+    await enqueue_invoice_processing(invoice.id, invoice.object_key, "en")
+    await broadcast_event("reload")
+    
+    return {"status": "success", "message": "Invoice processing retried"}
+
 
 @router.get("/{invoice_id}", response_model=InvoiceDetailsResponse)
 def get_invoice(

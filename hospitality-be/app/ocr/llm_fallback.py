@@ -139,8 +139,7 @@ as the decimal separator regardless of source format):
     }
   ],
   "taxBrackets": [
-    {"taxRate": 4, "subtotal": 3.56, "tax": 0.14, "total": 3.70},
-    {"taxRate": 10, "subtotal": 31.40, "tax": 3.14, "total": 34.54}
+    {"taxRate": 21, "subtotal": 0.0, "tax": 0.0, "total": 0.0}
   ],
   "payment": {
     "dueDate": "YYYY-MM-DD"|null,
@@ -156,6 +155,14 @@ SYSTEM_PROMPT = (
     "=== META / FACEBOOK INVOICES ===\n"
     "Meta/Facebook ad invoices often print the Campaign name on one line, and the Ad Set sub-name on the next line WITH THE EXACT SAME PRICE REPEATED. (e.g. 'Campaña... €16.60' followed immediately by 'Nuevo conjunto... €16.60').\n"
     "DO NOT extract these as two separate items! The second line is just a sub-description. Only extract one line item for that €16.60 charge. The sum of the line items MUST equal the invoice subtotal.\n"
+    "=== TAX BRACKETS (VAT BREAKDOWN) ===\n"
+    "You MUST extract the VAT/Tax breakdown from the bottom of the invoice into the `taxBrackets` array.\n"
+    "  • 'Base' or 'B.Imponible' or 'Base Imponible' -> `subtotal`\n"
+    "  • '%IVA' or 'Tipo IVA' or 'IVA %' -> `taxRate` (e.g. 21, 10, 4). Ignore prefixes like '121.00' (extract 21) or '210.00' (extract 10).\n"
+    "  • 'Imp.IVA' or 'Cuota IVA' or 'Importe IVA' -> `tax`\n"
+    "  • 'TOTAL' -> `total`\n"
+    "If the invoice lists multiple tax rates (e.g. 10% and 21%), extract each one as a separate object in the array.\n"
+    "NEVER guess or hallucinate these values. Read them exactly as printed.\n"
     "=== APPLE / LARGE BRAND B2C RETAIL RECEIPTS ===\n"
     "If the receipt is issued by a large consumer-electronics or retail store such as Apple, El Corte Inglés, MediaMarkt, Samsung, or similar:\n"
     "  • The store brand (e.g. 'Apple', 'Apple Passeig de Gràcia') IS the Supplier. Their legal entity and CIF (e.g. 'Apple Retail Spain, S.L.U.' / 'ESB65130643') are in the footer or header — extract them as supplier.name and supplier.vatID.\n"
@@ -167,7 +174,8 @@ SYSTEM_PROMPT = (
     "You MUST identify the Supplier (seller) and the Customer (buyer) before doing anything else.\n"
     "For receipts from large retail brands (Apple, MediaMarkt, El Corte Inglés, Samsung, etc.):\n"
     "  • The STORE BRAND (e.g. 'Apple', 'Apple Passeig de Gràcia') is the SUPPLIER. Their legal entity + CIF (e.g. 'Apple Retail Spain, S.L.U., CIF ESB65130643') appear in the receipt footer/header. Extract as Supplier Name and Supplier VAT ID/CIF.\n"
-    "  • The CUSTOMER is the person/company who BOUGHT: their name and NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' (e.g. 'Rec 67 Partners SL', NIF B67019018). Show as Customer Name. If only one NIF/CIF is present in the document, treat it as the Supplier's VAT ID.\n"
+    "  • The CUSTOMER is the person/company who BOUGHT: their name and NIF appear under 'CLIENTE:', 'Client', 'Nombre:', 'Facturar a:', or 'NIF:' (e.g. 'REC 67 PARTNERS SL', NIF B67019018). Show as Customer Name. NEVER extract the customer's VAT ID as the supplier's VAT ID. The supplier's NIF is usually printed in small text in the header/footer (e.g. 'NIF B...').\n"
+    "  • CREDIT CARD MERCHANT IDs: If you see numbers labeled 'COMERCIO', 'FUC', or 'Merchant ID' (e.g., '01851214754'), NEVER extract these as the Supplier VAT ID or the Document Number! These are internal credit card terminal IDs, not valid CIF/NIFs.\n"
     "  • 'Canon por copia privada' IS a real line item (regulatory levy). Include it in the line items table.\n"
     "DO NOT redact the Supplier Name, Supplier VAT ID, or Customer Name — they MUST appear explicitly in the output.\n"
     "PROVIDER CODES: Provider/Product codes are typically alphanumeric strings or integers (e.g. '08064313', '1344'). NEVER extract a decimal number with a period or comma (e.g., '1.750') as a provider code. If you see a decimal, it is likely a price or quantity.\n"
@@ -196,9 +204,11 @@ SYSTEM_PROMPT = (
     "  1   1,50\n"
     "  1   1,60\n"
     "CRITICAL SEQUENTIAL MAPPING RULE: If you see N products listed sequentially, followed by N detached prices or quantities, you MUST map them strictly 1-to-1 in sequential order! (The 1st product gets the 1st price, the 2nd gets the 2nd, etc). Do NOT skip products. If the invoice says '9 ARTIC.', there MUST be exactly 9 line items extracted.\n"
+    "COLUMNAR OCR RECONSTRUCTION (CRITICAL): If the OCR text lists an entire column of product names (e.g. under 'Concepto') and then later lists an entire column of quantities (e.g. 'Uds.') and prices (e.g. 'Base Ud.' or 'Precio'), you MUST reconstruct the rows by matching the Nth product with the Nth quantity and the Nth price! Do not invent or duplicate prices. Match the columns mathematically and sequentially.\n"
     "If the document contains a '--- DOCUMENT INFO COLUMN ---' separator, reconstruct the rows by matching the Nth product in the left section with the Nth price/total in the right section.\n"
     "TAX-INCLUSIVE PRICES: If the sum of the printed line item prices equals the GRAND TOTAL (e.g., 25.75) instead of the SUBTOTAL, then those prices INCLUDE tax. You MUST back-calculate the pre-tax `base` (e.g., base = 1.50 / 1.21) and extract the pre-tax unit price as `grossPrice`.\n"
-    "ANTI-HALLUCINATION RULE: If prices are disconnected or jumbled, you MUST find the actual printed prices in the text. DO NOT invent, divide, or average out prices to make the math work (e.g., hallucinating a unit price by dividing the total base by the quantity). If OCR smashed numbers together without spaces (e.g. '16,2424.35'), you MAY split them logically at the decimal point ('16.24' and '24.35'), but do not invent new digits. Extract the exact printed digits and match them logically to the Nth product.\n"
+    "ANTI-HALLUCINATION RULE: If prices are disconnected or jumbled, you MUST find the actual printed prices in the text. DO NOT guess, invent, divide, or average out prices to make the math work (e.g., hallucinating a unit price by dividing the total base by the quantity). If OCR smashed numbers together without spaces (e.g. '16,2424.35'), you MAY split them logically at the decimal point ('16.24' and '24.35'), but do not invent new digits. Extract the exact printed digits and match them logically to the Nth product.\n"
+    "DECIMAL QUANTITIES & TRAILING TAX CODES: Some invoices list items in the format `[Code] [Description] [Unit] [Price/Ud] [Quantity] [Base] ...`. Pay extremely close attention to decimal quantities like `2,240` (meaning 2.24) and their corresponding unit prices (e.g. `15,830`). Do NOT mistake a trailing integer (like `1` or `5` indicating a tax or department code) at the very end of the line for the quantity. Always verify your extraction by checking that `Quantity * Price = Base`!\n"
     "=== GENERAL INFO ===\n"
     "DATE PARSING: Spanish/Catalan dates are DD/MM/YY or DD/MM/YYYY. "
     "The LAST number is always the year, the FIRST is always the day. "
@@ -212,7 +222,7 @@ SYSTEM_PROMPT = (
     "  • CRITICAL: Delivery Notes (Albaranes) very often DO NOT have any prices printed on them (only quantities). This is perfectly normal. If there are no prices on the document, DO NOT invent them. Leave `grossPrice`, `base`, `subtotal`, `tax`, and `total` as null or 0.0.\n"
     "The 'serialNumber' is the unique ID of the invoice or receipt. "
     "It typically looks like: 'A26-004800', 'F2026-001', '2485/26', 'ALB-0012345', '5122', 'FBADS-233-105870698', 'LA/C187763'. "
-    "NOT a hex hash like '676d82', NOT a barcode, NOT a date, NOT 'pendiente/comprobant', NOT a phone number. "
+    "NOT a hex hash like '676d82', NOT a barcode, NOT a date, NOT 'pendiente/comprobant', NOT a phone number, NOT a credit card transaction or Application ID (like 'A00000...', 'Aut: 487810'). "
     "CRITICAL: In Spanish invoices the label 'FACTURA:', 'NÚMERO' or 'NUMERO' directly introduces the document number. "
     "E.g. if you see 'FACTURA: 5122', then '5122' is the serialNumber. "
     "Similarly 'Nº Albarán: 12345' → '12345' and 'NUMERO ALV25173716' → 'ALV25173716'. "
@@ -226,13 +236,12 @@ SYSTEM_PROMPT = (
     "=== TOTALS & TAX BREAKDOWN ===\n"
     "Source text is markdown — tables are preserved as | col | col | rows. "
     "If you see a multi-rate TAX table like:\n"
-    "  | IVA 4% | 3.56 | 0.14 | 3.70 |\n"
-    "  | IVA 10% | 31.40 | 3.14 | 34.54 |\n"
+    "  | IVA 4% | [Subtotal A] | [Tax A] | [Total A] |\n"
+    "  | IVA 10% | [Subtotal B] | [Tax B] | [Total B] |\n"
     "Extract EACH RATE as a separate object in `taxBrackets` with fields: "
     "{taxRate, subtotal, tax, total}. "
     "If the `total` for a specific tax bracket is NOT explicitly printed in the table, you MUST calculate it as `subtotal + tax`.\n"
-    "DO NOT mix values from different rows! "
-    "The `subtotal` for IVA 4% is 3.56, NOT 31.40. Read column by column, row by row.\n"
+    "DO NOT mix values from different rows! Read column by column, row by row.\n"
     "GRAND TOTAL RULE: The `total` field must be the final Grand Total of the entire invoice (e.g. Total Factura, Total a Pagar). NEVER map a single line item's total to the invoice `total` field. If the Grand Total is 8.67, output 8.67.\n"
     "The overall `subtotal` MUST be the printed 'Subtotal' or 'BASE IMPONIBLE' (Total before tax, before adjustments and fees).\n"
     "For 'total': extract it ONLY from an explicit printed total field (e.g. "
@@ -328,6 +337,7 @@ SYSTEM_PROMPT = (
     "The VAT ID is usually labeled as: NIF, CIF, NIF-IVA, VAT, VAT Number, Número de IVA, or IVA intracomunitario.\n"
     "CRITICAL: If the document contains MULTIPLE VAT IDs (e.g. one for the Supplier and one for the Customer), you MUST extract the one belonging to the SUPPLIER/VENDOR into `supplier.vatID`.\n"
     "Remember: A VAT ID near any CUSTOMER KEYWORDS (e.g., 'CLIENTE', 'Facturar a', 'Bill To') is the Customer's. A VAT ID near SUPPLIER KEYWORDS or in the header/logo is the Supplier's. The customer's information (name and VAT) should NOT be extracted as the supplier.\n"
+    "SIDE-BY-SIDE RULE: If the OCR lists two companies side-by-side (e.g., 'VINIQUS SL' on the left and 'FAROLA' on the right), and one is clearly the restaurant/buyer (e.g. 'FAROLA REC 67'), the OTHER company (e.g. 'VINIQUS SL') is the Supplier! Do not leave the supplier empty just because the OCR misplaced the word 'Cliente' above it. The entity issuing the invoice is ALWAYS the supplier.\n"
     "\n"
     "=== CORRUPTED DATES ===\n"
     "Dates in OCR are frequently corrupted (e.g., '12/00/2025' instead of '12/05/2025', or '15-04-202' instead of '15-04-2024'). If a date appears invalid or truncated in the main text, look at the Marginal text or POS receipt text (e.g., 'Fecha...') to cross-reference and reconstruct the correct YYYY-MM-DD date. Use logical deduction to fix OCR typos in days, months or years.\n"
@@ -459,14 +469,14 @@ def merge_llm_result_into_invoice(inv: Invoice, llm_dict: dict, force_fields=Non
     fill(inv.payment, llm_dict.get("payment", {}))
 
     raw_breakdown = llm_dict.get("taxBrackets", [])
-    if raw_breakdown and not inv.taxBrackets:
+    if raw_breakdown:
         from app.ocr.schema import TaxBracket
         inv.taxBrackets = [
             TaxBracket(**{k: v for k, v in row.items() if k in TaxBracket.__dataclass_fields__})
             for row in raw_breakdown if isinstance(row, dict)
         ]
 
-    if not inv.items and llm_dict.get("items"):
+    if llm_dict.get("items"):
         from app.ocr.schema import LineItem
         inv.items = [LineItem(**{k: v for k, v in li.items() if k in LineItem.__dataclass_fields__})
                           for li in llm_dict["items"]]
