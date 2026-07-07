@@ -356,6 +356,7 @@ SYSTEM_PROMPT = (
     "DO NOT compute sums for `subtotal` or `tax`. The pipeline does all arithmetic in Python. "
     "Your job is to find and return the raw values printed on the document. "
     "If a field is genuinely absent, completely OMIT it from the JSON to save output tokens.\n"
+    "VAT-INCLUSIVE RULE: If the receipt only shows VAT-inclusive (Gross) prices (e.g. 1,20) and does NOT show a separate Base/Net price, DO NOT mathematically calculate the Base price by subtracting VAT (e.g. do not calculate 0.99). Extract the printed amount (1.20) into BOTH `grossPrice` and `base`.\n"
     "CRITICAL: You may provide your reasoning inside a <think> block, but immediately after it, you MUST output ONLY the raw JSON."
 )
 

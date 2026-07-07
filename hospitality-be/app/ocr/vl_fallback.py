@@ -155,6 +155,7 @@ def extract_with_vl_model(image_bytes: bytes, missing_fields: Optional[list] = N
         "10. EXTREMELY IMPORTANT: Pay close attention to the difference between the GRAND TOTAL (\"TOTAL ALBARAN\", \"TOTAL FACTURA\") and the totals of individual tax brackets. Do NOT confuse a tax bracket total (e.g. 58.08) for the grand total if there is a clear \"TOTAL\" line at the bottom (e.g. 82.72). Make sure subtotal + tax = total!\n"
         "11. ROTATED IMAGES & MISSING ITEMS: The image may be rotated 90 degrees. Read carefully sideways! If you see multiple distinct products, you MUST extract each of them as a separate item in the `items` array. Find the individual price for each product. NEVER use the grand total as a product's price.\n"
         "12. MULTI-COLUMN TABLES: Pay close attention to how products and prices are aligned horizontally. Do NOT copy the same price for all products. Match each product name to its exact corresponding quantity and price on the same horizontal row.\n"
+        "13. VAT-INCLUSIVE PRICING: If the receipt only shows VAT-inclusive (Gross) prices and does NOT show a separate Base/Net price, DO NOT mathematically calculate the Base price by subtracting VAT. Extract the exact printed amount into BOTH `grossPrice` and `base`. For example, if it prints '1.20', extract 1.20, do NOT extract 0.99.\n"
         "OUTPUT FORMAT REQUIREMENT: Your entire response must be a single JSON object. No intro, no outro, no markdown fences."
     )
 
