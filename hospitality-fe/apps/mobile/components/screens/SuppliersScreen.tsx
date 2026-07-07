@@ -13,10 +13,11 @@ import {
 import {
   Search,
   Plus,
-  Users,
+  Truck,
   X,
   AlertCircle,
-  Check
+  Trash2,
+  Edit3
 } from 'lucide-react-native';
 import { useAuthStore } from '../../store/auth';
 import Badge from '../ui/Badge';
@@ -24,39 +25,39 @@ import Button from '../ui/Button';
 import Input from '../ui/Input';
 import ConfirmAlert from '../ui/ConfirmAlert';
 
-export default function StaffLaborScreen() {
+export default function SuppliersScreen() {
   const { apiClient } = useAuthStore();
-  const propertyId = 1; // Default property ID
 
-  const [employees, setEmployees] = useState<any[]>([]);
-  const [positions, setPositions] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Modals state
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
+  const [selectedSupplier, setSelectedSupplier] = useState<any | null>(null);
+
   // Form states
   const [name, setName] = useState('');
+  const [contactName, setContactName] = useState('');
   const [email, setEmail] = useState('');
-  const [positionId, setPositionId] = useState<number | null>(null);
-  const [governmentId, setGovernmentId] = useState('');
-  const [weeklyHours, setWeeklyHours] = useState('');
   const [phone, setPhone] = useState('');
+  const [categoryId, setCategoryId] = useState('');
 
-  // Alert config
+  // Alert / Deletion
+  const [supplierToDelete, setSupplierToDelete] = useState<number | null>(null);
   const [alertConfig, setAlertConfig] = useState<{ title: string; message: string; isSuccess?: boolean } | null>(null);
 
-  const fetchData = async (showLoader = true) => {
+  const fetchSuppliers = async (showLoader = true) => {
     if (showLoader) setLoading(true);
     try {
-      const emps = await apiClient.getStaffEmployees(propertyId);
-      setEmployees(emps || []);
-      const pos = await apiClient.getStaffPositions(propertyId);
-      setPositions(pos || []);
+      const response = await apiClient.get<any[]>('/suppliers');
+      setSuppliers(response.data || []);
+      const cats = await apiClient.getCategories();
+      setCategories(cats);
     } catch (err) {
-      console.error('Error fetching staff costs data:', err);
+      console.error('Error fetching suppliers:', err);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -64,64 +65,85 @@ export default function StaffLaborScreen() {
   };
 
   useEffect(() => {
-    fetchData();
+    fetchSuppliers();
   }, []);
 
   const handleRefresh = () => {
     setRefreshing(true);
-    fetchData(false);
+    fetchSuppliers(false);
   };
 
   const openCreateModal = () => {
+    setSelectedSupplier(null);
     setName('');
+    setContactName('');
     setEmail('');
-    setPositionId(null);
-    setGovernmentId('');
-    setWeeklyHours('');
     setPhone('');
+    setCategoryId('');
     setIsModalOpen(true);
   };
 
-  const handleCreateEmployee = async () => {
+  const openEditModal = (supplier: any) => {
+    setSelectedSupplier(supplier);
+    setName(supplier.name || '');
+    setContactName(supplier.contact_name || '');
+    setEmail(supplier.email || '');
+    setPhone(supplier.phone || '');
+    setCategoryId(supplier.category_id || '');
+    setIsModalOpen(true);
+  };
+
+  const handleSave = async () => {
     if (!name.trim()) return;
 
     const payload = {
       name,
+      contact_name: contactName || null,
       email: email || null,
-      position_id: positionId,
-      government_id: governmentId || null,
-      weekly_hours: weeklyHours ? parseFloat(weeklyHours) : null,
       phone: phone || null,
-      active: true
+      category_id: categoryId || null
     };
 
     try {
-      await apiClient.createStaffEmployee(propertyId, payload);
+      if (selectedSupplier) {
+        // Edit
+        await apiClient.put(`/suppliers/${selectedSupplier.id}`, payload);
+        setAlertConfig({ title: 'Success', message: 'Supplier updated successfully', isSuccess: true });
+      } else {
+        // Create
+        await apiClient.post('/suppliers', payload);
+        setAlertConfig({ title: 'Success', message: 'Supplier created successfully', isSuccess: true });
+      }
       setIsModalOpen(false);
-      setAlertConfig({ title: 'Success', message: 'Employee added successfully', isSuccess: true });
-      fetchData(false);
+      fetchSuppliers(false);
     } catch (err) {
       console.error(err);
-      setAlertConfig({ title: 'Error', message: 'Failed to add employee' });
+      setAlertConfig({ title: 'Error', message: 'Failed to save supplier' });
     }
   };
 
-  const handleToggleActive = async (id: number, currentStatus: boolean) => {
+  const handleDelete = async (id: number) => {
     try {
-      await apiClient.updateStaffEmployee(propertyId, id, { active: !currentStatus });
-      setEmployees((prev) =>
-        prev.map((emp) => (emp.id === id ? { ...emp, active: !currentStatus } : emp))
-      );
-    } catch (err) {
-      console.error('Failed to toggle status:', err);
+      await apiClient.delete(`/suppliers/${id}`);
+      setSuppliers((prev) => prev.filter((s) => s.id !== id));
+      setAlertConfig({ title: 'Success', message: 'Supplier deleted successfully', isSuccess: true });
+    } catch (err: any) {
+      console.error(err);
+      // Detailed error if blocked by constraints
+      setAlertConfig({
+        title: 'Delete Blocked',
+        message: 'This supplier cannot be deleted because it has linked products in the catalog.'
+      });
+    } finally {
+      setSupplierToDelete(null);
     }
   };
 
-  const filteredEmployees = employees.filter((emp) => {
+  const filteredSuppliers = suppliers.filter((s) => {
     if (searchQuery.trim()) {
       return (
-        emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (emp.email && emp.email.toLowerCase().includes(searchQuery.toLowerCase()))
+        s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (s.contact_name && s.contact_name.toLowerCase().includes(searchQuery.toLowerCase()))
       );
     }
     return true;
@@ -140,26 +162,14 @@ export default function StaffLaborScreen() {
       
       {/* Header Bar */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={{ fontSize: 26, fontWeight: '700', color: '#151515', fontFamily: 'Sora' }}>Staff Costs</Text>
+        <Text style={{ fontSize: 26, fontWeight: '700', color: '#151515', fontFamily: 'Sora' }}>Suppliers</Text>
         <TouchableOpacity
           onPress={openCreateModal}
           style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#151515', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 }}
         >
           <Plus size={14} color="#ffffff" />
-          <Text style={{ fontSize: 11, fontWeight: '600', color: '#ffffff', fontFamily: 'Sora' }}>Add Employee</Text>
+          <Text style={{ fontSize: 11, fontWeight: '600', color: '#ffffff', fontFamily: 'Sora' }}>Add Supplier</Text>
         </TouchableOpacity>
-      </View>
-
-      {/* Stats Summary Ribbon */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
-        <View style={[styles.statCard, { flex: 1 }]}>
-          <Text style={styles.statLabel}>Total Staff</Text>
-          <Text style={styles.statValue}>{employees.length} Members</Text>
-        </View>
-        <View style={[styles.statCard, { flex: 1 }]}>
-          <Text style={styles.statLabel}>Active Staff</Text>
-          <Text style={styles.statValue}>{employees.filter((e) => e.active).length} Active</Text>
-        </View>
       </View>
 
       {/* Search Bar */}
@@ -175,7 +185,7 @@ export default function StaffLaborScreen() {
       }}>
         <Search size={16} color="#8c8c89" style={{ marginRight: 8 }} />
         <TextInput
-          placeholder="Search by name, email..."
+          placeholder="Search suppliers..."
           value={searchQuery}
           onChangeText={setSearchQuery}
           placeholderTextColor="#8c8c89"
@@ -183,16 +193,16 @@ export default function StaffLaborScreen() {
         />
       </View>
 
-      {/* Employee List */}
+      {/* Suppliers List */}
       <FlatList
-        data={filteredEmployees}
+        data={filteredSuppliers}
         keyExtractor={(item) => String(item.id)}
         refreshing={refreshing}
         onRefresh={handleRefresh}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 80 }}
         renderItem={({ item }) => {
-          const matchedPosition = positions.find((p) => p.id === item.position_id);
+          const matchedCategory = categories.find((c) => c.category_id === item.category_id);
           return (
             <View style={{
               backgroundColor: '#ffffff',
@@ -211,85 +221,79 @@ export default function StaffLaborScreen() {
               elevation: 1,
             }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, marginRight: 8 }}>
-                <View style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  backgroundColor: item.active ? '#e6f4ec' : '#f1f0ec',
-                  justifyContent: 'center',
-                  alignItems: 'center'
-                }}>
-                  <Users size={20} color={item.active ? '#1f8f5c' : '#8c8c89'} />
+                <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: '#e6f4ec', justifyContent: 'center', alignItems: 'center' }}>
+                  <Truck size={20} color="#1f8f5c" />
                 </View>
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '700', color: '#151515', fontFamily: 'Sora' }}>
                     {item.name}
                   </Text>
-                  <Text numberOfLines={1} style={{ fontSize: 10, color: '#8c8c89', fontFamily: 'Sora' }}>
-                    {matchedPosition?.name || 'Waiter/Waitress'} · {item.email || 'No email'}
-                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                    {matchedCategory?.name && (
+                      <Badge label={matchedCategory.name} variant="info" />
+                    )}
+                    {item.contact_name && (
+                      <Text style={{ fontSize: 10, color: '#8c8c89', fontFamily: 'Sora' }}>
+                        Contact: {item.contact_name}
+                      </Text>
+                    )}
+                  </View>
                 </View>
               </View>
 
-              <TouchableOpacity
-                onPress={() => handleToggleActive(item.id, item.active)}
-                style={{
-                  backgroundColor: item.active ? '#e6f4ec' : '#f1f0ec',
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: 8,
-                  borderWidth: 1,
-                  borderColor: item.active ? '#1f8f5c' : '#e2e1dd'
-                }}
-              >
-                <Text style={{ fontSize: 11, fontWeight: '700', color: item.active ? '#1f8f5c' : '#8c8c89', fontFamily: 'Sora' }}>
-                  {item.active ? 'Active' : 'Inactive'}
-                </Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TouchableOpacity onPress={() => openEditModal(item)} style={{ padding: 4 }}>
+                  <Edit3 size={15} color="#8c8c89" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setSupplierToDelete(item.id)} style={{ padding: 4 }}>
+                  <Trash2 size={15} color="#b23a3a" />
+                </TouchableOpacity>
+              </View>
             </View>
           );
         }}
         ListEmptyComponent={() => (
           <View style={{ padding: 32, alignItems: 'center', gap: 10, marginTop: 20 }}>
             <AlertCircle size={32} color="#8c8c89" />
-            <Text style={{ fontSize: 13, fontWeight: '600', color: '#151515', fontFamily: 'Sora' }}>No employees found</Text>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: '#151515', fontFamily: 'Sora' }}>No suppliers found</Text>
           </View>
         )}
       />
 
-      {/* Add Employee Modal */}
+      {/* Create/Edit Modal */}
       <Modal visible={isModalOpen} animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalHeaderTitle}>Add Employee</Text>
+            <Text style={styles.modalHeaderTitle}>
+              {selectedSupplier ? 'Edit Supplier' : 'Create Supplier'}
+            </Text>
             <TouchableOpacity onPress={() => setIsModalOpen(false)}>
               <X size={20} color="#151515" />
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={styles.modalBody}>
-            <Input label="Name" value={name} onChangeText={setName} placeholder="e.g. Captain Haddock" />
+            <Input label="Supplier Name" value={name} onChangeText={setName} placeholder="e.g. Makro" />
+            <Input label="Contact Person" value={contactName} onChangeText={setContactName} placeholder="e.g. John Doe" />
             <Input label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" />
             <Input label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
-            <Input label="Government ID" value={governmentId} onChangeText={setGovernmentId} placeholder="DNI/NIE" />
-            <Input label="Weekly Hours" value={weeklyHours} onChangeText={setWeeklyHours} keyboardType="numeric" />
-
-            <Text style={styles.inputLabel}>Position / Role</Text>
+            
+            <Text style={styles.inputLabel}>Category</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, marginVertical: 6 }}>
-              {positions.map((pos) => (
+              {categories.map((cat) => (
                 <TouchableOpacity
-                  key={pos.id}
-                  onPress={() => setPositionId(pos.id)}
+                  key={cat.id}
+                  onPress={() => setCategoryId(cat.category_id)}
                   style={{
                     paddingHorizontal: 12,
                     paddingVertical: 8,
                     borderRadius: 8,
-                    backgroundColor: positionId === pos.id ? '#151515' : '#ffffff',
+                    backgroundColor: categoryId === cat.category_id ? '#151515' : '#ffffff',
                     borderWidth: 1,
-                    borderColor: positionId === pos.id ? '#151515' : '#e2e1dd'
+                    borderColor: categoryId === cat.category_id ? '#151515' : '#e2e1dd'
                   }}
                 >
-                  <Text style={{ fontSize: 12, fontWeight: '600', color: positionId === pos.id ? '#ffffff' : '#151515', fontFamily: 'Sora' }}>
-                    {pos.name}
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: categoryId === cat.category_id ? '#ffffff' : '#151515', fontFamily: 'Sora' }}>
+                    {cat.name}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -297,11 +301,23 @@ export default function StaffLaborScreen() {
 
             <View style={{ flexDirection: 'row', gap: 12, marginTop: 24 }}>
               <Button title="Cancel" onPress={() => setIsModalOpen(false)} variant="secondary" style={{ flex: 1 }} />
-              <Button title="Save Employee" onPress={handleCreateEmployee} style={{ flex: 1 }} />
+              <Button title="Save Supplier" onPress={handleSave} style={{ flex: 1 }} />
             </View>
           </ScrollView>
         </View>
       </Modal>
+
+      {/* Delete Supplier Confirm */}
+      <ConfirmAlert
+        visible={supplierToDelete !== null}
+        title="Delete Supplier"
+        message="Are you sure you want to delete this supplier? This will remove all delivery configurations."
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={() => supplierToDelete !== null && handleDelete(supplierToDelete)}
+        onCancel={() => setSupplierToDelete(null)}
+        variant="danger"
+      />
 
       {/* Custom Alerts */}
       <ConfirmAlert
@@ -349,31 +365,5 @@ const styles = StyleSheet.create({
   },
   modalBody: {
     padding: 20,
-  },
-  statCard: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e2e1dd',
-    padding: 12,
-    borderRadius: 10,
-    shadowColor: '#151515',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  statLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#8c8c89',
-    textTransform: 'uppercase',
-    fontFamily: 'Sora',
-    marginBottom: 4,
-  },
-  statValue: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#151515',
-    fontFamily: 'DM Mono',
   },
 });

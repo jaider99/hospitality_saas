@@ -33,21 +33,15 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      // Set Zustand State with mock data to bypass active API check
-      login({
-        user: {
-          id: 'demo-user-id',
-          name: 'Demo Manager',
-          role: 'gm',
-          email: email || 'manager@venue.com',
-          status: 'active',
-          createdAt: new Date().toISOString()
-        },
-        accessToken: 'test-token-123',
-        refreshToken: 'test-refresh-123'
-      });
+      // 2. Call the real login method of the ApiClient
+      const { apiClient } = useAuthStore.getState();
+      const authData = await apiClient.login({ email, password });
+      
+      // 3. Set Zustand State with the real backend JWT token and user details
+      await login(authData);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Login failed. Please check credentials.');
+      console.error('Login failed:', err);
+      setError(err.response?.data?.detail || err.message || 'Login failed. Please check credentials.');
     } finally {
       setLoading(false);
     }

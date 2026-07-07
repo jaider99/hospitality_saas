@@ -42,17 +42,31 @@ def register(
     return user
 
 @router.post("/login", response_model=Token)
-def login(
+async def login(
     dto: UserLogin, 
     db: Session = Depends(get_db),
     lang: str = Depends(get_lang)
 ):
-    """Authenticates credentials and issues a JWT token."""
-    user = get_user_by_email(db, dto.email)
-    if not user or not verify_password(dto.password, user.password):
+    """Authenticates credentials via SuperTokens and issues a JWT token."""
+    from supertokens_python.recipe.emailpassword.asyncio import sign_in as st_sign_in
+    from supertokens_python.recipe.emailpassword.interfaces import SignInOkResult
+
+    normalized_email = dto.email.lower().strip()
+
+    # 1. Authenticate with SuperTokens
+    st_res = await st_sign_in("public", normalized_email, dto.password)
+    if not isinstance(st_res, SignInOkResult):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=translate("invalid_credentials", lang)
+        )
+
+    # 2. Retrieve local database user record
+    user = get_user_by_email(db, normalized_email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found in local database"
         )
         
     payload = {"email": user.email, "sub": str(user.id), "role": user.role}
