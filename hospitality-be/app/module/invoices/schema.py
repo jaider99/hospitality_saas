@@ -145,6 +145,7 @@ class InvoiceDetailsResponse(BaseModel):
     issue_date: Optional[datetime] = None
     total_amount: float = 0.0
     status: str
+    category: Optional[str] = None
     is_duplicate: Optional[bool] = False
     supplier: Optional[SupplierBase] = None
     lines: List[InvoiceLineDetails] = []

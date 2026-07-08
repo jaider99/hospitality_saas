@@ -99,11 +99,15 @@ services:
       REDIS_URL: "redis://hospitality-redis:6379"
       MINIO_ENDPOINT_URL: "http://hospitality-minio:9000"
       SUPERTOKENS_CONNECTION_URI: "http://hospitality-supertokens:3567"
+      BACKEND_URL: "http://hospitality-backend:8000"
     depends_on:
       - postgres
       - qdrant
       - redis
       - minio
+    volumes:
+      - ./ocr_results:/app/ocr_results
+      - ./app:/app/app
 
 volumes:
   postgres_data:

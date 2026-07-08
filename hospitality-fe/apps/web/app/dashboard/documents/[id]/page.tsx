@@ -114,7 +114,7 @@ export default function DocumentDetailPage() {
   const [docType, setDocType] = useState('Invoice');
   const [docNum, setDocNum] = useState('');
   const [docDate, setDocDate] = useState('');
-  const [docCategory] = useState('Marketing and communication');
+  const [docCategory, setDocCategory] = useState('No Category');
 
   const [editTotals, setEditTotals] = useState(false);
   const [editLines, setEditLines] = useState(false);
@@ -180,6 +180,7 @@ export default function DocumentDetailPage() {
           setIbee(data.ibee || 0);
           setAttributableCost(data.attributable_cost || 0);
           setTaxFreeCosts(data.tax_free_costs || 0);
+          setDocCategory(data.category || 'No Category');
           setLinesData(data.lines || []);
           setVatData(data.tax_brackets || []);
         }
@@ -561,7 +562,7 @@ export default function DocumentDetailPage() {
 
                 return (
                   <p>
-                    Gemini flagged this document because some fields require human validation.
+                    The AI flagged this document because some fields require human validation.
                     Common reasons include missing supplier matching or low confidence scores.
                   </p>
                 );

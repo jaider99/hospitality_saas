@@ -126,6 +126,7 @@ async def async_save_ocr_invoice(
     invoice.supplier_contact_count = supplier_contacts_count
     invoice.supplier_contact_info = supplier_contact_info
     invoice.supplier_legal_name = supplier_legal_name
+    invoice.category = getattr(ocr_invoice, 'categoryID', None)
 
     # OCR totals
     invoice.base_amount = getattr(ocr_invoice, 'subtotal', 0.0)
