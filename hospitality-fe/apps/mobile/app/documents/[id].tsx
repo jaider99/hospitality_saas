@@ -8,7 +8,8 @@ import {
   StyleSheet,
   TextInput,
   Modal,
-  Linking
+  Linking,
+  Image
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -97,6 +98,37 @@ export default function DocumentDetailPage() {
       fetchDetails();
     }
   }, [id]);
+
+  useEffect(() => {
+    if (!id || !invoice) return;
+    if (invoice.status !== 'PENDING' && invoice.status !== 'processing') return;
+
+    const pollStatus = async () => {
+      try {
+        const data = await apiClient.getInvoiceDetails(Number(id));
+        if (data) {
+          setInvoice(data);
+          setSupplierName(data.supplier_display_name || data.supplier?.name || '');
+          setSupplierLegalName(data.supplier_legal_name || data.supplier?.legal_name || '');
+          setSupplierVatId(data.supplier_tax_id || data.supplier?.vat_id || '');
+          setDocNum(data.document_number || data.invoice_number || '');
+          setDocDate(data.issue_date ? data.issue_date.split('T')[0] : '');
+          setDocType(data.document_type || 'Invoice');
+          setBaseAmount(data.base_amount || data.total_amount || 0);
+          setVatAmount(data.iva_amount || 0);
+          setDiscount(data.discount || 0);
+        }
+      } catch (err) {
+        console.warn('Error polling invoice detail:', err);
+      }
+    };
+
+    const interval = setInterval(() => {
+      pollStatus();
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [id, invoice?.status]);
 
   const handleSaveSupplier = async () => {
     try {
@@ -346,6 +378,30 @@ export default function DocumentDetailPage() {
             </View>
           </View>
         )}
+
+        {/* Inline Image Preview */}
+        {(() => {
+          const ext = (invoice.source_file || invoice.file_url || '').split('.').pop()?.toLowerCase();
+          const isImg = ['png', 'jpg', 'jpeg', 'webp'].includes(ext || '');
+          if (isImg && invoice.file_url) {
+            return (
+              <View style={[styles.card, { alignItems: 'center', gap: 10, padding: 10 }]}>
+                <Image
+                  source={{ uri: invoice.file_url }}
+                  style={{ width: '100%', height: 240, borderRadius: 10, backgroundColor: '#f1f0ec' }}
+                  resizeMode="contain"
+                />
+                <TouchableOpacity onPress={handleViewDocument} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Eye size={14} color="#2f6bb0" />
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: '#2f6bb0', fontFamily: 'Sora' }}>
+                    View Full Screen
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            );
+          }
+          return null;
+        })()}
 
         {/* Basic Metadata Info */}
         <View style={styles.card}>

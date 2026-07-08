@@ -31,7 +31,18 @@ interface LayoutState {
   setIsPlayingIdx: (idx: number | null) => void;
   handleChatSend: (text?: string) => void;
   handleMicPress: () => void;
+
+  // Invoices & Upload States
+  invoices: any[];
+  loadingInvoices: boolean;
+  refreshingInvoices: boolean;
+  fetchInvoices: (showLoader?: boolean) => Promise<void>;
+  uploadInvoiceFile: (uri: string, name: string, mimeType: string) => Promise<void>;
+  deleteInvoice: (id: number) => Promise<void>;
 }
+
+import { useAuthStore } from './auth';
+import { router } from 'expo-router';
 
 export const useLayoutStore = create<LayoutState>((set, get) => ({
   sidebarOpen: false,
@@ -40,6 +51,147 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
   setFabOpen: (fabOpen) => set({ fabOpen }),
   chatOpen: false,
   setChatOpen: (chatOpen) => set({ chatOpen }),
+
+  invoices: [],
+  loadingInvoices: true,
+  refreshingInvoices: false,
+
+  fetchInvoices: async (showLoader = true) => {
+    const { apiClient } = useAuthStore.getState();
+    if (!apiClient) return;
+
+    if (showLoader) set({ loadingInvoices: true });
+    try {
+      const data = await apiClient.getInvoices();
+      if (Array.isArray(data)) {
+        const mapped = data.map((inv: any) => ({
+          id: inv.id,
+          supplier: inv.supplier_display_name || inv.supplier?.name || 'Unknown Supplier',
+          docNum: inv.document_number || inv.invoice_number || '—',
+          date: inv.document_date
+            ? new Date(inv.document_date).toLocaleDateString('en-US', {
+                month: '2-digit',
+                day: '2-digit',
+                year: 'numeric'
+              })
+            : inv.issue_date
+              ? new Date(inv.issue_date).toLocaleDateString('en-US', {
+                  month: '2-digit',
+                  day: '2-digit',
+                  year: 'numeric'
+                })
+              : '—',
+          rawDate: inv.document_date || inv.issue_date || null,
+          uploadDate: inv.created_at
+            ? new Date(inv.created_at).toLocaleDateString('en-US', {
+                month: '2-digit',
+                day: '2-digit',
+                year: 'numeric'
+              })
+            : new Date().toLocaleDateString('en-US', {
+                month: '2-digit',
+                day: '2-digit',
+                year: 'numeric'
+              }),
+          amount: inv.total_amount || inv.total_with_iva || 0.0,
+          type: inv.document_type || 'Invoice',
+          status: inv.needs_review
+            ? 'flagged'
+            : (inv.status === 'PROCESSED' || inv.status === 'completed')
+              ? 'completed'
+              : inv.status === 'FAILED'
+                ? 'rejected'
+                : 'processing',
+          icon: 'invoice',
+          paymentStatus: inv.payment_status || 'Pending',
+          userInitials: (inv.uploaded_by || 'SYS').slice(0, 2).toUpperCase(),
+          ocrConfidence: inv.ocr_confidence,
+          currency: inv.currency || 'EUR',
+          isDuplicate: inv.is_duplicate,
+          reviewReasons: inv.review_reasons,
+        }));
+        set({ invoices: mapped });
+      }
+    } catch (error) {
+      console.error("Error fetching invoices:", error);
+    } finally {
+      set({ loadingInvoices: false, refreshingInvoices: false });
+    }
+  },
+
+  uploadInvoiceFile: async (uri, name, mimeType) => {
+    const { apiClient, user } = useAuthStore.getState();
+    if (!apiClient) return;
+
+    // Add temporary local placeholder
+    const tempId = `temp-${Date.now()}`;
+    const placeholder = {
+      id: tempId,
+      supplier: '—',
+      docNum: name || 'document',
+      date: '—',
+      uploadDate: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }),
+      amount: 0.0,
+      type: 'Invoice',
+      status: 'processing',
+      paymentStatus: 'Pending',
+      userInitials: (user?.name || 'SYS').slice(0, 2).toUpperCase(),
+    };
+
+    set((state) => ({ invoices: [placeholder, ...state.invoices] }));
+
+    // Automatically navigate to documents tab
+    router.push('/(tabs)/documents');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', {
+        uri,
+        name: name || 'invoice.pdf',
+        type: mimeType || 'application/pdf',
+      } as any);
+
+      const uploadRes = await apiClient.uploadInvoice(formData);
+
+      set((state) => ({
+        invoices: state.invoices.map((d) =>
+          d.id === tempId
+            ? {
+                ...d,
+                id: uploadRes.invoiceId,
+                supplier: uploadRes.supplierName || 'Unknown Supplier',
+                amount: uploadRes.totalAmount || 0,
+                status: 'processing'
+              }
+            : d
+        )
+      }));
+
+      await get().fetchInvoices(false);
+    } catch (err) {
+      console.error("Upload failed", err);
+      set((state) => ({
+        invoices: state.invoices.map((d) =>
+          d.id === tempId ? { ...d, status: 'rejected' } : d
+        )
+      }));
+      throw err;
+    }
+  },
+
+  deleteInvoice: async (id) => {
+    const { apiClient } = useAuthStore.getState();
+    if (!apiClient) return;
+    try {
+      await apiClient.deleteInvoice(id);
+      set((state) => ({
+        invoices: state.invoices.filter((d) => d.id !== id)
+      }));
+    } catch (err) {
+      console.error(err);
+      throw err;
+    }
+  },
 
   incidents: initialIncidents,
   setIncidents: (incidents) => set({ incidents }),

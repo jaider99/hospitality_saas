@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { getApiClient } from '../../../../store/auth';
 import ConfirmModal from '../../suppliers/_components/ConfirmModal';
+import { getMinioUrlAction } from '../../../auth/actions';
 
 interface SupplierData {
   id?: number;
@@ -84,6 +85,7 @@ interface InvoiceDetail {
   attributable_cost?: number;
   tax_free_costs?: number;
   source_file?: string;
+  file_url?: string;
   review_reasons?: string;
   ocr_time?: number;
   llm_time?: number;
@@ -137,6 +139,21 @@ export default function DocumentDetailPage() {
   const [zoomLevel, setZoomLevel] = useState(1);
   const handleZoomIn = () => setZoomLevel((prev) => Math.min(prev + 0.5, 4));
   const handleZoomOut = () => setZoomLevel((prev) => Math.max(prev - 0.5, 0.5));
+
+  const [minioUrl, setMinioUrl] = useState<string>('');
+
+  // Load MinIO URL dynamically at runtime to support Docker/production settings
+  useEffect(() => {
+    async function loadMinioUrl() {
+      try {
+        const url = await getMinioUrlAction();
+        setMinioUrl(url);
+      } catch (err) {
+        console.error('Failed to load MinIO URL:', err);
+      }
+    }
+    loadMinioUrl();
+  }, []);
 
   // Load Invoice Details from Backend
   useEffect(() => {
@@ -297,12 +314,11 @@ export default function DocumentDetailPage() {
   };
 
   // MinIO preview URL
-  const backendFileUrl = invoice.source_file || '';
-  const fileExtension = backendFileUrl.split('.').pop()?.toLowerCase() || 'pdf';
+  const backendFileUrl = invoice.file_url || invoice.source_file || '';
+  const fileExtension = (invoice.source_file || '').split('.').pop()?.toLowerCase() || 'pdf';
 
   // If backend didn't provide a full URL, fallback to local minio construct
   const objectName = `invoice_${invoice.id}.${fileExtension}`;
-  const minioUrl = process.env.NEXT_PUBLIC_MINIO_URL || 'http://localhost:9012';
   const fileUrl = backendFileUrl.startsWith('http')
     ? backendFileUrl
     : `${minioUrl}/invoices/${objectName}?cb=${Date.now()}`;

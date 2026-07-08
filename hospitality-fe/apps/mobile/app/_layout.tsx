@@ -1,3 +1,10 @@
+// Polyfill for Hermes Reflect.construct.apply missing method
+if (typeof Reflect !== 'undefined' && !(Reflect.construct as any).apply) {
+  (Reflect.construct as any).apply = function (self: any, args: any) {
+    return (Reflect.construct as any)(...args);
+  };
+}
+
 import React, { useEffect, useState } from 'react';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';

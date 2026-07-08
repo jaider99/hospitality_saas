@@ -21,6 +21,13 @@ RUN yarn install
 # Copy source code files
 COPY . .
 
+# Set build-time env variables for Next.js build
+ARG NEXT_PRIVATE_API_URL
+ENV NEXT_PRIVATE_API_URL=$NEXT_PRIVATE_API_URL
+
+ARG NEXT_PUBLIC_MINIO_URL
+ENV NEXT_PUBLIC_MINIO_URL=$NEXT_PUBLIC_MINIO_URL
+
 # Compile workspace and build Next.js Web application using Turborepo
 RUN npx turbo run build --filter=web
 
