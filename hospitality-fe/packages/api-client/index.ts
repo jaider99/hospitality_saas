@@ -446,6 +446,10 @@ export class ApiClient {
     await this.instance.delete(`/products/${productId}`);
   }
 
+  async bulkDeleteProducts(productIds: string[]): Promise<void> {
+    await this.instance.post('/products/bulk-delete', { product_ids: productIds });
+  }
+
   async toggleProductBookmark(productId: string): Promise<{ product_id: string; bookmarked: boolean }> {
     const res = await this.instance.patch<{ product_id: string; bookmarked: boolean }>(`/products/${productId}/bookmark`);
     return res.data;

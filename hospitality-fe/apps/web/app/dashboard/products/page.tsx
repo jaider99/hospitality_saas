@@ -33,7 +33,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { DateRange } from 'react-day-picker';
 import { format } from 'date-fns';
 import { cn } from '@/components/ui/utils';
-import ConfirmModal from '../suppliers/_components/ConfirmModal';
 
 interface Category {
   id: number;
@@ -62,6 +61,9 @@ export default function ProductsPage() {
   const [configTab, setConfigTab] = useState<'general' | 'prices' | 'formats' | 'consumption'>(
     'prices'
   );
+
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
 
   // Data lists
   const [products, setProducts] = useState<any[]>([]);
@@ -414,6 +416,39 @@ export default function ProductsPage() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    try {
+      setLoading(true);
+      const client = getApiClient();
+      await client.bulkDeleteProducts(selectedIds);
+      setSelectedIds([]);
+      setIsBulkDeleteModalOpen(false);
+      loadData();
+    } catch (err: any) {
+      console.error('Failed to bulk delete products:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === products.length && products.length > 0) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(products.map((p) => p.id));
+    }
+  };
+
+  const toggleSelectId = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (selectedIds.includes(id)) {
+      setSelectedIds(selectedIds.filter((x) => x !== id));
+    } else {
+      setSelectedIds([...selectedIds, id]);
+    }
+  };
+
   // Review Queue: Unify
   const handleUnify = async (lineId: number, productId: string) => {
     try {
@@ -670,6 +705,16 @@ export default function ProductsPage() {
               >
                 {order === 'asc' ? '↑' : '↓'}
               </button>
+
+              {selectedIds.length > 0 && (
+                <button
+                  onClick={() => setIsBulkDeleteModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 bg-[#fceaea] border border-[#ffb4ab] text-[#b23a3a] rounded-xl hover:bg-[#ffb4ab]/30 transition-colors"
+                >
+                  <Trash2 size={13} />
+                  <span>Delete selected ({selectedIds.length})</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -687,7 +732,15 @@ export default function ProductsPage() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
-                      <th className="w-12 py-3 px-4"></th>
+                      <th className="w-12 py-3 px-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.length === products.length && products.length > 0}
+                          onChange={toggleSelectAll}
+                          className="w-4 h-4 rounded border-border text-[#151515] focus:ring-primary/20 cursor-pointer"
+                        />
+                      </th>
+                      <th className="w-12 py-3 px-4 text-center"></th>
                       <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Product
                       </th>
@@ -723,6 +776,14 @@ export default function ProductsPage() {
                           onClick={() => handleProductClick(p.id)}
                           className="hover:bg-muted/40 transition-colors cursor-pointer group"
                         >
+                          <td className="py-4 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.includes(p.id)}
+                              onChange={(e: any) => toggleSelectId(p.id, e)}
+                              className="w-4 h-4 rounded border-border text-[#151515] focus:ring-primary/20 cursor-pointer"
+                            />
+                          </td>
                           <td className="py-4 px-4 text-center">
                             <button
                               onClick={(e) => handleToggleBookmark(p.id, e)}
@@ -790,7 +851,7 @@ export default function ProductsPage() {
                     })}
                     {products.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="text-center py-12 text-sm text-muted-foreground">
+                        <td colSpan={9} className="text-center py-12 text-sm text-muted-foreground">
                           No products matched your active filters.
                         </td>
                       </tr>
@@ -893,10 +954,12 @@ export default function ProductsPage() {
                         {
                           exact:
                             'bg-green-50 border-green-200 text-green-700 dark:bg-green-950/20 dark:border-green-800/30 dark:text-green-400',
+                          llm_suggested:
+                            'bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-950/20 dark:border-purple-800/30 dark:text-purple-400',
                           possibly_different:
                             'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950/20 dark:border-amber-800/30 dark:text-amber-400',
                           looks_different: 'bg-muted border-border text-muted-foreground'
-                        }[sim.confidence as 'exact' | 'possibly_different' | 'looks_different'] ||
+                        }[sim.confidence as 'exact' | 'llm_suggested' | 'possibly_different' | 'looks_different'] ||
                         'bg-muted border-border text-muted-foreground';
 
                       return (
@@ -909,8 +972,8 @@ export default function ProductsPage() {
                               <span className="font-semibold text-sm truncate">
                                 {sim.product_name}
                               </span>
-                              <span className="text-[10px] font-bold uppercase px-1.5 py-0.2 bg-white/70 rounded shadow-sm leading-none border border-black/5">
-                                {sim.confidence.replace('_', ' ')}
+                              <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 bg-white/70 rounded shadow-sm leading-none border border-black/5">
+                                {sim.confidence === 'llm_suggested' ? 'Possible match' : sim.confidence.replace('_', ' ')}
                               </span>
                             </div>
                             <p className="text-xs opacity-80 mt-0.5 font-mono">
@@ -2086,13 +2149,26 @@ export default function ProductsPage() {
 
       <ConfirmModal
         isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
         onConfirm={() => {
-          if (productDetail) handleDeleteProduct(productDetail.id);
+          if (productDetail) {
+            handleDeleteProduct(productDetail.id);
+          }
         }}
-        onCancel={() => setIsDeleteModalOpen(false)}
         title="Delete Product"
-        message={`Are you sure you want to delete ${productDetail?.name || 'this product'}? This action cannot be undone.`}
+        message={`Are you sure you want to delete ${productDetail?.name}? This action cannot be undone.`}
         confirmText="Delete"
+        cancelText="Cancel"
+      />
+
+      <ConfirmModal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => setIsBulkDeleteModalOpen(false)}
+        onCancel={() => setIsBulkDeleteModalOpen(false)}
+        onConfirm={handleBulkDelete}
+        title="Delete Selected Products"
+        message={`Are you sure you want to delete the ${selectedIds.length} selected products? This action cannot be undone.`}
+        confirmText="Delete All"
         cancelText="Cancel"
       />
     </div>

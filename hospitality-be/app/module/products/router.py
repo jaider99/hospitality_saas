@@ -117,6 +117,23 @@ def delete_product(product_id: str, db: Session = Depends(get_session)):
         raise HTTPException(status_code=400, detail=str(e))
     return None
 
+from pydantic import BaseModel
+class BulkDeleteProductsRequest(BaseModel):
+    product_ids: List[str]
+
+@router.post(
+    "/products/bulk-delete",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Bulk Delete Products",
+    tags=["Products & Inventory"],
+)
+def bulk_delete_products(payload: BulkDeleteProductsRequest, db: Session = Depends(get_session)):
+    try:
+        service.bulk_delete_products(db, payload.product_ids)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return None
+
 @router.get(
     "/products",
     response_model=ProductListResponse,

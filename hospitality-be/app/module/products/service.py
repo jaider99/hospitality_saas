@@ -100,6 +100,13 @@ def delete_product(db: Session, product_id: str) -> None:
     db.commit()
 
 
+def bulk_delete_products(db: Session, product_ids: List[str]) -> None:
+    products = db.query(Product).filter(Product.id.in_(product_ids)).all()
+    for product in products:
+        db.delete(product)
+    db.commit()
+
+
 def create_product_manual(db: Session, data: "ProductManualCreate") -> Product:
     """
     Manual product creation (from the 'Create product manually' UI form).
@@ -605,7 +612,20 @@ def get_review_queue(
         supplier_name = invoice.supplier_display_name if invoice else ""
 
         # Find similar products (by name prefix match, same supplier)
-        similar = _find_similar_products(db, line.description or "", supplier_name)
+        similar = []
+        if line.suggested_product_id:
+            suggested_prod = db.get(Product, line.suggested_product_id)
+            if suggested_prod:
+                similar.append({
+                    "product_id": suggested_prod.id,
+                    "product_name": suggested_prod.name,
+                    "unit_of_measure": suggested_prod.unit_of_measure,
+                    "last_price": suggested_prod.last_price,
+                    "confidence": "llm_suggested",
+                    "ai_confidence_score": line.suggested_confidence
+                })
+        else:
+            similar = _find_similar_products(db, line.description or "", supplier_name)
 
         result.append({
             "line_id": line.id,
@@ -722,6 +742,20 @@ def unify_line_with_product(
         product.last_price = line.unit_price
         product.updated_at = datetime.utcnow()
         db.add(product)
+
+    # Create ProductAlias so AI auto-matches this in the future
+    from app.module.products.model import ProductAlias
+    
+    existing_alias = db.exec(
+        select(ProductAlias).where(ProductAlias.alias_name == line.description.lower())
+    ).first()
+    
+    if not existing_alias:
+        new_alias = ProductAlias(
+            alias_name=line.description.lower(),
+            master_product_id=product_id
+        )
+        db.add(new_alias)
 
     db.commit()
     return {

@@ -197,6 +197,10 @@ class InvoiceLine(SQLModel, table=True):
     gra: Optional[float] = Field(default=None)
     u_m: Optional[float] = Field(default=None)
 
+    # --- AI Suggested Match fields ---
+    suggested_product_id: Optional[str] = Field(default=None)
+    suggested_confidence: Optional[int] = Field(default=None)
+
     # Relationships
     invoice: Invoice = Relationship(back_populates="lines")
     product_rel: Optional[SuppliedProduct] = Relationship(

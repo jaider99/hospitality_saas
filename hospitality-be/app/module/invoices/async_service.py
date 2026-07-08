@@ -177,18 +177,24 @@ async def async_save_ocr_invoice(
             "line_ref": line
         })
     
-    mapped_items = await match_invoice_items(db, current_supplier_id, items_to_map)
+    mapped_items = await match_invoice_items(db, current_supplier_id, items_to_map, invoice_id)
     
     # Process the mappings and create new products
     resolved_product_ids = {}  # Map line item name to existing/new product_id
     for mapped in mapped_items:
+        item_name = mapped["name"]
+        
+        # Prevent duplicate products from being created for identical line items
+        if item_name in resolved_product_ids:
+            continue
+            
         match_type = mapped.get("match_type")
         if match_type == "none":
             new_prod_id = f"prod~{uuid.uuid4().hex[:16]}"
-            logger.info(f"Creating brand new catalog product '{mapped['name']}' ({new_prod_id})...")
+            logger.warning(f"Creating brand new catalog product '{item_name}' ({new_prod_id})...")
             new_product = Product(
                 id=new_prod_id,
-                name=mapped["name"],
+                name=item_name,
                 status="ACTIVE",
                 reference_price=mapped.get("price", 0.0)
             )
@@ -201,9 +207,9 @@ async def async_save_ocr_invoice(
                 supplier_id=current_supplier_id,
             )
             db.add(product_supplier)
-            resolved_product_ids[mapped["name"]] = new_prod_id
+            resolved_product_ids[item_name] = new_prod_id
         elif match_type == "exact":
-            resolved_product_ids[mapped["name"]] = mapped.get("matched_product_id")
+            resolved_product_ids[item_name] = mapped.get("matched_product_id")
         # For llm (fuzzy match), we do NOT set resolved_product_ids.
         # This keeps the item unlinked so it goes to the Review Queue!
     
@@ -314,7 +320,7 @@ async def async_save_ocr_invoice(
             quantity=quantity,
             unit_price=unit_price,
             total_price=total_price,
-            product_id=product.id,
+            product_id=product.id if product else None,
             # OCR-specific fields
             provider_code=sku,
             product=description,
@@ -329,11 +335,20 @@ async def async_save_ocr_invoice(
             gra=getattr(line, 'gra', None),
             u_m=getattr(line, 'u_m', None),
         )
+        
+        # Populate AI Suggested Match if available in mapped_items
+        for mapped in mapped_items:
+            if mapped["name"] == description:
+                if mapped.get("match_type") == "llm" and mapped.get("matched_product_id"):
+                    invoice_line.suggested_product_id = mapped.get("matched_product_id")
+                    invoice_line.suggested_confidence = mapped.get("confidence")
+                break
+                
         db.add(invoice_line)
         
-        current_product_id = product.id
-        current_product_sku = product.sku
-        current_product_name = product.name
+        current_product_id = product.id if product else None
+        current_product_sku = product.sku if product else None
+        current_product_name = product.name if product else None
         
         await db.commit()
         await db.refresh(invoice_line)
@@ -344,7 +359,7 @@ async def async_save_ocr_invoice(
         # This prevents them from showing up in the 'Review Queue' and updates their stats
         resolved_prod_id = resolved_product_ids.get(description)
         if resolved_prod_id:
-            logger.info(f"Linking '{description}' to global product {resolved_prod_id} to bypass review queue...")
+            logger.warning(f"Linking '{description}' to global product {resolved_prod_id} to bypass review queue...")
             from app.module.products.model import ReferencedItem, ProductReference
             ref_id = f"item~local_{invoice_line_id}"
             ref = ReferencedItem(
@@ -451,7 +466,7 @@ async def async_process_invoice_upload(
     from app.module.ai.service import ai_service
 
     # 1. Ask Gemini to extract structured invoice JSON (run in threadpool to avoid blocking event loop)
-    logger.info(f"Submitting invoice file to Gemini parser for invoice ID: {invoice_id}")
+    logger.warning(f"Submitting invoice file to Gemini parser for invoice ID: {invoice_id}")
     parsed_data = await asyncio.to_thread(ai_service.parse_invoice, file_bytes, mime_type)
 
     invoice_number = parsed_data.get("invoiceNumber")
