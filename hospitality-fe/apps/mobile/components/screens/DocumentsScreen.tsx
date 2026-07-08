@@ -35,6 +35,7 @@ import {
 import { useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { useAuthStore } from '../../store/auth';
+import { useLayoutStore } from '../../store/layout';
 import { sharedStyles as styles } from '../../styles/shared';
 import ConfirmAlert from '../ui/ConfirmAlert';
 
@@ -45,10 +46,15 @@ export default function DocumentsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showBanner, setShowBanner] = useState(true);
   
-  // API States
-  const [invoices, setInvoices] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  // API States from Layout Store
+  const {
+    invoices,
+    loadingInvoices: loading,
+    refreshingInvoices: refreshing,
+    fetchInvoices,
+    uploadInvoiceFile,
+    deleteInvoice
+  } = useLayoutStore();
 
   // Deletion Confirm Modal
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
@@ -85,79 +91,29 @@ export default function DocumentsScreen() {
     outputRange: ['0deg', '360deg'],
   });
 
-  const fetchInvoices = async (showLoader = true) => {
-    if (showLoader) setLoading(true);
-    try {
-      const data = await apiClient.getInvoices();
-      if (Array.isArray(data)) {
-        // Map backend invoices to exact same format as web
-        const mapped = data.map((inv: any) => ({
-          id: inv.id,
-          supplier: inv.supplier_display_name || inv.supplier?.name || 'Unknown Supplier',
-          docNum: inv.document_number || inv.invoice_number || '—',
-          date: inv.document_date
-            ? new Date(inv.document_date).toLocaleDateString('en-US', {
-                month: '2-digit',
-                day: '2-digit',
-                year: 'numeric'
-              })
-            : inv.issue_date
-              ? new Date(inv.issue_date).toLocaleDateString('en-US', {
-                  month: '2-digit',
-                  day: '2-digit',
-                  year: 'numeric'
-                })
-              : '—',
-          rawDate: inv.document_date || inv.issue_date || null,
-          uploadDate: inv.created_at
-            ? new Date(inv.created_at).toLocaleDateString('en-US', {
-                month: '2-digit',
-                day: '2-digit',
-                year: 'numeric'
-              })
-            : new Date().toLocaleDateString('en-US', {
-                month: '2-digit',
-                day: '2-digit',
-                year: 'numeric'
-              }),
-          amount: inv.total_amount || inv.total_with_iva || 0.0,
-          type: inv.document_type || 'Invoice',
-          status: inv.needs_review
-            ? 'flagged'
-            : (inv.status === 'PROCESSED' || inv.status === 'completed')
-              ? 'completed'
-              : inv.status === 'FAILED'
-                ? 'rejected'
-                : 'processing',
-          icon: 'invoice',
-          paymentStatus: inv.payment_status || 'Pending',
-          userInitials: (inv.uploaded_by || 'SYS').slice(0, 2).toUpperCase(),
-          ocrConfidence: inv.ocr_confidence,
-          currency: inv.currency || 'EUR',
-        }));
-        setInvoices(mapped);
-      }
-    } catch (error) {
-      console.error("Error fetching invoices:", error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
   useEffect(() => {
     fetchInvoices();
   }, []);
 
+  // Poll for updates if any invoice is processing (extracting OCR)
+  useEffect(() => {
+    const hasProcessing = invoices.some((inv) => inv.status === 'processing');
+    if (!hasProcessing) return;
+
+    const interval = setInterval(() => {
+      fetchInvoices(false);
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [invoices]);
+
   const handleRefresh = () => {
-    setRefreshing(true);
     fetchInvoices(false);
   };
 
   const handleDeleteInvoice = async (id: number) => {
     try {
-      await apiClient.deleteInvoice(id);
-      setInvoices((prev) => prev.filter((d) => d.id !== id));
+      await deleteInvoice(id);
       setAlertConfig({
         title: 'Success',
         message: 'Document deleted successfully',
@@ -184,50 +140,11 @@ export default function DocumentsScreen() {
       if (res.canceled || !res.assets || res.assets.length === 0) return;
 
       const fileAsset = res.assets[0];
-
-      // Add temporary local placeholder
-      const tempId = `temp-${Date.now()}`;
-      const placeholder = {
-        id: tempId,
-        supplier: '—',
-        docNum: fileAsset.name || 'document',
-        date: '—',
-        uploadDate: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }),
-        amount: 0.0,
-        type: 'Invoice',
-        status: 'processing',
-        paymentStatus: 'Pending',
-        userInitials: (user?.name || 'SYS').slice(0, 2).toUpperCase(),
-      };
-      setInvoices((prev) => [placeholder, ...prev]);
-
-      const formData = new FormData();
-      // React Native FormData payload structure
-      formData.append('file', {
-        uri: fileAsset.uri,
-        name: fileAsset.name || 'invoice.pdf',
-        type: fileAsset.mimeType || 'application/pdf',
-      } as any);
-
-      const uploadRes = await apiClient.uploadInvoice(formData);
-      
-      // Update list with backend response
-      setInvoices((prev) =>
-        prev.map((d) =>
-          d.id === tempId
-            ? {
-                ...d,
-                id: uploadRes.invoiceId,
-                supplier: uploadRes.supplierName || 'Unknown Supplier',
-                amount: uploadRes.totalAmount || 0,
-                status: 'processing'
-              }
-            : d
-        )
+      await uploadInvoiceFile(
+        fileAsset.uri,
+        fileAsset.name || 'invoice.pdf',
+        fileAsset.mimeType || 'application/pdf'
       );
-
-      // Trigger background reload after upload finishes
-      fetchInvoices(false);
     } catch (err) {
       console.error("Upload failed", err);
       setAlertConfig({
