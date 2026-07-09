@@ -34,7 +34,7 @@ class AuditLog(SQLModel, table=True):
 from sqlalchemy import UniqueConstraint
 
 class RolePermission(SQLModel, table=True):
-    __tablename__ = "role_permissions"
+    __tablename__ = "app_role_permissions"
     __table_args__ = (
         UniqueConstraint("restaurant_id", "role_name", "module", name="uq_role_permission_module"),
     )

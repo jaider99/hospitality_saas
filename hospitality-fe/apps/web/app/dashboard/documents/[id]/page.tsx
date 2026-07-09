@@ -114,7 +114,7 @@ export default function DocumentDetailPage() {
   const [docType, setDocType] = useState('Invoice');
   const [docNum, setDocNum] = useState('');
   const [docDate, setDocDate] = useState('');
-  const [docCategory] = useState('Marketing and communication');
+  const [docCategory, setDocCategory] = useState('No Category');
 
   const [editTotals, setEditTotals] = useState(false);
   const [editLines, setEditLines] = useState(false);
@@ -124,14 +124,14 @@ export default function DocumentDetailPage() {
   const [editVat, setEditVat] = useState(false);
   const [vatData, setVatData] = useState<any[]>([]);
 
-  const [baseAmount, setBaseAmount] = useState(0);
-  const [vatAmount, setVatAmount] = useState(0);
-  const [discount, setDiscount] = useState(0);
-  const [paye, setPaye] = useState(0);
-  const [greenPoint, setGreenPoint] = useState(0);
-  const [ibee, setIbee] = useState(0);
-  const [attributableCost, setAttributableCost] = useState(0);
-  const [taxFreeCosts, setTaxFreeCosts] = useState(0);
+  const [baseAmount, setBaseAmount] = useState<number | string>(0);
+  const [vatAmount, setVatAmount] = useState<number | string>(0);
+  const [discount, setDiscount] = useState<number | string>(0);
+  const [paye, setPaye] = useState<number | string>(0);
+  const [greenPoint, setGreenPoint] = useState<number | string>(0);
+  const [ibee, setIbee] = useState<number | string>(0);
+  const [attributableCost, setAttributableCost] = useState<number | string>(0);
+  const [taxFreeCosts, setTaxFreeCosts] = useState<number | string>(0);
 
   // Zoom state for image preview
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -180,6 +180,7 @@ export default function DocumentDetailPage() {
           setIbee(data.ibee || 0);
           setAttributableCost(data.attributable_cost || 0);
           setTaxFreeCosts(data.tax_free_costs || 0);
+          setDocCategory(data.category || 'No Category');
           setLinesData(data.lines || []);
           setVatData(data.tax_brackets || []);
         }
@@ -305,7 +306,7 @@ export default function DocumentDetailPage() {
   const minioUrl = process.env.NEXT_PUBLIC_MINIO_URL || 'http://localhost:9012';
   const fileUrl = backendFileUrl.startsWith('http')
     ? backendFileUrl
-    : `${minioUrl}/invoices/${objectName}?cb=${Date.now()}`;
+    : `${minioUrl}/invoices/${objectName}?cb=${invoice.id}`;
 
   // Formatted display values
   const standardVatRates = [0, 2, 4, 5, 7.5, 10, 12, 21];
@@ -367,26 +368,33 @@ export default function DocumentDetailPage() {
   const handleSaveTotals = async () => {
     if (invoice) {
       try {
-        const total =
-          baseAmount + vatAmount + greenPoint + ibee + attributableCost + taxFreeCosts - discount;
+        const numBase = Number(baseAmount) || 0;
+        const numVat = Number(vatAmount) || 0;
+        const numGreen = Number(greenPoint) || 0;
+        const numIbee = Number(ibee) || 0;
+        const numAttr = Number(attributableCost) || 0;
+        const numTaxFree = Number(taxFreeCosts) || 0;
+        const numDiscount = Number(discount) || 0;
+        const total = numBase + numVat + numGreen + numIbee + numAttr + numTaxFree - numDiscount;
+        
         const client = getApiClient();
         await client.updateInvoice(invoice.id, {
-          baseAmount: baseAmount,
-          ivaAmount: vatAmount,
-          discount: discount,
+          baseAmount: numBase,
+          ivaAmount: numVat,
+          discount: numDiscount,
           totalAmount: total,
-          taxFreeCosts: taxFreeCosts
+          taxFreeCosts: numTaxFree
         });
         setInvoice({
           ...invoice,
           total_amount: total,
-          base_amount: baseAmount,
-          iva_amount: vatAmount,
-          discount: discount,
-          green_point: greenPoint,
-          ibee: ibee,
-          attributable_cost: attributableCost,
-          tax_free_costs: taxFreeCosts
+          base_amount: numBase,
+          iva_amount: numVat,
+          discount: numDiscount,
+          green_point: numGreen,
+          ibee: numIbee,
+          attributable_cost: numAttr,
+          tax_free_costs: numTaxFree
         } as any);
       } catch (err) {
         console.error('Failed to update totals:', err);
@@ -561,7 +569,7 @@ export default function DocumentDetailPage() {
 
                 return (
                   <p>
-                    Gemini flagged this document because some fields require human validation.
+                    The AI flagged this document because some fields require human validation.
                     Common reasons include missing supplier matching or low confidence scores.
                   </p>
                 );
@@ -1070,8 +1078,8 @@ export default function DocumentDetailPage() {
                     </label>
                     <input
                       type="number"
-                      value={baseAmount}
-                      onChange={(e) => setBaseAmount(Number(e.target.value))}
+                      value={baseAmount ?? ''}
+                      onChange={(e) => setBaseAmount(e.target.value === '' ? '' : Number(e.target.value))}
                       className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
                     />
                   </div>
@@ -1081,8 +1089,8 @@ export default function DocumentDetailPage() {
                     </label>
                     <input
                       type="number"
-                      value={vatAmount}
-                      onChange={(e) => setVatAmount(Number(e.target.value))}
+                      value={vatAmount ?? ''}
+                      onChange={(e) => setVatAmount(e.target.value === '' ? '' : Number(e.target.value))}
                       className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
                     />
                   </div>
@@ -1092,8 +1100,8 @@ export default function DocumentDetailPage() {
                     </label>
                     <input
                       type="number"
-                      value={discount}
-                      onChange={(e) => setDiscount(Number(e.target.value))}
+                      value={discount ?? ''}
+                      onChange={(e) => setDiscount(e.target.value === '' ? '' : Number(e.target.value))}
                       className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
                     />
                   </div>
@@ -1103,8 +1111,8 @@ export default function DocumentDetailPage() {
                     </label>
                     <input
                       type="number"
-                      value={paye}
-                      onChange={(e) => setPaye(Number(e.target.value))}
+                      value={paye ?? ''}
+                      onChange={(e) => setPaye(e.target.value === '' ? '' : Number(e.target.value))}
                       className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
                     />
                   </div>
@@ -1114,8 +1122,8 @@ export default function DocumentDetailPage() {
                     </label>
                     <input
                       type="number"
-                      value={greenPoint}
-                      onChange={(e) => setGreenPoint(Number(e.target.value))}
+                      value={greenPoint ?? ''}
+                      onChange={(e) => setGreenPoint(e.target.value === '' ? '' : Number(e.target.value))}
                       className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
                     />
                   </div>
@@ -1125,8 +1133,8 @@ export default function DocumentDetailPage() {
                     </label>
                     <input
                       type="number"
-                      value={ibee}
-                      onChange={(e) => setIbee(Number(e.target.value))}
+                      value={ibee ?? ''}
+                      onChange={(e) => setIbee(e.target.value === '' ? '' : Number(e.target.value))}
                       className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
                     />
                   </div>
@@ -1136,8 +1144,8 @@ export default function DocumentDetailPage() {
                     </label>
                     <input
                       type="number"
-                      value={attributableCost}
-                      onChange={(e) => setAttributableCost(Number(e.target.value))}
+                      value={attributableCost ?? ''}
+                      onChange={(e) => setAttributableCost(e.target.value === '' ? '' : Number(e.target.value))}
                       className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
                     />
                   </div>
@@ -1147,8 +1155,8 @@ export default function DocumentDetailPage() {
                     </label>
                     <input
                       type="number"
-                      value={taxFreeCosts}
-                      onChange={(e) => setTaxFreeCosts(Number(e.target.value))}
+                      value={taxFreeCosts ?? ''}
+                      onChange={(e) => setTaxFreeCosts(e.target.value === '' ? '' : Number(e.target.value))}
                       className="w-full mt-0.5 p-1.5 bg-muted/40 border border-border rounded-lg text-xs font-mono"
                     />
                   </div>
@@ -1226,9 +1234,9 @@ export default function DocumentDetailPage() {
                               <input
                                 type="number"
                                 className="w-20 p-1 text-xs border rounded text-right"
-                                value={bracket.base || 0}
+                                value={bracket.base ?? ''}
                                 onChange={(e) =>
-                                  handleVatChange(bracketIdx, 'base', Number(e.target.value))
+                                  handleVatChange(bracketIdx, 'base', e.target.value === '' ? ('' as any) : Number(e.target.value))
                                 }
                               />
                             ) : bracket ? (
@@ -1242,9 +1250,9 @@ export default function DocumentDetailPage() {
                               <input
                                 type="number"
                                 className="w-20 p-1 text-xs border rounded text-right"
-                                value={bracket.iva_amount || 0}
+                                value={bracket.iva_amount ?? ''}
                                 onChange={(e) =>
-                                  handleVatChange(bracketIdx, 'iva_amount', Number(e.target.value))
+                                  handleVatChange(bracketIdx, 'iva_amount', e.target.value === '' ? ('' as any) : Number(e.target.value))
                                 }
                               />
                             ) : bracket ? (
@@ -1258,12 +1266,12 @@ export default function DocumentDetailPage() {
                               <input
                                 type="number"
                                 className="w-16 p-1 text-xs border rounded text-center"
-                                value={bracket.equivalence_surcharge_rate || 0}
+                                value={bracket.equivalence_surcharge_rate ?? ''}
                                 onChange={(e) =>
                                   handleVatChange(
                                     bracketIdx,
                                     'equivalence_surcharge_rate',
-                                    Number(e.target.value)
+                                    e.target.value === '' ? ('' as any) : Number(e.target.value)
                                   )
                                 }
                               />
@@ -1279,12 +1287,12 @@ export default function DocumentDetailPage() {
                               <input
                                 type="number"
                                 className="w-20 p-1 text-xs border rounded text-right"
-                                value={bracket.equivalence_surcharge || 0}
+                                value={bracket.equivalence_surcharge ?? ''}
                                 onChange={(e) =>
                                   handleVatChange(
                                     bracketIdx,
                                     'equivalence_surcharge',
-                                    Number(e.target.value)
+                                    e.target.value === '' ? ('' as any) : Number(e.target.value)
                                   )
                                 }
                               />
@@ -1300,9 +1308,9 @@ export default function DocumentDetailPage() {
                               <input
                                 type="number"
                                 className="w-20 p-1 text-xs border rounded text-right"
-                                value={bracket.row_total || 0}
+                                value={bracket.row_total ?? ''}
                                 onChange={(e) =>
-                                  handleVatChange(bracketIdx, 'row_total', Number(e.target.value))
+                                  handleVatChange(bracketIdx, 'row_total', e.target.value === '' ? ('' as any) : Number(e.target.value))
                                 }
                               />
                             ) : bracket ? (
@@ -1373,6 +1381,8 @@ export default function DocumentDetailPage() {
                 <th className="px-5 py-3 whitespace-nowrap text-right">Applied Discount</th>
                 <th className="px-5 py-3 whitespace-nowrap text-right">Other Fees</th>
                 <th className="px-5 py-3 whitespace-nowrap text-right">Nominal Price</th>
+                <th className="px-5 py-3 whitespace-nowrap text-center">GRA</th>
+                <th className="px-5 py-3 whitespace-nowrap text-center">UOM</th>
                 <th className="px-5 py-3 whitespace-nowrap text-center">IVA</th>
                 <th className="px-5 py-3 whitespace-nowrap text-right">Base</th>
                 <th className="px-5 py-3 whitespace-nowrap text-center">Actions</th>
@@ -1423,9 +1433,9 @@ export default function DocumentDetailPage() {
                         <input
                           type="number"
                           className="w-16 p-1 text-xs border rounded text-right"
-                          value={line.quantity || 0}
+                          value={line.quantity ?? ''}
                           onChange={(e) =>
-                            handleLineChange(idx, 'quantity', Number(e.target.value))
+                            handleLineChange(idx, 'quantity', e.target.value === '' ? '' : Number(e.target.value))
                           }
                         />
                       ) : (
@@ -1449,9 +1459,9 @@ export default function DocumentDetailPage() {
                         <input
                           type="number"
                           className="w-20 p-1 text-xs border rounded text-right"
-                          value={line.gross_price || 0}
+                          value={line.gross_price ?? ''}
                           onChange={(e) =>
-                            handleLineChange(idx, 'gross_price', Number(e.target.value))
+                            handleLineChange(idx, 'gross_price', e.target.value === '' ? '' : Number(e.target.value))
                           }
                         />
                       ) : line.gross_price !== undefined && line.gross_price !== null ? (
@@ -1465,9 +1475,9 @@ export default function DocumentDetailPage() {
                         <input
                           type="number"
                           className="w-16 p-1 text-xs border rounded text-center"
-                          value={line.discount_pct || 0}
+                          value={line.discount_pct ?? ''}
                           onChange={(e) =>
-                            handleLineChange(idx, 'discount_pct', Number(e.target.value))
+                            handleLineChange(idx, 'discount_pct', e.target.value === '' ? '' : Number(e.target.value))
                           }
                         />
                       ) : line.discount_pct !== undefined && line.discount_pct !== null ? (
@@ -1481,9 +1491,9 @@ export default function DocumentDetailPage() {
                         <input
                           type="number"
                           className="w-20 p-1 text-xs border rounded text-right"
-                          value={line.applied_discount || 0}
+                          value={line.applied_discount ?? ''}
                           onChange={(e) =>
-                            handleLineChange(idx, 'applied_discount', Number(e.target.value))
+                            handleLineChange(idx, 'applied_discount', e.target.value === '' ? '' : Number(e.target.value))
                           }
                         />
                       ) : line.applied_discount !== undefined && line.applied_discount !== null ? (
@@ -1497,9 +1507,9 @@ export default function DocumentDetailPage() {
                         <input
                           type="number"
                           className="w-20 p-1 text-xs border rounded text-right"
-                          value={line.other_fees || 0}
+                          value={line.other_fees ?? ''}
                           onChange={(e) =>
-                            handleLineChange(idx, 'other_fees', Number(e.target.value))
+                            handleLineChange(idx, 'other_fees', e.target.value === '' ? '' : Number(e.target.value))
                           }
                         />
                       ) : line.other_fees !== undefined && line.other_fees !== null ? (
@@ -1513,9 +1523,9 @@ export default function DocumentDetailPage() {
                         <input
                           type="number"
                           className="w-20 p-1 text-xs border rounded text-right"
-                          value={line.nominal_price || line.unit_price || 0}
+                          value={line.nominal_price ?? line.unit_price ?? ''}
                           onChange={(e) =>
-                            handleLineChange(idx, 'nominal_price', Number(e.target.value))
+                            handleLineChange(idx, 'nominal_price', e.target.value === '' ? '' : Number(e.target.value))
                           }
                         />
                       ) : line.nominal_price !== undefined && line.nominal_price !== null ? (
@@ -1529,8 +1539,36 @@ export default function DocumentDetailPage() {
                         <input
                           type="number"
                           className="w-16 p-1 text-xs border rounded text-center"
-                          value={line.iva_pct || 0}
-                          onChange={(e) => handleLineChange(idx, 'iva_pct', Number(e.target.value))}
+                          value={line.gra ?? ''}
+                          onChange={(e) => handleLineChange(idx, 'gra', e.target.value === '' ? '' : Number(e.target.value))}
+                        />
+                      ) : line.gra !== undefined && line.gra !== null ? (
+                        line.gra
+                      ) : (
+                        '0'
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-center font-mono text-muted-foreground whitespace-nowrap">
+                      {editLines ? (
+                        <input
+                          type="number"
+                          className="w-16 p-1 text-xs border rounded text-center"
+                          value={line.u_m ?? ''}
+                          onChange={(e) => handleLineChange(idx, 'u_m', e.target.value === '' ? '' : Number(e.target.value))}
+                        />
+                      ) : line.u_m !== undefined && line.u_m !== null ? (
+                        line.u_m
+                      ) : (
+                        '0'
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-center font-mono text-muted-foreground whitespace-nowrap">
+                      {editLines ? (
+                        <input
+                          type="number"
+                          className="w-16 p-1 text-xs border rounded text-center"
+                          value={line.iva_pct ?? ''}
+                          onChange={(e) => handleLineChange(idx, 'iva_pct', e.target.value === '' ? '' : Number(e.target.value))}
                         />
                       ) : line.iva_pct !== undefined && line.iva_pct !== null ? (
                         `${line.iva_pct}%`
@@ -1543,8 +1581,8 @@ export default function DocumentDetailPage() {
                         <input
                           type="number"
                           className="w-20 p-1 text-xs border rounded text-right"
-                          value={line.base || line.total_price || 0}
-                          onChange={(e) => handleLineChange(idx, 'base', Number(e.target.value))}
+                          value={line.base ?? line.total_price ?? ''}
+                          onChange={(e) => handleLineChange(idx, 'base', e.target.value === '' ? '' : Number(e.target.value))}
                         />
                       ) : line.base !== undefined && line.base !== null ? (
                         formatCurrency(line.base)

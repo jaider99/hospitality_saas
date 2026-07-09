@@ -481,7 +481,7 @@ def check_invoice_exists(invoice_id: int) -> bool:
         logging.getLogger("invoice_pipeline").warning(f"Failed to check invoice {invoice_id} status: {e}")
         return True
 
-def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = "", invoice_id: int | None = None) -> Invoice:
+def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = "", invoice_id: int | None = None, restaurant_id: int | None = None) -> Invoice:
     if not check_invoice_exists(invoice_id):
         raise ValueError(f"Invoice {invoice_id} was deleted. Aborting pipeline.")
 
@@ -648,12 +648,13 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
                     
                 # Evaluate semantic score
                 score = calculate_llm_score(inv)
-                if score >= VL_LLM_THRESHOLD:
-                    break # Good enough, don't need fallback text model
-                    
                 if not use_fallback:
+                    if score >= VL_LLM_THRESHOLD:
+                        break # Good enough, don't need fallback text model
                     logger.warning(f"Primary Text Model semantic score ({score:.2f}) < {VL_LLM_THRESHOLD}. Discarding output and trying fallback text model...")
                     inv = copy.deepcopy(original_inv) # Reset invoice to pre-LLM state
+                else:
+                    logger.warning(f"Fallback Text Model semantic score: {score:.2f}")
                     
         except Exception as e:
             if "was deleted" in str(e):
@@ -898,15 +899,30 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
             from app.module.invoices.model import Invoice as DBInvoice
             
             with Session(engine) as session:
-                query = session.query(DBInvoice).filter(DBInvoice.invoice_number == inv.serialNumber)
+                from sqlalchemy import or_
                 
-                if inv.supplier.vatID:
-                    query = query.filter(DBInvoice.supplier_tax_id == inv.supplier.vatID)
-                elif inv.supplier.name:
-                    query = query.filter(DBInvoice.supplier_display_name == inv.supplier.name)
+                query = session.query(DBInvoice).filter(DBInvoice.invoice_number == inv.serialNumber)
+                if restaurant_id is not None:
+                    query = query.filter(DBInvoice.restaurant_id == restaurant_id)
+                
+                # To avoid strict string matching failures (e.g. 'Vendo lo que tengo s.l.' vs 'Vendo lo que tengo S.L.'),
+                # we consider it a duplicate if the invoice number matches AND (the Date matches OR the Total matches OR Supplier matches loosely).
+                conditions = []
+                if inv.date:
+                    conditions.append(DBInvoice.invoice_date == inv.date)
+                if inv.total is not None:
+                    conditions.append(DBInvoice.total_amount == inv.total)
+                if inv.supplier.name:
+                    # Match first 5 characters of supplier name to be safe against OCR noise/casing
+                    prefix = inv.supplier.name[:5]
+                    conditions.append(DBInvoice.supplier_display_name.ilike(f"%{prefix}%"))
+                
+                if conditions:
+                    query = query.filter(or_(*conditions))
                     
                 if invoice_id is not None:
                     query = query.filter(DBInvoice.id != invoice_id)
+                
                 duplicate_match = query.first()
                 
                 if duplicate_match:

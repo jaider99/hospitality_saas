@@ -548,12 +548,42 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
     # --- Visual Text Layout (VTL) Formatting ---
     # Preserves physical 2D layout as 1D text by mapping X coordinates to spaces.
     
+    # Calculate global deskew angle to fix camera perspective distortion
+    import math
+    angles = []
+    for line in lines:
+        pts = line[0]
+        dx = pts[1][0] - pts[0][0]
+        dy = pts[1][1] - pts[0][1]
+        width = math.hypot(dx, dy)
+        height = math.hypot(pts[3][0] - pts[0][0], pts[3][1] - pts[0][1])
+        if width > height * 2:  # Only use wide text boxes for reliable angle
+            angles.append(math.atan2(dy, dx))
+            
+    if angles:
+        angles.sort()
+        skew_angle = angles[len(angles)//2]
+    else:
+        skew_angle = 0.0
+        
+    cx, cy = w_img / 2.0, h_img / 2.0
+    cos_a = math.cos(-skew_angle)
+    sin_a = math.sin(-skew_angle)
+
     # 1. Prepare elements
     elements = []
     vertical_elements = []
     for line in lines:
-        pts = line[0]
+        raw_pts = line[0]
         text, conf = line[1]
+        
+        # Apply virtual rotation to fix perspective tilt
+        pts = []
+        for pt in raw_pts:
+            x_new = cx + (pt[0] - cx) * cos_a - (pt[1] - cy) * sin_a
+            y_new = cy + (pt[0] - cx) * sin_a + (pt[1] - cy) * cos_a
+            pts.append([x_new, y_new])
+            
         y_center = sum(pt[1] for pt in pts) / 4.0
         min_x = min(pt[0] for pt in pts)
         min_y = min(pt[1] for pt in pts)
@@ -567,7 +597,7 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
             # It's sideways text! Don't mix it into the horizontal line sorting.
             vertical_elements.append(text)
         else:
-            elements.append({"text": text, "x": min_x, "y": y_center, "min_y": min_y, "max_y": max_y})
+            elements.append({"text": text, "x": min_x, "max_x": max(pt[0] for pt in pts), "y": y_center, "min_y": min_y, "max_y": max_y})
         
     # 2. Group into lines using vertical overlap (robust against slanted/perspective distortion)
     elements.sort(key=lambda e: e["y"])

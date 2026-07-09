@@ -11,7 +11,7 @@ silently trusted.
 from __future__ import annotations
 from app.ocr.schema import Invoice
 
-TOLERANCE = 0.02  # EUR cents tolerance for floating point / rounding noise
+TOLERANCE = 0.03  # EUR cents tolerance for floating point / rounding noise
 
 REQUIRED_FIELDS = [
     ("Document Number", lambda inv: inv.serialNumber and inv.serialNumber.strip().upper() not in ["", "UNKNOWN", "N/A", "NONE"]),
@@ -101,7 +101,8 @@ def check_line_item_internal_consistency(inv: Invoice) -> list:
                 continue
 
         if expected_per_unit != 0 and expected_total_disc != 0:
-             reasons.append(f"Line item {i+1} arithmetic is inconsistent")
+             product_label = f"product '{li.product}'" if li.product else f"Line item {i+1}"
+             reasons.append(f"{product_label} arithmetic is inconsistent")
     return reasons
 
 
@@ -138,7 +139,8 @@ def check_quantity_verbatim(inv: Invoice, raw_text: str) -> list:
         qty_str_comma = qty_str_dot.replace('.', ',')
         
         if qty_str_dot not in raw_text and qty_str_comma not in raw_text:
-            reasons.append(f"Quantity '{qty_str_dot}' for item {i+1} not found in text")
+            product_label = f"product '{li.product}'" if li.product else f"item {i+1}"
+            reasons.append(f"Quantity '{qty_str_dot}' for {product_label} not found in text")
     return reasons
 
 
@@ -147,7 +149,9 @@ def sanity_check_discount(inv: Invoice) -> list:
     if inv.discount and inv.discount > 0:
         for i, li in enumerate(inv.items):
             if li.discountPct == inv.discount:
-                reasons.append(f"Discount value matches line item {i+1} percentage (possible misextraction)")
+                product_label = f"product '{li.product}'" if li.product else f"line item {i+1}"
+                reasons.append(f"Discount value matches {product_label} percentage (possible misextraction)")
+                break
     return reasons
 
 
@@ -165,5 +169,6 @@ def validate(inv: Invoice, raw_text: str = "") -> Invoice:
     reasons += sanity_check_discount(inv)
 
     inv.review_reasons = reasons
-    inv.needs_review = len(reasons) > 0
+    # As requested by the user, force all invoices to require manual review (digitization step)
+    inv.needs_review = True
     return inv

@@ -1,9 +1,10 @@
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 from datetime import datetime
 from typing import Optional, List
 
 class Recipe(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    restaurant_id: Optional[int] = Field(default=None, foreign_key="restaurant.id", index=True)
     dish_id: Optional[str] = Field(default=None, index=True, unique=True, nullable=True)
     name: str
     is_preparation: bool = Field(default=False, index=True)
@@ -59,8 +60,13 @@ from app.module.invoices.model import SuppliedProduct
 
 
 class RecipeTag(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("restaurant_id", "tag_id", name="uq_recipetag_restaurant_tagid"),
+    )
+    
     id: Optional[int] = Field(default=None, primary_key=True)
-    tag_id: str = Field(unique=True, index=True)
+    restaurant_id: Optional[int] = Field(default=None, foreign_key="restaurant.id", index=True)
+    tag_id: str = Field(index=True)
     name: str
     is_preparation: bool = Field(default=False)
 

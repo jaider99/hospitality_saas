@@ -1,4 +1,4 @@
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 from datetime import datetime
 from typing import Optional, List
 import uuid
@@ -8,10 +8,14 @@ def generate_category_id() -> str:
 
 class Category(SQLModel, table=True):
     __tablename__ = "categories"
+    __table_args__ = (
+        UniqueConstraint("restaurant_id", "name", name="uq_category_restaurant_name"),
+    )
     
     id: Optional[int] = Field(default=None, primary_key=True)
+    restaurant_id: Optional[int] = Field(default=None, foreign_key="restaurant.id", index=True)
     category_id: str = Field(default_factory=generate_category_id, unique=True)
-    name: str = Field(unique=True, index=True)
+    name: str = Field(index=True)
     description: Optional[str] = Field(default=None)
     color: Optional[str] = Field(default="#000000")
     
