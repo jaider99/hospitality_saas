@@ -66,11 +66,19 @@ async def on_startup():
     logger.info("Skipping SQL Database schema creation (managed by Alembic)")
     # init_db()
     # Initialize Qdrant Collection
-    logger.info("Initializing Qdrant Vector Collection...")
-    init_qdrant()
+    try:
+        logger.info("Initializing Qdrant Vector Collection...")
+        init_qdrant()
+    except Exception as e:
+        logger.error(f"Failed to initialize Qdrant: {e}")
+        
     # Initialize MinIO Bucket
-    logger.info("Initializing MinIO Bucket...")
-    init_minio()
+    try:
+        logger.info("Initializing MinIO Bucket...")
+        init_minio()
+    except Exception as e:
+        logger.error(f"Failed to initialize MinIO: {e}")
+
     # Create default roles in SuperTokens core
     await create_roles_if_not_exist()
     logger.info("Startup complete. Service is running.")

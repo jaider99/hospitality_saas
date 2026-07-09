@@ -405,7 +405,19 @@ async def update_invoice_api(
         if "invoiceNumber" in update_data:
             inv.invoice_number = update_data["invoiceNumber"]
         if "needs_review" in update_data:
-            inv.needs_review = update_data["needs_review"]
+            was_review_required = inv.needs_review
+            is_review_required = update_data["needs_review"]
+            inv.needs_review = is_review_required
+            
+            # If the invoice just transitioned from "review required" to "digitized"
+            if was_review_required and not is_review_required:
+                try:
+                    from app.module.products.service import digitize_invoice_products
+                    digitize_invoice_products(db, inv.id)
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger("fastapi_app")
+                    logger.error(f"Failed to digitize products for invoice {inv.id}: {e}")
         if "status" in update_data:
             inv.status = update_data["status"]
         if "date" in update_data:

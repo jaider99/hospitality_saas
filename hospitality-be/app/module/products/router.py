@@ -42,6 +42,7 @@ from app.module.products.schema import (
     ReviewQueueResponse,
     ReviewQueueItem,
     UnifyRequest,
+    ProductMergeRequest,
     InventoryRead,
     InventoryCreate,
     InventoryItemRead,
@@ -284,6 +285,30 @@ def archive_product(
 
 
 @router.post(
+    "/products/{product_id}/merge",
+    summary="Merge Product Manually",
+    tags=["Products & Inventory"],
+)
+def merge_product(
+    product_id: str,
+    payload: ProductMergeRequest,
+    db: Session = Depends(get_session),
+):
+    """
+    Manually merge the source product into the master product (product_id).
+    The source product will be archived/hidden and its aliases, stats, and suppliers transferred.
+    """
+    try:
+        result = service.merge_products(db, product_id, payload.source_product_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@router.post(
     "/products/sync",
     summary="Sync Products from Haddock API",
     tags=["Products & Inventory"],
@@ -316,8 +341,8 @@ def unify_with_product(
     """
     Link an unreviewed invoice line to an existing product (the 'Unify' button).
 
-    - Creates a ReferencedItem for this invoice line
-    - Adds a ProductReference linking it to the chosen product
+    - Creates a ProductAlias for the invoice line's description
+    - The alias immediately links this (and all future) lines to the product
     - Updates the product's stats (quantity, total, last_price)
     """
     try:
