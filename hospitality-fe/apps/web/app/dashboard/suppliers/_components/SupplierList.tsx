@@ -7,6 +7,7 @@ import { useAuthStore } from '../../../../store/auth';
 interface SupplierListProps {
   suppliers: Supplier[];
   onSupplierClick: (supplier: Supplier) => void;
+  onDeleteSupplier?: (id: number) => void;
 }
 
 interface CategoryGroup {
@@ -16,14 +17,26 @@ interface CategoryGroup {
   suppliers: Supplier[];
 }
 
-export default function SupplierList({ suppliers, onSupplierClick }: SupplierListProps) {
+export default function SupplierList({ suppliers, onSupplierClick, onDeleteSupplier }: SupplierListProps) {
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const [categories, setCategories] = useState<Category[]>([]);
+  const [activeDropdown, setActiveDropdown] = useState<number | null>(null);
   const apiClient = useAuthStore(state => state.apiClient);
 
   React.useEffect(() => {
     apiClient.getCategories().then(setCategories).catch(console.error);
   }, [apiClient]);
+
+  React.useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-supplier-menu]')) {
+        setActiveDropdown(null);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
 
   const toggleCategory = (categoryId: string) => {
     setExpandedCategories(prev => ({
@@ -119,10 +132,12 @@ export default function SupplierList({ suppliers, onSupplierClick }: SupplierLis
         const isExpanded = expandedCategories[group.id];
         
         return (
-          <div key={group.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div key={group.id} className="bg-white rounded-xl shadow-sm border border-gray-200">
             {/* Category Header */}
             <div 
-              className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+              className={`flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition-colors ${
+                isExpanded ? 'rounded-t-xl' : 'rounded-xl'
+              }`}
               onClick={() => toggleCategory(group.id)}
             >
               <div className="flex items-center">
@@ -149,7 +164,7 @@ export default function SupplierList({ suppliers, onSupplierClick }: SupplierLis
                   <div 
                     key={supplier.id}
                     className={`flex items-center justify-between p-4 hover:bg-gray-50 transition-colors cursor-pointer ${
-                      idx !== group.suppliers.length - 1 ? 'border-b border-gray-50' : ''
+                      idx !== group.suppliers.length - 1 ? 'border-b border-gray-50' : 'rounded-b-xl'
                     }`}
                     onClick={() => onSupplierClick(supplier)}
                   >
@@ -174,9 +189,36 @@ export default function SupplierList({ suppliers, onSupplierClick }: SupplierLis
                         </span>
                       )}
                       <span>{supplier.contact_list?.length || 0} contacts</span>
-                      <button className="text-gray-400 hover:text-gray-600 p-1" onClick={(e) => { e.stopPropagation(); }}>
-                        <MoreHorizontal size={18} />
-                      </button>
+
+                      {/* 3-dot menu */}
+                      <div
+                        className="relative"
+                        data-supplier-menu="true"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100 transition-colors"
+                          onClick={() => setActiveDropdown(activeDropdown === supplier.id ? null : supplier.id)}
+                        >
+                          <MoreHorizontal size={18} />
+                        </button>
+
+                        {activeDropdown === supplier.id && (
+                          <div className="absolute right-0 top-full mt-1 w-36 bg-white rounded-lg shadow-xl z-50 border border-gray-200 py-1">
+                            <button
+                              className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 font-medium transition-colors"
+                              onClick={() => {
+                                setActiveDropdown(null);
+                                if (onDeleteSupplier && supplier.id) {
+                                  onDeleteSupplier(supplier.id);
+                                }
+                              }}
+                            >
+                              🗑 Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}

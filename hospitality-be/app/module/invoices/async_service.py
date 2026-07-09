@@ -183,7 +183,8 @@ async def async_save_ocr_invoice(
 
         # Find or create SuppliedProduct
         product_query = select(SuppliedProduct).where(
-            SuppliedProduct.supplier_id == current_supplier_id
+            SuppliedProduct.supplier_id == current_supplier_id,
+            SuppliedProduct.deleted_at == None
         )
         if sku and description:
             product_query = product_query.where(
@@ -441,7 +442,8 @@ async def async_process_invoice_upload(
 
         # Search for pre-existing product under this supplier
         product_query = select(SuppliedProduct).where(
-            SuppliedProduct.supplier_id == current_supplier_id
+            SuppliedProduct.supplier_id == current_supplier_id,
+            SuppliedProduct.deleted_at == None
         )
         if sku:
             product_query = product_query.where(

@@ -122,8 +122,34 @@ def delete_supplier(
     if not db_supplier or db_supplier.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Supplier not found")
         
-    # Soft delete
-    db_supplier.deleted_at = datetime.utcnow()
+    # Soft delete supplier
+    now = datetime.utcnow()
+    db_supplier.deleted_at = now
+    
+    # Soft delete contacts
+    for contact in db_supplier.contact_list:
+        contact.deleted_at = now
+        session.add(contact)
+        
+    # Soft delete products and their cost history
+    for product in db_supplier.products:
+        product.deleted_at = now
+        session.add(product)
+        for cost in product.cost_history:
+            cost.deleted_at = now
+            session.add(cost)
+        
+    # Soft delete invoices and their child entities
+    for invoice in db_supplier.invoices:
+        invoice.deleted_at = now
+        session.add(invoice)
+        for line in invoice.lines:
+            line.deleted_at = now
+            session.add(line)
+        for tb in invoice.tax_brackets:
+            tb.deleted_at = now
+            session.add(tb)
+
     session.add(db_supplier)
     session.commit()
     return None

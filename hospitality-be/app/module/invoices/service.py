@@ -12,12 +12,12 @@ from app.core.translation import translate
 
 def get_invoices(db: Session, restaurant_id: int) -> List[Invoice]:
     """Retrieves all invoices for a given restaurant ordered by issue date descending."""
-    statement = select(Invoice).where(Invoice.restaurant_id == restaurant_id).order_by(Invoice.created_at.desc())
+    statement = select(Invoice).where(Invoice.restaurant_id == restaurant_id, Invoice.deleted_at == None).order_by(Invoice.created_at.desc())
     return db.exec(statement).all()
 
 def get_invoice_details(db: Session, invoice_id: int, restaurant_id: int) -> Invoice:
     """Retrieves detailed invoice object or raises 404."""
-    statement = select(Invoice).where(Invoice.id == invoice_id, Invoice.restaurant_id == restaurant_id)
+    statement = select(Invoice).where(Invoice.id == invoice_id, Invoice.restaurant_id == restaurant_id, Invoice.deleted_at == None)
     invoice = db.exec(statement).first()
     if not invoice:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
@@ -88,7 +88,8 @@ def process_invoice_upload(
         
         # Search for pre-existing product under this supplier
         product_query = select(SuppliedProduct).where(
-            SuppliedProduct.supplier_id == supplier.id
+            SuppliedProduct.supplier_id == supplier.id,
+            SuppliedProduct.deleted_at == None
         )
         if sku:
             product_query = product_query.where(

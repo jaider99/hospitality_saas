@@ -129,6 +129,7 @@ export default function SuppliersPage() {
             <SupplierList 
               suppliers={filteredSuppliers} 
               onSupplierClick={setSelectedSupplier} 
+              onDeleteSupplier={handleDeleteSupplier}
             />
           )}
         </div>

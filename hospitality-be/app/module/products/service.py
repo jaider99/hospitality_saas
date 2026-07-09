@@ -577,10 +577,13 @@ def get_review_queue(
     linked_ids = set(db.exec(linked_ids_stmt).all())
 
     # Query unlinked invoice lines (not in referenced_items)
+    # Also exclude soft-deleted invoice lines and invoices from soft-deleted suppliers
     stmt = (
         select(InvoiceLine)
         .join(Invoice, InvoiceLine.invoice_id == Invoice.id)
         .where(Invoice.restaurant_id == restaurant_id)
+        .where(Invoice.deleted_at == None)
+        .where(InvoiceLine.deleted_at == None)
         .where(InvoiceLine.description.isnot(None))
         .where(InvoiceLine.description != "")
     )
@@ -628,6 +631,7 @@ def _find_similar_products(db: Session, description: str, supplier_name: str) ->
     """
     Find existing products that look similar to an unlinked invoice line.
     Returns match confidence: 'exact' | 'possibly_different' | 'looks_different'
+    Excludes products from soft-deleted SuppliedProducts.
     """
     if not description or len(description) < 3:
         return []
@@ -638,12 +642,22 @@ def _find_similar_products(db: Session, description: str, supplier_name: str) ->
         select(Product)
         .where(Product.name.ilike(f"%{prefix}%"))
         .where(Product.archived == False)
-        .limit(5)
+        .limit(10)  # fetch extra to allow filtering
     )
     products = list(db.exec(stmt).all())
 
+    # Get IDs of soft-deleted SuppliedProducts to exclude them from matches
+    from app.module.invoices.model import SuppliedProduct
+    deleted_sp_ids = set(
+        db.exec(
+            select(SuppliedProduct.id).where(SuppliedProduct.deleted_at != None)
+        ).all()
+    )
+
     results = []
     for p in products:
+        if len(results) >= 5:
+            break
         # Simple confidence scoring
         desc_lower = description.lower()
         name_lower = p.name.lower()
@@ -752,7 +766,7 @@ def mark_line_no_match(db: Session, invoice_line_id: int, restaurant_id: int) ->
         price=line.unit_price or 0.0,
         supplier_ids=[supplier_id_local] if supplier_id_local else [],
     )
-    new_product = create_product_manual(db, new_data)
+    new_product = create_product_manual(db, new_data, restaurant_id)
 
     # Link the line to this new product
     return unify_line_with_product(db, invoice_line_id, new_product.id)

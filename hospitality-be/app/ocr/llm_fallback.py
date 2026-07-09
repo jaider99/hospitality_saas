@@ -36,6 +36,7 @@ def _call_llm_with_fallback(messages: list, temperature: float = 0, model_name: 
                 temperature=temperature,
                 messages=messages,
                 max_tokens=LLM_MAX_TOKENS,
+                response_format={"type": "json_object"},
             )
             content = response.choices[0].message.content
             if not content or not content.strip():

@@ -291,10 +291,13 @@ def get_recipe_bom(db: Session, recipe_id: Any, restaurant_id: int) -> Dict[str,
     Returns the Bill of Materials for a given recipe/dish ID.
     (recipe_id can be integer or string 'dish~X').
     """
-    if isinstance(recipe_id, str) and recipe_id.startswith("dish~"):
-        recipe_id = recipe_id.replace("dish~", "")
-    
-    statement = select(Recipe).where(Recipe.id == int(recipe_id), Recipe.restaurant_id == restaurant_id)
+    try:
+        recipe_int_id = int(recipe_id)
+        statement = select(Recipe).where(Recipe.id == recipe_int_id, Recipe.restaurant_id == restaurant_id)
+    except ValueError:
+        # It's a string slug (like 'dish~almendras_ape'), lookup by dish_id
+        statement = select(Recipe).where(Recipe.dish_id == recipe_id, Recipe.restaurant_id == restaurant_id)
+        
     recipe = db.exec(statement).first()
     if not recipe:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recipe with ID {recipe_id} not found")
@@ -316,7 +319,7 @@ def get_recipe_bom(db: Session, recipe_id: Any, restaurant_id: int) -> Dict[str,
 
 def search_supplied_products(db: Session, restaurant_id: int, query: Optional[str] = None) -> List[Dict[str, Any]]:
     """Returns a simplified list of supplied products, optionally filtered by name."""
-    statement = select(SuppliedProduct).join(Supplier).where(Supplier.restaurant_id == restaurant_id)
+    statement = select(SuppliedProduct).join(Supplier).where(Supplier.restaurant_id == restaurant_id, SuppliedProduct.deleted_at == None)
     if query:
         statement = statement.where(SuppliedProduct.name.ilike(f"%{query}%"))
     statement = statement.limit(100)
@@ -412,7 +415,7 @@ def import_recipes_from_parsed_data(db: Session, parsed_recipes: List[Dict[str, 
                 db.add(db_ing)
             else:
                 # Resolve or create SuppliedProduct
-                prod_stmt = select(SuppliedProduct).join(Supplier).where(SuppliedProduct.name.ilike(ing_name), Supplier.restaurant_id == restaurant_id)
+                prod_stmt = select(SuppliedProduct).join(Supplier).where(SuppliedProduct.name.ilike(ing_name), Supplier.restaurant_id == restaurant_id, SuppliedProduct.deleted_at == None)
                 prod = db.exec(prod_stmt).first()
                 
                 if not prod:

@@ -11,7 +11,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: hospitality_dev
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -76,10 +76,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality?schema=public"
+      DATABASE_URL: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality_saas?schema=public"
       QDRANT_URL: "http://hospitality-qdrant:6333"
       REDIS_URL: "redis://hospitality-redis:6379"
       MINIO_ENDPOINT_URL: "http://hospitality-minio:9000"
+      MINIO_PUBLIC_URL: "http://localhost:9012"
       SUPERTOKENS_CONNECTION_URI: "http://hospitality-supertokens:3567"
     depends_on:
       - postgres
@@ -97,10 +98,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality?schema=public"
+      DATABASE_URL: "postgresql://postgres:postgres@hospitality-postgres:5432/hospitality_saas?schema=public"
       QDRANT_URL: "http://hospitality-qdrant:6333"
       REDIS_URL: "redis://hospitality-redis:6379"
       MINIO_ENDPOINT_URL: "http://hospitality-minio:9000"
+      MINIO_PUBLIC_URL: "http://localhost:9012"
       SUPERTOKENS_CONNECTION_URI: "http://hospitality-supertokens:3567"
       BACKEND_URL: "http://hospitality-backend:8000"
     depends_on:
