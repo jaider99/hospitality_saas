@@ -2,14 +2,17 @@
   "expo": {
     "name": "Hospitality Mobile",
     "slug": "hospitality-mobile",
+    "scheme": "hospitality-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.hospitality.mobile"
     },
     "android": {
-      "packageName": "com.hospitality.mobile"
+      "packageName": "com.hospitality.mobile",
+      "package": "com.hospitality.mobile"
     },
     "web": {
       "bundler": "metro"

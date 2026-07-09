@@ -1,0 +1,14 @@
+.env
+.env.*
+venv/
+venv_old/
+__pycache__/
+*.pyc
+*.pyo
+.git/
+logs/
+ocr_results/
+md_outputs/
+review_queue.jsonl
+*.log
+.DS_Store

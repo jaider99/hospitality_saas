@@ -33,9 +33,24 @@ import { Btn } from '../_components/ui';
 import { getApiClient } from '../../../store/auth';
 import { API_BASE_URL } from '@hospitality-saas/constants';
 import ConfirmModal from '../suppliers/_components/ConfirmModal';
+import { getMinioUrlAction } from '../../auth/actions';
 
 export default function DocumentsPage() {
   const router = useRouter();
+  const [minioUrl, setMinioUrl] = useState<string>('');
+
+  useEffect(() => {
+    async function loadMinioUrl() {
+      try {
+        const url = await getMinioUrlAction();
+        setMinioUrl(url);
+      } catch (err) {
+        console.error('Failed to load MinIO URL:', err);
+      }
+    }
+    loadMinioUrl();
+  }, []);
+
   const [search, setSearch] = useState('');
   const [showBanner, setShowBanner] = useState(true);
 
@@ -183,9 +198,7 @@ export default function DocumentsPage() {
 
   // Real-time EventSource listener to reload the documents list on webhook trigger
   useEffect(() => {
-    const protocol = window.location.protocol;
-    const hostname = window.location.hostname;
-    const sseUrl = `${protocol}//${hostname}:8000/api/v1/invoices/events`;
+    const sseUrl = `/api/v1/invoices/events`;
     const eventSource = new EventSource(sseUrl);
 
     eventSource.onmessage = (event) => {
@@ -328,10 +341,10 @@ export default function DocumentsPage() {
   };
 
   const handleDownloadInvoice = (doc: any) => {
-    const fileExtension = (doc.source_file ? doc.source_file.split('.').pop()?.toLowerCase() : 'pdf') || 'pdf';
-    const objectName = `invoice_${doc.id}.${fileExtension}`;
-    const minioUrl = process.env.NEXT_PUBLIC_MINIO_URL || 'http://localhost:9012';
-    window.open(`${minioUrl}/invoices/${objectName}`, '_blank');
+    const fileUrl = doc.file_url && doc.file_url.startsWith('http')
+      ? doc.file_url
+      : `${minioUrl}/invoices/invoice_${doc.id}.${(doc.source_file ? doc.source_file.split('.').pop()?.toLowerCase() : 'pdf') || 'pdf'}`;
+    window.open(fileUrl, '_blank');
     setActiveRowMenu(null);
   };
 

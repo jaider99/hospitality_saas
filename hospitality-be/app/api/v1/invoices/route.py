@@ -124,6 +124,7 @@ def list_invoices(
             "ibee": inv.ibee,
             "tax_free_costs": inv.tax_free_costs,
             "source_file": inv.source_file,
+            "file_url": inv.file_url,
             "review_reasons": inv.review_reasons,
             "is_duplicate": inv.is_duplicate,
         })

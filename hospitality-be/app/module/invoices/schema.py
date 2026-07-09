@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
 from typing import Optional, List
 
@@ -45,6 +45,7 @@ class InvoiceListResponse(BaseModel):
     attributable_cost: Optional[float] = None
     tax_free_costs: Optional[float] = None
     source_file: Optional[str] = None
+    file_url: Optional[str] = None
     review_reasons: Optional[str] = None          # JSON list stored as string
     ocr_time: Optional[float] = None
     llm_time: Optional[float] = None
@@ -52,6 +53,12 @@ class InvoiceListResponse(BaseModel):
     llm_duration: Optional[float] = None
     is_duplicate: Optional[bool] = False
 
+    @model_validator(mode="after")
+    def resolve_public_file_url(self) -> 'InvoiceListResponse':
+        from app.core.setting import settings
+        if settings.MINIO_PUBLIC_URL and self.source_file:
+            self.file_url = f"{settings.MINIO_PUBLIC_URL}/{settings.MINIO_BUCKET_NAME}/{self.source_file}"
+        return self
 
     class Config:
         from_attributes = True
@@ -164,6 +171,7 @@ class InvoiceDetailsResponse(BaseModel):
     attributable_cost: Optional[float] = None
     tax_free_costs: Optional[float] = None
     source_file: Optional[str] = None
+    file_url: Optional[str] = None
     review_reasons: Optional[str] = None
     ocr_time: Optional[float] = None
     llm_time: Optional[float] = None
@@ -177,6 +185,13 @@ class InvoiceDetailsResponse(BaseModel):
     base_amount: Optional[float] = None
     iva_amount: Optional[float] = None
     total_with_iva: Optional[float] = None
+
+    @model_validator(mode="after")
+    def resolve_public_file_url(self) -> 'InvoiceDetailsResponse':
+        from app.core.setting import settings
+        if settings.MINIO_PUBLIC_URL and self.source_file:
+            self.file_url = f"{settings.MINIO_PUBLIC_URL}/{settings.MINIO_BUCKET_NAME}/{self.source_file}"
+        return self
 
     class Config:
         from_attributes = True
