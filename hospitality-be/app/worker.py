@@ -199,6 +199,7 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
-    max_jobs = 1  # Process one invoice at a time — prevents PaddleOCR from double-loading and freezing
+    max_jobs = 2  # Process up to two invoices at a time — safe for servers with 16GB RAM
     job_timeout = 900  # 15 minutes (default is 300s) - prevents TimeoutError when downloading heavy models
+    allow_abort_jobs = True
     max_tries = 1  # Prevents aborted/killed tasks from retrying and clogging the queue when the worker restarts

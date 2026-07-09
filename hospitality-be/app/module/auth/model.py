@@ -36,7 +36,7 @@ from sqlalchemy import UniqueConstraint
 class RolePermission(SQLModel, table=True):
     __tablename__ = "app_role_permissions"
     __table_args__ = (
-        UniqueConstraint("restaurant_id", "role_name", "module", name="uq_role_permission_module"),
+        UniqueConstraint("restaurant_id", "role_name", "module", name="uq_app_role_permission_module"),
     )
     
     id: Optional[int] = Field(default=None, primary_key=True)

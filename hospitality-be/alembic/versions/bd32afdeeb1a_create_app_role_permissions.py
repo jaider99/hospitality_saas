@@ -29,7 +29,7 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(), nullable=False),
         sa.Column('updated_at', sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(['restaurant_id'], ['restaurant.id'], ondelete='CASCADE'),
-        # sa.UniqueConstraint('restaurant_id', 'role_name', 'module', name='uq_role_permission_module')
+        sa.UniqueConstraint('restaurant_id', 'role_name', 'module', name='uq_app_role_permission_module')
     )
     # op.create_index(op.f('ix_app_role_permissions_restaurant_id'), 'app_role_permissions', ['restaurant_id'], unique=False)
     # op.create_index(op.f('ix_app_role_permissions_role_name'), 'app_role_permissions', ['role_name'], unique=False)

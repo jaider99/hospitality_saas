@@ -291,7 +291,7 @@ def unify_with_product(
     - Updates the product's stats (quantity, total, last_price)
     """
     try:
-        result = service.unify_line_with_product(db, line_id, payload.product_id)
+        result = service.unify_line_with_product(db, line_id, payload.product_id, current_user.restaurant_id)
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

@@ -30,14 +30,39 @@ import {
 } from 'lucide-react';
 import { documents } from '../mockData';
 import { Btn } from '../_components/ui';
-import { getApiClient } from '../../../store/auth';
+import { getApiClient, useAuthStore } from '../../../store/auth';
 import { API_BASE_URL } from '@hospitality-saas/constants';
 import ConfirmModal from '../suppliers/_components/ConfirmModal';
 import { getMinioUrlAction } from '../../auth/actions';
 
+const formatDateSafe = (
+  dateStr: string | null | undefined,
+  options?: { month?: '2-digit' | 'short'; day?: '2-digit' | 'numeric'; year?: 'numeric' }
+): string => {
+  if (!dateStr) return '—';
+  const clean = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr.split(' ')[0];
+  const parts = clean.split('-');
+  if (parts.length !== 3) return '—';
+  const [yearStr, monthStr, dayStr] = parts;
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10) - 1; // 0-indexed month
+  const day = parseInt(dayStr, 10);
+
+  const date = new Date(Date.UTC(year, month, day));
+  return date.toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    month: options?.month || '2-digit',
+    day: options?.day || '2-digit',
+    year: options?.year || 'numeric'
+  });
+};
+
 export default function DocumentsPage() {
   const router = useRouter();
   const [minioUrl, setMinioUrl] = useState<string>('');
+  
+  const user = useAuthStore((state) => state.user);
+  const restaurantId = user?.restaurant_id;
 
   useEffect(() => {
     async function loadMinioUrl() {
@@ -122,17 +147,9 @@ export default function DocumentsPage() {
           supplier: inv.supplier_display_name || inv.supplier?.name || 'Unknown Supplier',
           docNum: inv.document_number || inv.invoice_number || '—',
           date: inv.document_date
-            ? new Date(inv.document_date).toLocaleDateString('en-US', {
-                month: '2-digit',
-                day: '2-digit',
-                year: 'numeric'
-              })
+            ? formatDateSafe(inv.document_date)
             : inv.issue_date
-              ? new Date(inv.issue_date).toLocaleDateString('en-US', {
-                  month: '2-digit',
-                  day: '2-digit',
-                  year: 'numeric'
-                })
+              ? formatDateSafe(inv.issue_date)
               : '—',
           rawDate: inv.document_date || inv.issue_date || null,
           uploadDate: inv.created_at
@@ -196,30 +213,71 @@ export default function DocumentsPage() {
     fetchInvoices();
   }, [fetchInvoices]);
 
-  // Real-time EventSource listener to reload the documents list on webhook trigger
+  // Real-time WebSocket listener to reload the documents list on webhook trigger
   useEffect(() => {
-    const sseUrl = `/api/v1/invoices/events`;
-    const eventSource = new EventSource(sseUrl);
+    if (!restaurantId) return;
 
-    eventSource.onmessage = (event) => {
-      if (event.data === 'reload') {
-        console.log('Real-time reload event received from server webhook!');
-        fetchInvoicesRef.current();
+    const publicApiUrl = process.env.NEXT_PUBLIC_API_URL;
+    let attempt = 0;
+
+    let socket: WebSocket | null = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    let isMounted = true;
+
+    const connect = () => {
+      if (!isMounted) return;
+
+      let wsUrl = '';
+      if (publicApiUrl) {
+        const parsedUrl = new URL(publicApiUrl);
+        const protocol = parsedUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = `${protocol}//${parsedUrl.host}/api/v1/invoices/ws/${restaurantId}`;
+      } else {
+        // Fallback: If running on localhost, default to backend port 8000. Otherwise use current hostname/port.
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        let host = window.location.host;
+        if (isLocalhost) {
+          // Alternates between window.location.hostname (e.g. localhost) and 127.0.0.1 on successive retries
+          // to bypass IPv6 binding issues or browser/adblocker restrictions.
+          const fallbackHost = attempt % 2 === 0 ? window.location.hostname : '127.0.0.1';
+          host = `${fallbackHost}:8000`;
+        }
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = `${protocol}//${host}/api/v1/invoices/ws/${restaurantId}`;
       }
+
+      console.log(`Connecting to invoice WebSocket (attempt ${attempt}): ${wsUrl}`);
+      socket = new WebSocket(wsUrl);
+
+      socket.onmessage = (event) => {
+        if (event.data === 'reload') {
+          console.log('Real-time websocket reload event received for restaurant:', restaurantId);
+          fetchInvoicesRef.current();
+        }
+      };
+
+      socket.onclose = (event) => {
+        if (isMounted) {
+          console.warn('WebSocket connection closed. Retrying connection in 3 seconds...', event.reason);
+          attempt++;
+          reconnectTimeout = setTimeout(connect, 3000);
+        }
+      };
+
+      socket.onerror = (err) => {
+        // Use console.warn to prevent Next.js from throwing a full-screen error overlay in dev mode
+        console.warn('WebSocket connection warning:', err);
+      };
     };
 
-    eventSource.onerror = () => {
-      // EventSource auto-reconnects on transient errors (CONNECTING state).
-      // Only log when the connection has been definitively closed.
-      if (eventSource.readyState === EventSource.CLOSED) {
-        console.warn('EventSource connection closed — real-time updates unavailable.');
-      }
-    };
+    connect();
 
     return () => {
-      eventSource.close();
+      isMounted = false;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (socket) socket.close();
     };
-  }, []);
+  }, [restaurantId]);
 
   const allDocuments = [...uploadedDocs, ...apiDocs];
 
@@ -914,7 +972,7 @@ export default function DocumentsPage() {
                 <span>
                   Date:{' '}
                   {startDateFilter
-                    ? new Date(startDateFilter).toLocaleDateString('en-US', {
+                    ? formatDateSafe(startDateFilter, {
                         month: 'short',
                         day: 'numeric',
                         year: 'numeric'
@@ -922,7 +980,7 @@ export default function DocumentsPage() {
                     : 'Start'}{' '}
                   -{' '}
                   {endDateFilter
-                    ? new Date(endDateFilter).toLocaleDateString('en-US', {
+                    ? formatDateSafe(endDateFilter, {
                         month: 'short',
                         day: 'numeric',
                         year: 'numeric'

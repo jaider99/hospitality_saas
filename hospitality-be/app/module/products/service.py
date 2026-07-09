@@ -114,6 +114,7 @@ def create_product_manual(db: Session, data: "ProductManualCreate", restaurant_i
 
     product = Product(
         id=product_id,
+        restaurant_id=restaurant_id,
         name=data.name,
         unit_of_measure=data.unit_of_measure,
         unit_of_measure_source="manual",
@@ -263,7 +264,7 @@ def get_products(
 
         # Calculate dynamic stats if date range is specified
         if start_date or end_date:
-            history = _get_purchase_history(db, p.id, start_date, end_date)
+            history = _get_purchase_history(db, p.id, restaurant_id, start_date, end_date)
             quantity = sum(h["quantity"] for h in history if h.get("quantity") is not None)
             total = sum(h["total_price"] for h in history if h.get("total_price") is not None)
             last_price = history[0]["unit_price"] if history and history[0].get("unit_price") is not None else None
@@ -346,7 +347,7 @@ def get_product_detail(db: Session, product_id: str, restaurant_id: int) -> Opti
     ).all()
 
     # Purchase history via referenced_items → invoice_lines
-    purchase_history = _get_purchase_history(db, product_id)
+    purchase_history = _get_purchase_history(db, product_id, restaurant_id)
 
     # Price stats from history
     prices = [h["unit_price"] for h in purchase_history if h.get("unit_price")]
@@ -418,6 +419,7 @@ def _build_category_chain(db: Session, category_id: Optional[str]) -> Optional[d
 def _get_purchase_history(
     db: Session,
     product_id: str,
+    restaurant_id: int,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> List[dict]:
@@ -604,7 +606,7 @@ def get_review_queue(
         supplier_name = invoice.supplier_display_name if invoice else ""
 
         # Find similar products (by name prefix match, same supplier)
-        similar = _find_similar_products(db, line.description or "", supplier_name)
+        similar = _find_similar_products(db, line.description or "", supplier_name, restaurant_id)
 
         result.append({
             "line_id": line.id,
@@ -627,7 +629,7 @@ def get_review_queue(
     return result, total
 
 
-def _find_similar_products(db: Session, description: str, supplier_name: str) -> List[dict]:
+def _find_similar_products(db: Session, description: str, supplier_name: str, restaurant_id: int) -> List[dict]:
     """
     Find existing products that look similar to an unlinked invoice line.
     Returns match confidence: 'exact' | 'possibly_different' | 'looks_different'
@@ -640,6 +642,7 @@ def _find_similar_products(db: Session, description: str, supplier_name: str) ->
     prefix = description[:15].strip()
     stmt = (
         select(Product)
+        .where(Product.restaurant_id == restaurant_id)
         .where(Product.name.ilike(f"%{prefix}%"))
         .where(Product.archived == False)
         .limit(10)  # fetch extra to allow filtering
@@ -688,6 +691,7 @@ def unify_line_with_product(
     db: Session,
     invoice_line_id: int,
     product_id: str,
+    restaurant_id: int,
 ) -> dict:
     """
     Link an unreviewed invoice line to an existing product.
@@ -769,7 +773,7 @@ def mark_line_no_match(db: Session, invoice_line_id: int, restaurant_id: int) ->
     new_product = create_product_manual(db, new_data, restaurant_id)
 
     # Link the line to this new product
-    return unify_line_with_product(db, invoice_line_id, new_product.id)
+    return unify_line_with_product(db, invoice_line_id, new_product.id, restaurant_id)
 
 
 # ---------------------------------------------------------------------------

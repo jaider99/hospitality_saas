@@ -1,7 +1,6 @@
 import os
 import asyncio
-from fastapi import APIRouter, Depends, UploadFile, File, status, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, UploadFile, File, status, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from sqlmodel import Session, select
 from typing import List, Dict, Any, Optional
@@ -16,9 +15,6 @@ from app.module.invoices.model import Invoice
 from app.core.queue import enqueue_invoice_processing
 from app.core.minio import upload_to_minio
 from app.core.setting import settings
-
-# In-memory list of active client queues for Server-Sent Events
-active_connections: List[asyncio.Queue] = []
 
 router = APIRouter()
 
@@ -130,75 +126,97 @@ def list_invoices(
         })
     return result
 
+
 class WebhookPayload(BaseModel):
     invoice_id: int
     status: str
 
 
-async def broadcast_event(message: str):
-    """Broadcasts a message to all active SSE connection queues."""
-    for queue in active_connections:
-        await queue.put(message)
+class WebSocketConnectionManager:
+    def __init__(self):
+        # Maps restaurant_id (int) to a list of WebSocket connections
+        self.active_connections: Dict[int, List[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, restaurant_id: int):
+        await websocket.accept()
+        if restaurant_id not in self.active_connections:
+            self.active_connections[restaurant_id] = []
+        self.active_connections[restaurant_id].append(websocket)
+
+    def disconnect(self, websocket: WebSocket, restaurant_id: int):
+        if restaurant_id in self.active_connections:
+            if websocket in self.active_connections[restaurant_id]:
+                self.active_connections[restaurant_id].remove(websocket)
+            if not self.active_connections[restaurant_id]:
+                del self.active_connections[restaurant_id]
+
+    async def broadcast_to_restaurant(self, restaurant_id: int, message: str):
+        if restaurant_id in self.active_connections:
+            for connection in self.active_connections[restaurant_id]:
+                try:
+                    await connection.send_text(message)
+                except Exception:
+                    pass
+
+
+ws_manager = WebSocketConnectionManager()
 
 
 @router.post("/webhook")
 async def receive_webhook(payload: WebhookPayload, db: Session = Depends(get_db)):
     """
     Webhook endpoint called by background worker when invoice processing finishes.
-    Triggers client EventSource updates to reload documents in real-time.
+    Triggers client WebSocket updates to reload documents in real-time.
     """
     import logging
     from datetime import datetime
     api_logger = logging.getLogger("api")
 
     invoice = db.get(Invoice, payload.invoice_id)
-    if invoice and invoice.created_at:
-        duration = (datetime.utcnow() - invoice.created_at).total_seconds()
-        api_logger.info(
-            f"[OCR TIME LOG] Webhook received for Invoice ID: {payload.invoice_id} | "
-            f"Status: {payload.status} | Total time since upload: {duration:.2f}s"
-        )
+    restaurant_id = None
+    if invoice:
+        restaurant_id = invoice.restaurant_id
+        if invoice.created_at:
+            duration = (datetime.utcnow() - invoice.created_at).total_seconds()
+            api_logger.info(
+                f"[OCR TIME LOG] Webhook received for Invoice ID: {payload.invoice_id} | "
+                f"Status: {payload.status} | Total time since upload: {duration:.2f}s"
+            )
+        else:
+            api_logger.info(
+                f"[OCR TIME LOG] Webhook received for Invoice ID: {payload.invoice_id} | "
+                f"Status: {payload.status} | (created_at not found)"
+            )
     else:
         api_logger.info(
             f"[OCR TIME LOG] Webhook received for Invoice ID: {payload.invoice_id} | "
-            f"Status: {payload.status} | (Invoice or created_at not found)"
+            f"Status: {payload.status} | (Invoice not found)"
         )
 
-    await broadcast_event("reload")
+    if restaurant_id is not None:
+        api_logger.info(f"Broadcasting reload event to restaurant: {restaurant_id}")
+        await ws_manager.broadcast_to_restaurant(restaurant_id, "reload")
+    else:
+        api_logger.warning("Could not broadcast reload event: restaurant_id not found on invoice")
+
     return {"status": "success", "message": "Webhook received and event broadcasted"}
 
 
-
-@router.get("/events")
-async def events_endpoint():
+@router.websocket("/ws/{restaurant_id}")
+async def websocket_endpoint(websocket: WebSocket, restaurant_id: int):
     """
-    SSE stream endpoint. Frontend connects here to receive push notifications
-    when updates to invoices occur via the backend webhook.
+    WebSocket endpoint for real-time document reload notifications.
+    Clients connect here scoped by restaurant_id.
     """
-    async def event_generator():
-        queue = asyncio.Queue()
-        active_connections.append(queue)
-        try:
-            # Send initial ping to establish connection and flush headers
-            yield "data: connected\n\n"
-            while True:
-                # Wait for broadcast event
-                message = await queue.get()
-                yield f"data: {message}\n\n"
-        except asyncio.CancelledError:
-            pass
-        finally:
-            active_connections.remove(queue)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
-    )
+    await ws_manager.connect(websocket, restaurant_id)
+    try:
+        while True:
+            # Keep connection alive by waiting for client pings or text
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, restaurant_id)
+    except Exception:
+        ws_manager.disconnect(websocket, restaurant_id)
 
 @router.post("/{invoice_id}/retry")
 async def retry_invoice_processing(
@@ -228,8 +246,13 @@ async def retry_invoice_processing(
     db.commit()
     db.refresh(invoice)
     
-    await enqueue_invoice_processing(invoice.id, invoice.source_file, "en")
-    await broadcast_event("reload")
+    await enqueue_invoice_processing(
+        invoice_id=invoice.id,
+        object_key=invoice.source_file,
+        restaurant_id=current_user.restaurant_id,
+        lang="en"
+    )
+    await ws_manager.broadcast_to_restaurant(current_user.restaurant_id, "reload")
     
     return {"status": "success", "message": "Invoice processing retried"}
 

@@ -299,6 +299,17 @@ def get_recipe_bom(db: Session, recipe_id: Any, restaurant_id: int) -> Dict[str,
         statement = select(Recipe).where(Recipe.dish_id == recipe_id, Recipe.restaurant_id == restaurant_id)
         
     recipe = db.exec(statement).first()
+
+    # Fallback to id search if it's an integer
+    if not recipe:
+        try:
+            clean_id = recipe_id_str.replace("dish~", "")
+            recipe_id_int = int(clean_id)
+            statement = select(Recipe).where(Recipe.id == recipe_id_int, Recipe.restaurant_id == restaurant_id)
+            recipe = db.exec(statement).first()
+        except ValueError:
+            pass
+
     if not recipe:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recipe with ID {recipe_id} not found")
     
@@ -474,8 +485,8 @@ def get_recipe_tags(db: Session, restaurant_id: int) -> List[RecipeTagResponse]:
     statement = select(RecipeTag).where(RecipeTag.restaurant_id == restaurant_id)
     tags = db.exec(statement).all()
     if not tags:
-        seed_default_tags(db)
-        tags = db.exec(select(RecipeTag)).all()
+        seed_default_tags(db, restaurant_id)
+        tags = db.exec(select(RecipeTag).where(RecipeTag.restaurant_id == restaurant_id)).all()
     return [
         RecipeTagResponse(
             id=t.tag_id,
@@ -521,7 +532,7 @@ def delete_recipe_tag(db: Session, tag_id: str, restaurant_id: int) -> None:
         db.delete(tag)
         db.commit()
 
-def seed_default_tags(db: Session) -> None:
+def seed_default_tags(db: Session, restaurant_id: int) -> None:
     """Seeds Haddock default tags and prep categories."""
     default_dishes = [
         "CERVEZAS", "CHUPITO", "cocktail", "CUBATA", "DESTILADO", 
@@ -533,14 +544,14 @@ def seed_default_tags(db: Session) -> None:
     
     for name in default_dishes:
         tag_id = f"dtag~{name.lower().replace(' ', '_')}"
-        if not db.exec(select(RecipeTag).where(RecipeTag.tag_id == tag_id)).first():
-            tag = RecipeTag(tag_id=tag_id, name=name, is_preparation=False)
+        if not db.exec(select(RecipeTag).where(RecipeTag.tag_id == tag_id, RecipeTag.restaurant_id == restaurant_id)).first():
+            tag = RecipeTag(tag_id=tag_id, name=name, is_preparation=False, restaurant_id=restaurant_id)
             db.add(tag)
             
     for name in default_preps:
         tag_id = f"dtag~{name.lower().replace(' ', '_')}"
-        if not db.exec(select(RecipeTag).where(RecipeTag.tag_id == tag_id)).first():
-            tag = RecipeTag(tag_id=tag_id, name=name, is_preparation=True)
+        if not db.exec(select(RecipeTag).where(RecipeTag.tag_id == tag_id, RecipeTag.restaurant_id == restaurant_id)).first():
+            tag = RecipeTag(tag_id=tag_id, name=name, is_preparation=True, restaurant_id=restaurant_id)
             db.add(tag)
             
     db.commit()
