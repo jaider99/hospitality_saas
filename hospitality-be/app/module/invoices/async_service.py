@@ -20,6 +20,7 @@ async def async_save_ocr_invoice(
     db: AsyncSession,
     invoice_id: int,
     ocr_invoice,  # app.ocr.schema.OcrInvoice
+    restaurant_id: int,
     lang: str = "en",
 ) -> Dict[str, Any]:
     """
@@ -43,13 +44,13 @@ async def async_save_ocr_invoice(
     # Try to find by tax_id first (most accurate), then by name
     supplier = None
     if supplier_tax_id:
-        stmt = select(Supplier).where(Supplier.vat_id == supplier_tax_id)
+        stmt = select(Supplier).where(Supplier.vat_id == supplier_tax_id, Supplier.restaurant_id == restaurant_id)
         result = await db.execute(stmt)
         supplier = result.scalars().first()
 
     if not supplier and supplier_name:
         # Only do ilike lookup when we have a real name
-        stmt = select(Supplier).where(Supplier.name.ilike(supplier_name))
+        stmt = select(Supplier).where(Supplier.name.ilike(supplier_name), Supplier.restaurant_id == restaurant_id)
         result = await db.execute(stmt)
         supplier = result.scalars().first()
 
@@ -61,6 +62,7 @@ async def async_save_ocr_invoice(
             contact_info=supplier_contact_info,
             legal_name=supplier_legal_name,
             contacts=supplier_contacts_count or 0,
+            restaurant_id=restaurant_id,
         )
         db.add(supplier)
         await db.commit()

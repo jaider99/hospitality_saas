@@ -481,7 +481,7 @@ def check_invoice_exists(invoice_id: int) -> bool:
         logging.getLogger("invoice_pipeline").warning(f"Failed to check invoice {invoice_id} status: {e}")
         return True
 
-def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = "", invoice_id: int | None = None) -> Invoice:
+def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = "", invoice_id: int | None = None, restaurant_id: int | None = None) -> Invoice:
     if not check_invoice_exists(invoice_id):
         raise ValueError(f"Invoice {invoice_id} was deleted. Aborting pipeline.")
 
@@ -902,6 +902,8 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
                 from sqlalchemy import or_
                 
                 query = session.query(DBInvoice).filter(DBInvoice.invoice_number == inv.serialNumber)
+                if restaurant_id is not None:
+                    query = query.filter(DBInvoice.restaurant_id == restaurant_id)
                 
                 # To avoid strict string matching failures (e.g. 'Vendo lo que tengo s.l.' vs 'Vendo lo que tengo S.L.'),
                 # we consider it a duplicate if the invoice number matches AND (the Date matches OR the Total matches OR Supplier matches loosely).

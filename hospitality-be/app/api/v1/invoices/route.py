@@ -3,7 +3,7 @@ import asyncio
 from fastapi import APIRouter, Depends, UploadFile, File, status, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlmodel import Session
+from sqlmodel import Session, select
 from typing import List, Dict, Any, Optional
 
 from app.db.session import get_db
@@ -39,6 +39,7 @@ async def upload_invoice(
     # 1. Create a PENDING Invoice record (run sync DB ops in thread pool)
     def create_invoice_record():
         inv = Invoice(
+            restaurant_id=current_user.restaurant_id,
             status="PENDING",
             total_amount=0.0
         )
@@ -74,6 +75,7 @@ async def upload_invoice(
     await enqueue_invoice_processing(
         invoice_id=invoice.id,
         object_key=object_key,
+        restaurant_id=current_user.restaurant_id,
         lang=lang
     )
 
@@ -94,7 +96,7 @@ def list_invoices(
     current_user: User = Depends(get_current_user)
 ):
     """Lists all invoices with OCR-extracted fields."""
-    invoices = get_invoices(db)
+    invoices = get_invoices(db, current_user.restaurant_id)
 
     result = []
     for inv in invoices:
@@ -206,7 +208,8 @@ async def retry_invoice_processing(
     """
     Retries OCR processing for a failed invoice.
     """
-    invoice = db.get(Invoice, invoice_id)
+    statement = select(Invoice).where(Invoice.id == invoice_id, Invoice.restaurant_id == current_user.restaurant_id)
+    invoice = db.exec(statement).first()
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
     
@@ -237,7 +240,7 @@ def get_invoice(
     current_user: User = Depends(get_current_user)
 ):
     """Retrieves full invoice line-items details."""
-    return get_invoice_details(db, invoice_id)
+    return get_invoice_details(db, invoice_id, current_user.restaurant_id)
 
 
 @router.get("/{invoice_id}/status", response_model=InvoiceStatusResponse)
@@ -250,7 +253,8 @@ def get_invoice_status(
     Lightweight polling endpoint — returns just the processing status.
     (Note: Client-side EventSource is now preferred over polling this endpoint.)
     """
-    invoice = db.get(Invoice, invoice_id)
+    statement = select(Invoice).where(Invoice.id == invoice_id, Invoice.restaurant_id == current_user.restaurant_id)
+    invoice = db.exec(statement).first()
     if not invoice:
         raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
     return {
@@ -273,9 +277,11 @@ from app.ocr.storage import update_invoice, load_invoice
 @router.delete("/{invoice_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_invoice_api(
     invoice_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    inv = db.get(Invoice, invoice_id)
+    statement = select(Invoice).where(Invoice.id == invoice_id, Invoice.restaurant_id == current_user.restaurant_id)
+    inv = db.exec(statement).first()
     if not inv:
         raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
     
@@ -331,9 +337,15 @@ async def delete_invoice_api(
 async def delete_invoice_line_api(
     invoice_id: int,
     line_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     from app.module.invoices.model import InvoiceLine
+    statement = select(Invoice).where(Invoice.id == invoice_id, Invoice.restaurant_id == current_user.restaurant_id)
+    inv = db.exec(statement).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+        
     line_record = db.get(InvoiceLine, line_id)
     if not line_record or line_record.invoice_id != invoice_id:
         raise HTTPException(status_code=404, detail="Line not found")
@@ -348,11 +360,13 @@ class BulkDeletePayload(BaseModel):
 @router.post("/bulk-delete", status_code=status.HTTP_204_NO_CONTENT)
 async def bulk_delete_invoices_api(
     payload: BulkDeletePayload,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     import json
     for inv_id in payload.invoice_ids:
-        inv = db.get(Invoice, inv_id)
+        statement = select(Invoice).where(Invoice.id == inv_id, Invoice.restaurant_id == current_user.restaurant_id)
+        inv = db.exec(statement).first()
         if inv:
             # Clear duplicate tag from any invoice that was marked as a duplicate of this one
             duplicates = db.query(Invoice).filter(Invoice.is_duplicate == True).all()
@@ -389,10 +403,12 @@ async def bulk_delete_invoices_api(
 async def update_invoice_api(
     invoice_id: int, 
     update_data: Dict[str, Any],
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     try:
-        inv = db.get(Invoice, invoice_id)
+        statement = select(Invoice).where(Invoice.id == invoice_id, Invoice.restaurant_id == current_user.restaurant_id)
+        inv = db.exec(statement).first()
         if not inv:
             raise HTTPException(status_code=404, detail=f"Invoice {invoice_id} not found")
         

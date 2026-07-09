@@ -46,12 +46,12 @@ def sync_user_to_db(
                 resolved_restaurant_id = restaurant.id
                 logger.info(f"Created new Restaurant '{res_name}' with ID: {resolved_restaurant_id}")
 
-            # Fallback: if restaurant_id is not set, link to the first available restaurant in DB
+            # IMPORTANT: Do NOT fall back to the first available restaurant.
+            # Each SUPER_ADMIN must have their own isolated restaurant.
+            # Non-SUPER_ADMIN users (invited staff) will always have restaurant_id provided.
             if not resolved_restaurant_id:
-                first_restaurant = db_session.exec(select(Restaurant)).first()
-                if first_restaurant:
-                    resolved_restaurant_id = first_restaurant.id
-                    logger.info(f"Fallback: Associated user {email} with restaurant ID {resolved_restaurant_id}")
+                logger.error(f"Cannot sync user {email}: no restaurant_id resolved and no restaurant created. Aborting sync.")
+                return
 
             # 1. Look up by supertokens_id
             stmt = select(User).where(User.supertokens_id == supertokens_id)
@@ -103,7 +103,9 @@ def sync_user_to_db(
                     user.name = f"{user.first_name or ''} {user.last_name or ''}".strip()
                 if phone:
                     user.phone = phone
-                if resolved_restaurant_id:
+                # CRITICAL: Only overwrite restaurant_id if user has NO restaurant yet.
+                # Never reassign an existing user to a different restaurant.
+                if resolved_restaurant_id and not user.restaurant_id:
                     user.restaurant_id = resolved_restaurant_id
                 db_session.add(user)
                 db_session.commit()

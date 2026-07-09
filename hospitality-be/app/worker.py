@@ -6,6 +6,8 @@ from app.core.setting import settings
 from app.db.session import async_session_maker
 from app.module.invoices.async_service import async_save_ocr_invoice
 from app.module.invoices.model import Invoice
+from app.module.restaurant.model import Restaurant
+from app.module.auth.model import User
 from app.core.minio import download_from_minio
 
 # Setup logger
@@ -20,7 +22,7 @@ async def shutdown(ctx):
     """Worker shutdown hook."""
     logger.info("Shutting down background worker...")
 
-async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str = "en"):
+async def process_invoice_task(ctx, invoice_id: int, object_key: str, restaurant_id: int, lang: str = "en"):
     """
     ARQ background task: downloads the invoice from MinIO to a temporary local file,
     runs the full OCR pipeline, persists the extracted data, and marks the invoice as PROCESSED.
@@ -55,7 +57,7 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
 
         # Run in threadpool — PaddleOCR is CPU-bound and blocks the event loop
         base_name = os.path.splitext(object_key)[0]
-        ocr_invoice = await asyncio.to_thread(process_invoice, local_path, False, base_name, invoice_id)
+        ocr_invoice = await asyncio.to_thread(process_invoice, local_path, False, base_name, invoice_id, restaurant_id)
 
         logger.info(
             f"OCR pipeline complete for invoice {invoice_id}: "
@@ -70,6 +72,7 @@ async def process_invoice_task(ctx, invoice_id: int, object_key: str, lang: str 
                 db=db,
                 invoice_id=invoice_id,
                 ocr_invoice=ocr_invoice,
+                restaurant_id=restaurant_id,
                 lang=lang,
             )
             logger.info(
@@ -148,3 +151,4 @@ class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
     max_jobs = 1  # Process one invoice at a time — prevents PaddleOCR from double-loading and freezing
     job_timeout = 900  # 15 minutes (default is 300s) - prevents TimeoutError when downloading heavy models
+    max_tries = 1  # Prevents aborted/killed tasks from retrying and clogging the queue when the worker restarts

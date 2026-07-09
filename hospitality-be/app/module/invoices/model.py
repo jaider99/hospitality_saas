@@ -23,6 +23,7 @@ class Supplier(SQLModel, table=True):
     __tablename__ = "suppliers"  # Use snake_case plural to match migrations
     
     id: Optional[int] = Field(default=None, primary_key=True)
+    restaurant_id: Optional[int] = Field(default=None, foreign_key="restaurant.id", index=True)
     supplier_code: Optional[str] = Field(default=None, index=True)
     name: str = Field(index=True)
     legal_name: Optional[str] = Field(default=None)        # legalName from OCR schema
@@ -87,6 +88,7 @@ class Invoice(SQLModel, table=True):
     __tablename__ = "invoices"  # Use exact migration name
     
     id: Optional[int] = Field(default=None, primary_key=True)
+    restaurant_id: Optional[int] = Field(default=None, foreign_key="restaurant.id", index=True)
     invoice_number: Optional[str] = Field(default=None, index=True, nullable=True)
     supplier_id: Optional[int] = Field(default=None, foreign_key="suppliers.id", ondelete="CASCADE", nullable=True)
     issue_date: Optional[datetime] = Field(default=None, nullable=True)

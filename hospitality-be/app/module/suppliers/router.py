@@ -6,27 +6,42 @@ from datetime import datetime
 from app.db.session import get_db
 from app.module.invoices.model import Supplier, SupplierContact
 from app.module.suppliers.schema import SupplierCreate, SupplierRead, SupplierUpdate, SupplierContactCreate
+from app.module.auth.model import User
+from app.module.auth.service import get_current_user
 
 router = APIRouter(tags=["Suppliers"])
 
 @router.get("", response_model=List[SupplierRead])
-def get_suppliers(session: Session = Depends(get_db)):
+def get_suppliers(
+    session: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     # Fetch all suppliers that are not soft-deleted
-    statement = select(Supplier).where(Supplier.deleted_at == None).order_by(Supplier.name)
+    statement = select(Supplier).where(Supplier.deleted_at == None, Supplier.restaurant_id == current_user.restaurant_id).order_by(Supplier.name)
     suppliers = session.exec(statement).all()
     return suppliers
 
 @router.get("/{supplier_id}", response_model=SupplierRead)
-def get_supplier(supplier_id: int, session: Session = Depends(get_db)):
-    supplier = session.get(Supplier, supplier_id)
+def get_supplier(
+    supplier_id: int, 
+    session: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    statement = select(Supplier).where(Supplier.id == supplier_id, Supplier.restaurant_id == current_user.restaurant_id)
+    supplier = session.exec(statement).first()
     if not supplier or supplier.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Supplier not found")
     return supplier
 
 @router.post("", response_model=SupplierRead, status_code=status.HTTP_201_CREATED)
-def create_supplier(supplier_in: SupplierCreate, session: Session = Depends(get_db)):
+def create_supplier(
+    supplier_in: SupplierCreate, 
+    session: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     # Build supplier from dict, excluding contacts (handled separately)
     supplier_data = supplier_in.dict(exclude={"contacts"})
+    supplier_data["restaurant_id"] = current_user.restaurant_id
     db_supplier = Supplier(**supplier_data)
     
     session.add(db_supplier)
@@ -44,8 +59,14 @@ def create_supplier(supplier_in: SupplierCreate, session: Session = Depends(get_
     return db_supplier
 
 @router.put("/{supplier_id}", response_model=SupplierRead)
-def update_supplier(supplier_id: int, supplier_in: SupplierUpdate, session: Session = Depends(get_db)):
-    db_supplier = session.get(Supplier, supplier_id)
+def update_supplier(
+    supplier_id: int, 
+    supplier_in: SupplierUpdate, 
+    session: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    statement = select(Supplier).where(Supplier.id == supplier_id, Supplier.restaurant_id == current_user.restaurant_id)
+    db_supplier = session.exec(statement).first()
     if not db_supplier or db_supplier.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Supplier not found")
         
@@ -91,8 +112,13 @@ def update_supplier(supplier_id: int, supplier_in: SupplierUpdate, session: Sess
     return db_supplier
 
 @router.delete("/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_supplier(supplier_id: int, session: Session = Depends(get_db)):
-    db_supplier = session.get(Supplier, supplier_id)
+def delete_supplier(
+    supplier_id: int, 
+    session: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    statement = select(Supplier).where(Supplier.id == supplier_id, Supplier.restaurant_id == current_user.restaurant_id)
+    db_supplier = session.exec(statement).first()
     if not db_supplier or db_supplier.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Supplier not found")
         

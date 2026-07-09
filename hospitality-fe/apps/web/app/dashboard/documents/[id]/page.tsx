@@ -1381,6 +1381,8 @@ export default function DocumentDetailPage() {
                 <th className="px-5 py-3 whitespace-nowrap text-right">Applied Discount</th>
                 <th className="px-5 py-3 whitespace-nowrap text-right">Other Fees</th>
                 <th className="px-5 py-3 whitespace-nowrap text-right">Nominal Price</th>
+                <th className="px-5 py-3 whitespace-nowrap text-center">GRA</th>
+                <th className="px-5 py-3 whitespace-nowrap text-center">UOM</th>
                 <th className="px-5 py-3 whitespace-nowrap text-center">IVA</th>
                 <th className="px-5 py-3 whitespace-nowrap text-right">Base</th>
                 <th className="px-5 py-3 whitespace-nowrap text-center">Actions</th>
@@ -1530,6 +1532,34 @@ export default function DocumentDetailPage() {
                         formatCurrency(line.nominal_price)
                       ) : (
                         '—'
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-center font-mono text-muted-foreground whitespace-nowrap">
+                      {editLines ? (
+                        <input
+                          type="number"
+                          className="w-16 p-1 text-xs border rounded text-center"
+                          value={line.gra ?? ''}
+                          onChange={(e) => handleLineChange(idx, 'gra', e.target.value === '' ? '' : Number(e.target.value))}
+                        />
+                      ) : line.gra !== undefined && line.gra !== null ? (
+                        line.gra
+                      ) : (
+                        '0'
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-center font-mono text-muted-foreground whitespace-nowrap">
+                      {editLines ? (
+                        <input
+                          type="number"
+                          className="w-16 p-1 text-xs border rounded text-center"
+                          value={line.u_m ?? ''}
+                          onChange={(e) => handleLineChange(idx, 'u_m', e.target.value === '' ? '' : Number(e.target.value))}
+                        />
+                      ) : line.u_m !== undefined && line.u_m !== null ? (
+                        line.u_m
+                      ) : (
+                        '0'
                       )}
                     </td>
                     <td className="px-5 py-3 text-center font-mono text-muted-foreground whitespace-nowrap">

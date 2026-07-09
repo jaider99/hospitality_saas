@@ -6,9 +6,10 @@ from app.module.recipes.model import Recipe, RecipeIngredient, RecipeTag
 from app.module.invoices.model import SuppliedProduct, Supplier
 from app.module.recipes.schema import RecipeCreate, RecipeUpdate, IngredientAdd, RecipeTagResponse
 
-def create_recipe(db: Session, dto: RecipeCreate) -> Recipe:
+def create_recipe(db: Session, dto: RecipeCreate, restaurant_id: int) -> Recipe:
     """Creates a new recipe item matching Haddock schema details."""
     recipe = Recipe(
+        restaurant_id=restaurant_id,
         name=dto.name,
         dish_id=dto.dishId or f"dish~{dto.name.lower().replace(' ', '_')}",
         is_preparation=dto.isPreparation or False,
@@ -27,9 +28,10 @@ def create_recipe(db: Session, dto: RecipeCreate) -> Recipe:
     db.refresh(recipe)
     return recipe
 
-def add_ingredient(db: Session, recipe_id: int, dto: IngredientAdd) -> RecipeIngredient:
+def add_ingredient(db: Session, recipe_id: int, dto: IngredientAdd, restaurant_id: int) -> RecipeIngredient:
     """Attaches an ingredient (supplied product or sub-recipe) to a recipe."""
-    recipe = db.get(Recipe, recipe_id)
+    statement = select(Recipe).where(Recipe.id == recipe_id, Recipe.restaurant_id == restaurant_id)
+    recipe = db.exec(statement).first()
     if not recipe:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recipe with ID {recipe_id} not found")
         
@@ -59,9 +61,9 @@ def add_ingredient(db: Session, recipe_id: int, dto: IngredientAdd) -> RecipeIng
     db.refresh(ingredient)
     return ingredient
 
-def get_recipes(db: Session, is_preparation: Optional[bool] = None) -> List[Dict[str, Any]]:
+def get_recipes(db: Session, restaurant_id: int, is_preparation: Optional[bool] = None) -> List[Dict[str, Any]]:
     """Lists all recipes (dishes or preparations) enriched with costing details."""
-    statement = select(Recipe)
+    statement = select(Recipe).where(Recipe.restaurant_id == restaurant_id)
     if is_preparation is not None:
         statement = statement.where(Recipe.is_preparation == is_preparation)
     statement = statement.order_by(Recipe.name.asc())
@@ -69,10 +71,10 @@ def get_recipes(db: Session, is_preparation: Optional[bool] = None) -> List[Dict
     
     return [enrich_recipe_data(r) for r in recipes]
 
-def get_unlinked_dishes(db: Session) -> List[Dict[str, Any]]:
+def get_unlinked_dishes(db: Session, restaurant_id: int) -> List[Dict[str, Any]]:
     """Returns dishes (not preparations) that have no ingredients."""
     # Find recipes where is_preparation is False and no ingredients exist
-    statement = select(Recipe).where(Recipe.is_preparation == False)
+    statement = select(Recipe).where(Recipe.is_preparation == False, Recipe.restaurant_id == restaurant_id)
     recipes = db.exec(statement).all()
     
     unlinked = []
@@ -85,16 +87,18 @@ def get_unlinked_dishes(db: Session) -> List[Dict[str, Any]]:
             })
     return unlinked
 
-def get_recipe_details(db: Session, recipe_id: int) -> Dict[str, Any]:
+def get_recipe_details(db: Session, recipe_id: int, restaurant_id: int) -> Dict[str, Any]:
     """Retrieves full recipe details enriched with metrics or raises 404."""
-    recipe = db.get(Recipe, recipe_id)
+    statement = select(Recipe).where(Recipe.id == recipe_id, Recipe.restaurant_id == restaurant_id)
+    recipe = db.exec(statement).first()
     if not recipe:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recipe with ID {recipe_id} not found")
     return enrich_recipe_data(recipe)
 
-def update_recipe(db: Session, recipe_id: int, dto: RecipeUpdate) -> Recipe:
+def update_recipe(db: Session, recipe_id: int, dto: RecipeUpdate, restaurant_id: int) -> Recipe:
     """Modifies an existing recipe's parameters."""
-    recipe = db.get(Recipe, recipe_id)
+    statement = select(Recipe).where(Recipe.id == recipe_id, Recipe.restaurant_id == restaurant_id)
+    recipe = db.exec(statement).first()
     if not recipe:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recipe with ID {recipe_id} not found")
         
@@ -132,10 +136,11 @@ def update_recipe(db: Session, recipe_id: int, dto: RecipeUpdate) -> Recipe:
     db.refresh(recipe)
     return recipe
 
-def delete_recipe(db: Session, recipe_id: int) -> Recipe:
+def delete_recipe(db: Session, recipe_id: int, restaurant_id: int) -> Recipe:
     """Removes a recipe from the database."""
     try:
-        recipe = db.get(Recipe, recipe_id)
+        statement = select(Recipe).where(Recipe.id == recipe_id, Recipe.restaurant_id == restaurant_id)
+        recipe = db.exec(statement).first()
         if not recipe:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recipe with ID {recipe_id} not found")
         
@@ -281,31 +286,18 @@ def enrich_recipe_data(recipe: Recipe) -> Dict[str, Any]:
         "linkedArticles": linked_articles
     }
 
-def get_recipe_bom(db: Session, recipe_id: Any) -> Dict[str, Any]:
-    """Generates the BOM Details response for a dish."""
-    recipe = None
+def get_recipe_bom(db: Session, recipe_id: Any, restaurant_id: int) -> Dict[str, Any]:
+    """
+    Returns the Bill of Materials for a given recipe/dish ID.
+    (recipe_id can be integer or string 'dish~X').
+    """
+    if isinstance(recipe_id, str) and recipe_id.startswith("dish~"):
+        recipe_id = recipe_id.replace("dish~", "")
     
-    # Parse recipe_id if it contains format like 'dish~1' or 'dish_1'
-    parsed_id = recipe_id
-    if isinstance(recipe_id, str):
-        if "~" in recipe_id:
-            parsed_id = recipe_id.split("~")[-1]
-        elif "_" in recipe_id:
-            parsed_id = recipe_id.split("_")[-1]
-
-    # If recipe_id looks like an integer, try direct lookup first
-    try:
-        r_id = int(parsed_id)
-        recipe = db.get(Recipe, r_id)
-    except ValueError:
-        pass
-        
+    statement = select(Recipe).where(Recipe.id == int(recipe_id), Recipe.restaurant_id == restaurant_id)
+    recipe = db.exec(statement).first()
     if not recipe:
-        # Fallback to string dish_id lookup if it's passed as path parameter
-        stmt = select(Recipe).where(Recipe.dish_id == str(recipe_id))
-        recipe = db.exec(stmt).first()
-        if not recipe:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Dish/Recipe '{recipe_id}' not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recipe with ID {recipe_id} not found")
     
     enriched = enrich_recipe_data(recipe)
     return {
@@ -322,13 +314,13 @@ def get_recipe_bom(db: Session, recipe_id: Any) -> Dict[str, Any]:
         }
     }
 
-def search_supplied_products(db: Session, query: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Searches supplied products by name for adding as ingredients."""
-    stmt = select(SuppliedProduct)
+def search_supplied_products(db: Session, restaurant_id: int, query: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Returns a simplified list of supplied products, optionally filtered by name."""
+    statement = select(SuppliedProduct).join(Supplier).where(Supplier.restaurant_id == restaurant_id)
     if query:
-        stmt = stmt.where(SuppliedProduct.name.ilike(f"%{query}%"))
-    stmt = stmt.limit(100)
-    products = db.exec(stmt).all()
+        statement = statement.where(SuppliedProduct.name.ilike(f"%{query}%"))
+    statement = statement.limit(100)
+    products = db.exec(statement).all()
     
     return [
         {
@@ -341,8 +333,7 @@ def search_supplied_products(db: Session, query: Optional[str] = None) -> List[D
         }
         for p in products
     ]
-
-def import_recipes_from_parsed_data(db: Session, parsed_recipes: List[Dict[str, Any]]) -> List[Recipe]:
+def import_recipes_from_parsed_data(db: Session, parsed_recipes: List[Dict[str, Any]], restaurant_id: int) -> List[Recipe]:
     """
     Imports/updates recipes from parsed data using a two-pass import strategy:
     Pass 1: Creates/updates all Recipe records in the database.
@@ -356,11 +347,12 @@ def import_recipes_from_parsed_data(db: Session, parsed_recipes: List[Dict[str, 
         name = pr["name"]
         
         # Check if recipe already exists in DB by name
-        stmt = select(Recipe).where(Recipe.name.ilike(name))
+        stmt = select(Recipe).where(Recipe.name.ilike(name), Recipe.restaurant_id == restaurant_id)
         db_recipe = db.exec(stmt).first()
         
         if not db_recipe:
             db_recipe = Recipe(
+                restaurant_id=restaurant_id,
                 name=name,
                 dish_id=f"dish~{name.lower().replace(' ', '_').replace('/', '_')}",
                 is_preparation=pr["isPreparation"],
@@ -391,7 +383,7 @@ def import_recipes_from_parsed_data(db: Session, parsed_recipes: List[Dict[str, 
     recipe_map = {r.name.lower(): r for r in imported_recipes}
 
     # Also fetch all other preparations already in DB to resolve links to existing preps
-    existing_preps = db.exec(select(Recipe).where(Recipe.is_preparation == True)).all()
+    existing_preps = db.exec(select(Recipe).where(Recipe.is_preparation == True, Recipe.restaurant_id == restaurant_id)).all()
     for ep in existing_preps:
         recipe_map[ep.name.lower()] = ep
 
@@ -420,27 +412,27 @@ def import_recipes_from_parsed_data(db: Session, parsed_recipes: List[Dict[str, 
                 db.add(db_ing)
             else:
                 # Resolve or create SuppliedProduct
-                prod_stmt = select(SuppliedProduct).where(SuppliedProduct.name.ilike(ing_name))
+                prod_stmt = select(SuppliedProduct).join(Supplier).where(SuppliedProduct.name.ilike(ing_name), Supplier.restaurant_id == restaurant_id)
                 prod = db.exec(prod_stmt).first()
                 
                 if not prod:
                     # Resolve or create Supplier
                     supplier_id = None
                     if ing["supplier"]:
-                        supp_stmt = select(Supplier).where(Supplier.name.ilike(ing["supplier"]))
+                        supp_stmt = select(Supplier).where(Supplier.name.ilike(ing["supplier"]), Supplier.restaurant_id == restaurant_id)
                         supplier = db.exec(supp_stmt).first()
                         if not supplier:
-                            supplier = Supplier(name=ing["supplier"])
+                            supplier = Supplier(name=ing["supplier"], restaurant_id=restaurant_id)
                             db.add(supplier)
                             db.commit()
                             db.refresh(supplier)
                         supplier_id = supplier.id
                     else:
                         # Fallback default supplier
-                        supp_stmt = select(Supplier).where(Supplier.name == "Imported Supplier")
+                        supp_stmt = select(Supplier).where(Supplier.name == "Imported Supplier", Supplier.restaurant_id == restaurant_id)
                         supplier = db.exec(supp_stmt).first()
                         if not supplier:
-                            supplier = Supplier(name="Imported Supplier")
+                            supplier = Supplier(name="Imported Supplier", restaurant_id=restaurant_id)
                             db.add(supplier)
                             db.commit()
                             db.refresh(supplier)
@@ -474,9 +466,10 @@ def import_recipes_from_parsed_data(db: Session, parsed_recipes: List[Dict[str, 
     return final_recipes
 
 
-def get_recipe_tags(db: Session) -> List[RecipeTagResponse]:
-    """Retrieves all recipe tags, seeding defaults if empty."""
-    tags = db.exec(select(RecipeTag)).all()
+def get_recipe_tags(db: Session, restaurant_id: int) -> List[RecipeTagResponse]:
+    """Returns all recipe tags."""
+    statement = select(RecipeTag).where(RecipeTag.restaurant_id == restaurant_id)
+    tags = db.exec(statement).all()
     if not tags:
         seed_default_tags(db)
         tags = db.exec(select(RecipeTag)).all()
@@ -489,13 +482,12 @@ def get_recipe_tags(db: Session) -> List[RecipeTagResponse]:
         for t in tags
     ]
 
-def create_recipe_tag(db: Session, name: str, is_preparation: bool) -> RecipeTagResponse:
-    """Creates a new RecipeTag with a unique URL-safe tag_id."""
-    clean_name = name.strip()
-    tag_id = f"dtag~{clean_name.lower().replace(' ', '_')}"
+def create_recipe_tag(db: Session, name: str, is_preparation: bool, restaurant_id: int) -> RecipeTagResponse:
+    """Creates a new recipe tag."""
+    tag_id = f"tag~{name.lower().replace(' ', '_')}"
+    statement = select(RecipeTag).where(RecipeTag.tag_id == tag_id, RecipeTag.restaurant_id == restaurant_id)
+    existing = db.exec(statement).first()
     
-    # Check if exists
-    existing = db.exec(select(RecipeTag).where(RecipeTag.tag_id == tag_id)).first()
     if existing:
         return RecipeTagResponse(
             id=existing.tag_id,
@@ -503,19 +495,25 @@ def create_recipe_tag(db: Session, name: str, is_preparation: bool) -> RecipeTag
             isPreparation=existing.is_preparation
         )
         
-    tag = RecipeTag(tag_id=tag_id, name=clean_name, is_preparation=is_preparation)
-    db.add(tag)
+    new_tag = RecipeTag(
+        tag_id=tag_id, 
+        name=name, 
+        is_preparation=is_preparation,
+        restaurant_id=restaurant_id
+    )
+    db.add(new_tag)
     db.commit()
-    db.refresh(tag)
+    db.refresh(new_tag)
     return RecipeTagResponse(
-        id=tag.tag_id,
-        name=tag.name,
-        isPreparation=tag.is_preparation
+        id=new_tag.tag_id,
+        name=new_tag.name,
+        isPreparation=new_tag.is_preparation
     )
 
-def delete_recipe_tag(db: Session, tag_id: str) -> None:
-    """Deletes a RecipeTag by its tag_id."""
-    tag = db.exec(select(RecipeTag).where(RecipeTag.tag_id == tag_id)).first()
+def delete_recipe_tag(db: Session, tag_id: str, restaurant_id: int) -> None:
+    """Deletes a recipe tag by tag_id."""
+    statement = select(RecipeTag).where(RecipeTag.tag_id == tag_id, RecipeTag.restaurant_id == restaurant_id)
+    tag = db.exec(statement).first()
     if tag:
         db.delete(tag)
         db.commit()

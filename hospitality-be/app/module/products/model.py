@@ -67,6 +67,7 @@ class Product(SQLModel, table=True):
 
     # External Haddock ID, e.g. "prod~88RCU-PCRTqHY-0-W5Ekvw"
     id: str = Field(primary_key=True)
+    restaurant_id: Optional[int] = Field(default=None, foreign_key="restaurant.id", index=True)
     name: str = Field(index=True)
 
     # Pricing fields
@@ -276,6 +277,7 @@ class Inventory(SQLModel, table=True):
 
     # Haddock external ID, e.g. "inve~DBKwmF1ARmuqatOw9OTmoA"
     id: str = Field(primary_key=True)
+    restaurant_id: Optional[int] = Field(default=None, foreign_key="restaurant.id", index=True)
     name: Optional[str] = Field(default=None, index=True)
     inventory_date: Optional[datetime] = Field(default=None)
     status: str = Field(default="draft", index=True)  # draft | submitted | closed

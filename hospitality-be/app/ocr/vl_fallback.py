@@ -33,7 +33,7 @@ VL_MAX_TOKENS = int(os.environ.get("VL_MAX_TOKENS", 8192))
 
 # NVIDIA fallback config
 NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "").strip()
-NVIDIA_VL_MODEL = os.environ.get("NVIDIA_VL_MODEL", "meta/llama-3.2-11b-vision-instruct")
+NVIDIA_VL_MODEL = os.environ.get("NVIDIA_VL_MODEL", "meta/llama-3.2-90b-vision-instruct")
 NVIDIA_BASE_URL = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 
 VL_OCR_THRESHOLD = float(os.environ.get("VL_OCR_THRESHOLD", 0.80))
@@ -62,7 +62,7 @@ def calculate_llm_score(inv: Invoice) -> float:
     # Deduct penalty for math/validation errors (ignoring "Missing..." which is already in success_rate)
     math_reasons = [r for r in temp_inv.review_reasons if not r.startswith("Missing ")]
     num_reasons = len(math_reasons)
-    penalty = min(num_reasons * 0.25, 1.0) # Deduct 25% per math error
+    penalty = min(num_reasons * 0.15, 1.0) # Deduct 15% per math error
     
     # Deduct massive penalty if NO line items were extracted!
     if not inv.items or len(inv.items) == 0:
@@ -161,8 +161,12 @@ def extract_with_vl_model(image_bytes: bytes, missing_fields: Optional[list] = N
     if missing_fields:
         user_prompt += f"\n\nPrevious extraction MISSED these fields: {', '.join(missing_fields)} — pay extra attention to finding them."
 
+    VL_SYSTEM_PROMPT = (
+        "You are an expert Vision-Language Model that extracts structured data directly from invoice and receipt images. "
+        "Do not invent information. Follow the JSON schema strictly and interpret the visual layout logically."
+    )
 
-    dynamic_system_prompt = SYSTEM_PROMPT + "\n" + _build_bilingual_dictionary()
+    dynamic_system_prompt = VL_SYSTEM_PROMPT + "\n" + _build_bilingual_dictionary()
 
     messages = [
         {"role": "system", "content": dynamic_system_prompt},

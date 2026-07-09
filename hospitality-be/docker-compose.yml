@@ -67,6 +67,9 @@ services:
   backend:
     build: .
     container_name: hospitality-backend
+    volumes:
+      - ./:/app
+
     restart: always
     ports:
       - "8000:8000"
@@ -106,8 +109,8 @@ services:
       - redis
       - minio
     volumes:
+      - ./:/app
       - ./ocr_results:/app/ocr_results
-      - ./app:/app/app
 
 volumes:
   postgres_data:

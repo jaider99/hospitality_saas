@@ -52,8 +52,8 @@ class LineItem:
     otherFees: Optional[float] = 0.0
     nominalPrice: Optional[float] = 0.0
     totalPrice: Optional[float] = None
-    gra: Optional[float] = None
-    u_m: Optional[float] = None
+    gra: Optional[float] = 0.0
+    u_m: Optional[float] = 0.0
     # For compatibility with some extraction modules that might set these:
     iva_pct: Optional[float] = 0.0
     base: Optional[float] = None
