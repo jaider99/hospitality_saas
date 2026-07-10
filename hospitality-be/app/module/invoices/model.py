@@ -204,6 +204,10 @@ class InvoiceLine(SQLModel, table=True):
     u_m: Optional[float] = Field(default=None)
     deleted_at: Optional[datetime] = Field(default=None)
 
+    # --- AI Suggested Match fields ---
+    suggested_product_id: Optional[str] = Field(default=None)
+    suggested_confidence: Optional[int] = Field(default=None)
+
     # Relationships
     invoice: Invoice = Relationship(back_populates="lines")
     product_rel: Optional[SuppliedProduct] = Relationship(

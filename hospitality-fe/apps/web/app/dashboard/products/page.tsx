@@ -22,7 +22,10 @@ import {
   Calendar as CalendarIcon,
   Activity,
   DollarSign,
-  Search
+  Search,
+  Trash2,
+  GitMerge,
+  Eye
 } from 'lucide-react';
 import { getApiClient } from '../../../store/auth';
 import { Badge, Btn } from '../_components/ui';
@@ -61,6 +64,9 @@ export default function ProductsPage() {
     'prices'
   );
 
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+
   // Data lists
   const [products, setProducts] = useState<any[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -73,7 +79,18 @@ export default function ProductsPage() {
   const [detailTab, setDetailTab] = useState<'purchases' | 'recipes'>('purchases');
   const [docFilter, setDocFilter] = useState<'all' | 'invoices' | 'delivery_notes'>('all');
   const [menuOpen, setMenuOpen] = useState(false);
-  const [alertConfig, setAlertConfig] = useState<{ title: string; message: string } | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [mergeTargetId, setMergeTargetId] = useState<string>('');
+  
+  // Global merge state (from main list)
+  const [isGlobalMergeModalOpen, setIsGlobalMergeModalOpen] = useState(false);
+  const [globalMergeSourceId, setGlobalMergeSourceId] = useState<string>('');
+  const [globalMergeTargetId, setGlobalMergeTargetId] = useState<string>('');
+  
+  const [mergeSearch, setMergeSearch] = useState('');
+  const [globalMergeSourceSearch, setGlobalMergeSourceSearch] = useState('');
+  const [globalMergeTargetSearch, setGlobalMergeTargetSearch] = useState('');
 
   // Totals & Counts
   const [totalCount, setTotalCount] = useState(0);
@@ -397,6 +414,89 @@ export default function ProductsPage() {
     }
   };
 
+  // Delete Product
+  const handleDeleteProduct = async (productId: string) => {
+    try {
+      const client = getApiClient();
+      await client.deleteProduct(productId);
+      setIsDeleteModalOpen(false);
+      setView('list');
+      setSelectedProductId(null);
+      setProductDetail(null);
+      loadData();
+    } catch (err: any) {
+      console.error('Failed to delete product:', err);
+    }
+  };
+
+  const handleMergeProduct = async () => {
+    if (!productDetail || !mergeTargetId) return;
+    try {
+      setLoading(true);
+      const client = getApiClient();
+      await client.mergeProduct(mergeTargetId, productDetail.id);
+      setIsMergeModalOpen(false);
+      setMergeTargetId('');
+      // Reload the master product (mergeTargetId) to show the new stats
+      handleProductClick(mergeTargetId);
+      loadData();
+    } catch (err: any) {
+      console.error('Failed to merge product:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGlobalMergeProduct = async () => {
+    if (!globalMergeSourceId || !globalMergeTargetId) return;
+    try {
+      setLoading(true);
+      const client = getApiClient();
+      await client.mergeProduct(globalMergeTargetId, globalMergeSourceId);
+      setIsGlobalMergeModalOpen(false);
+      setGlobalMergeSourceId('');
+      setGlobalMergeTargetId('');
+      loadData();
+    } catch (err: any) {
+      console.error('Failed to merge product:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    try {
+      setLoading(true);
+      const client = getApiClient();
+      await client.bulkDeleteProducts(selectedIds);
+      setSelectedIds([]);
+      setIsBulkDeleteModalOpen(false);
+      loadData();
+    } catch (err: any) {
+      console.error('Failed to bulk delete products:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === products.length && products.length > 0) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(products.map((p) => p.id));
+    }
+  };
+
+  const toggleSelectId = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (selectedIds.includes(id)) {
+      setSelectedIds(selectedIds.filter((x) => x !== id));
+    } else {
+      setSelectedIds([...selectedIds, id]);
+    }
+  };
+
   // Review Queue: Unify
   const handleUnify = async (lineId: number, productId: string) => {
     try {
@@ -539,6 +639,12 @@ export default function ProductsPage() {
             </div>
 
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => setIsGlobalMergeModalOpen(true)}
+                className="flex items-center justify-center gap-1.5 shadow-sm bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/30 dark:text-amber-500 dark:border-amber-900/50 dark:hover:bg-amber-900/50 font-semibold px-4 py-2.5 rounded-xl text-sm border border-amber-200 transition-colors"
+              >
+                <Merge size={16} /> Merge Products
+              </button>
               <Btn
                 onClick={() => setCreateModalOpen(true)}
                 className="gap-1.5 shadow-sm bg-primary text-primary-foreground font-semibold px-4 py-2.5 rounded-xl text-sm"
@@ -653,6 +759,16 @@ export default function ProductsPage() {
               >
                 {order === 'asc' ? '↑' : '↓'}
               </button>
+
+              {selectedIds.length > 0 && (
+                <button
+                  onClick={() => setIsBulkDeleteModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 bg-[#fceaea] border border-[#ffb4ab] text-[#b23a3a] rounded-xl hover:bg-[#ffb4ab]/30 transition-colors"
+                >
+                  <Trash2 size={13} />
+                  <span>Delete selected ({selectedIds.length})</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -670,7 +786,15 @@ export default function ProductsPage() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
-                      <th className="w-12 py-3 px-4"></th>
+                      <th className="w-12 py-3 px-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.length === products.length && products.length > 0}
+                          onChange={toggleSelectAll}
+                          className="w-4 h-4 rounded border-border text-[#151515] focus:ring-primary/20 cursor-pointer"
+                        />
+                      </th>
+                      <th className="w-12 py-3 px-4 text-center"></th>
                       <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Product
                       </th>
@@ -706,6 +830,14 @@ export default function ProductsPage() {
                           onClick={() => handleProductClick(p.id)}
                           className="hover:bg-muted/40 transition-colors cursor-pointer group"
                         >
+                          <td className="py-4 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.includes(p.id)}
+                              onChange={(e: any) => toggleSelectId(p.id, e)}
+                              className="w-4 h-4 rounded border-border text-[#151515] focus:ring-primary/20 cursor-pointer"
+                            />
+                          </td>
                           <td className="py-4 px-4 text-center">
                             <button
                               onClick={(e) => handleToggleBookmark(p.id, e)}
@@ -732,8 +864,8 @@ export default function ProductsPage() {
                           <td className="py-4 px-4">
                             {(p.app_category_name || p.category_name) ? (
                               <span
-                                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold border"
-                                style={p.app_category_color ? { borderColor: p.app_category_color, color: p.app_category_color } : undefined}
+                                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold"
+                                style={p.app_category_color ? { backgroundColor: p.app_category_color, color: 'white', borderColor: 'transparent' } : undefined}
                               >
                                 {p.app_category_name || p.category_name}
                               </span>
@@ -773,7 +905,7 @@ export default function ProductsPage() {
                     })}
                     {products.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="text-center py-12 text-sm text-muted-foreground">
+                        <td colSpan={9} className="text-center py-12 text-sm text-muted-foreground">
                           No products matched your active filters.
                         </td>
                       </tr>
@@ -876,10 +1008,12 @@ export default function ProductsPage() {
                         {
                           exact:
                             'bg-green-50 border-green-200 text-green-700 dark:bg-green-950/20 dark:border-green-800/30 dark:text-green-400',
+                          llm_suggested:
+                            'bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-950/20 dark:border-purple-800/30 dark:text-purple-400',
                           possibly_different:
                             'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950/20 dark:border-amber-800/30 dark:text-amber-400',
                           looks_different: 'bg-muted border-border text-muted-foreground'
-                        }[sim.confidence as 'exact' | 'possibly_different' | 'looks_different'] ||
+                        }[sim.confidence as 'exact' | 'llm_suggested' | 'possibly_different' | 'looks_different'] ||
                         'bg-muted border-border text-muted-foreground';
 
                       return (
@@ -892,8 +1026,8 @@ export default function ProductsPage() {
                               <span className="font-semibold text-sm truncate">
                                 {sim.product_name}
                               </span>
-                              <span className="text-[10px] font-bold uppercase px-1.5 py-0.2 bg-white/70 rounded shadow-sm leading-none border border-black/5">
-                                {sim.confidence.replace('_', ' ')}
+                              <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 bg-white/70 rounded shadow-sm leading-none border border-black/5">
+                                {sim.confidence === 'llm_suggested' ? 'Possible match' : sim.confidence.replace('_', ' ')}
                               </span>
                             </div>
                             <p className="text-xs opacity-80 mt-0.5 font-mono">
@@ -981,17 +1115,31 @@ export default function ProductsPage() {
                     >
                       <Pencil size={14} /> Configuration
                     </button>
-                    {/* <button 
-                      onClick={() => { setAlertConfig({ title: 'Merge', message: 'Merge tool selected' }); setMenuOpen(false); }}
-                      className="w-full text-left px-4 py-3 text-sm text-foreground hover:bg-muted transition-colors flex items-center gap-2 border-t border-border/50"
+                    <button 
+                      onClick={() => { setIsDeleteModalOpen(true); setMenuOpen(false); }}
+                      className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors flex items-center gap-2 border-t border-border/50"
                     >
-                      <Merge size={14} /> Merge
-                    </button> */}
+                      <Trash2 size={14} /> Delete Product
+                    </button>
+                    <button 
+                      onClick={() => { setIsMergeModalOpen(true); setMenuOpen(false); }}
+                      className="w-full text-left px-4 py-3 text-sm text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-colors flex items-center gap-2 border-t border-border/50"
+                    >
+                      <Merge size={14} /> Merge into another Product
+                    </button>
                     <button 
                       onClick={() => { handleArchive(productDetail.id, productDetail.archived); setMenuOpen(false); }}
                       className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors flex items-center gap-2 border-t border-border/50"
                     >
-                      <EyeOff size={14} /> Hide / Archive
+                      {productDetail.archived ? (
+                        <>
+                          <Eye size={14} /> Unhide / Unarchive
+                        </>
+                      ) : (
+                        <>
+                          <EyeOff size={14} /> Hide / Archive
+                        </>
+                      )}
                     </button>
                   </div>
                 </>
@@ -1015,9 +1163,14 @@ export default function ProductsPage() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="bg-[#fef9c3] text-[#854d0e] text-xs font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                {productDetail.category?.name || 'Raw Materials'}
-              </span>
+              {(productDetail.app_category?.name || productDetail.category?.name) && (
+                <span 
+                  className="text-xs font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider"
+                  style={productDetail.app_category?.color ? { backgroundColor: productDetail.app_category.color, color: 'white' } : { backgroundColor: '#fef9c3', color: '#854d0e' }}
+                >
+                  {productDetail.app_category?.name || productDetail.category?.name}
+                </span>
+              )}
             </div>
 
             <p className="text-sm font-semibold text-primary hover:underline cursor-pointer">
@@ -1027,7 +1180,7 @@ export default function ProductsPage() {
             </p>
 
             <p className="text-xs text-muted-foreground">
-              VAT {Math.round((productDetail.tax_rate || 0.1) * 100)}% · unit · First purchase :{' '}
+              VAT {productDetail.tax_rate !== undefined && productDetail.tax_rate !== null ? `${productDetail.tax_rate}%` : "10%"} · {productDetail.unit_of_measure || 'unit'} · First purchase :{' '}
               {productDetail.purchase_history && productDetail.purchase_history.length > 0
                 ? new Date(
                     productDetail.purchase_history[productDetail.purchase_history.length - 1]
@@ -1213,7 +1366,7 @@ export default function ProductsPage() {
                             €{hist.unit_price?.toFixed(2)}/unit
                           </td>
                           <td className="py-3 px-4 text-center font-mono text-muted-foreground">
-                            {Math.round((hist.iva_pct || 0.1) * 100)}%
+                            {hist.iva_pct !== undefined && hist.iva_pct !== null ? `${hist.iva_pct}%` : "10%"}
                           </td>
                           <td className="py-3 px-4 text-right font-bold text-foreground font-mono">
                             €{hist.total_price?.toFixed(2)}
@@ -2060,16 +2213,254 @@ export default function ProductsPage() {
           </div>
         </div>
       )}
-      {alertConfig && (
-        <ConfirmModal
-          isOpen={alertConfig !== null}
-          title={alertConfig.title}
-          message={alertConfig.message}
-          confirmText="OK"
-          onConfirm={() => setAlertConfig(null)}
-          onCancel={() => setAlertConfig(null)}
-        />
+
+      {/* MERGE MODAL */}
+      {isMergeModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-card w-full max-w-md rounded-2xl shadow-xl overflow-hidden border border-border">
+            <div className="flex justify-between items-center p-6 border-b border-border/50">
+              <div>
+                <h3 className="text-xl font-bold text-foreground">Merge Product</h3>
+                <p className="text-sm text-muted-foreground mt-1">Merge <b>{productDetail?.name}</b> into another product.</p>
+              </div>
+              <button 
+                onClick={() => setIsMergeModalOpen(false)}
+                className="text-muted-foreground hover:text-foreground transition-colors p-2"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div className="p-4 bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-400 rounded-xl text-sm mb-4 border border-amber-200 dark:border-amber-900">
+                <b>Warning:</b> This product will be hidden and all its purchase history will be transferred to the selected master product. This action cannot be undone.
+              </div>
+              
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-foreground/70 uppercase tracking-widest">
+                  Select Master Product
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted-foreground">
+                    <Search size={16} />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search products..."
+                    value={mergeSearch}
+                    onChange={(e) => setMergeSearch(e.target.value)}
+                    className="w-full bg-muted/60 border border-border rounded-t-xl px-10 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  />
+                </div>
+                <div className="max-h-60 overflow-y-auto border border-t-0 border-border rounded-b-xl bg-card">
+                  {products
+                    .filter((p) => p.id !== productDetail?.id && p.name.toLowerCase().includes(mergeSearch.toLowerCase()))
+                    .map((p) => (
+                      <div
+                        key={p.id}
+                        onClick={() => setMergeTargetId(p.id)}
+                        className={cn(
+                          "px-4 py-3 text-sm cursor-pointer transition-colors border-b border-border/30 last:border-0",
+                          mergeTargetId === p.id ? "bg-amber-50 dark:bg-amber-950/20 text-amber-700 font-semibold" : "hover:bg-muted"
+                        )}
+                      >
+                        {p.name}
+                      </div>
+                  ))}
+                  {products.filter((p) => p.id !== productDetail?.id && p.name.toLowerCase().includes(mergeSearch.toLowerCase())).length === 0 && (
+                    <div className="p-4 text-center text-sm text-muted-foreground">
+                      No matching products found.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6 bg-muted/30 border-t border-border/50 flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setIsMergeModalOpen(false)}
+                className="px-5 py-2.5 text-sm font-semibold border border-border rounded-xl text-muted-foreground hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!mergeTargetId || loading}
+                onClick={handleMergeProduct}
+                className="px-5 py-2.5 text-sm font-semibold bg-amber-600 text-white rounded-xl hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+              >
+                {loading ? <Loader2 className="animate-spin" size={16} /> : <Merge size={16} />}
+                Confirm Merge
+              </button>
+            </div>
+          </div>
+        </div>
       )}
+
+      {/* GLOBAL MERGE MODAL */}
+      {isGlobalMergeModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-card w-full max-w-lg rounded-2xl shadow-xl overflow-hidden border border-border">
+            <div className="flex justify-between items-center p-6 border-b border-border/50">
+              <div>
+                <h3 className="text-xl font-bold text-foreground">Merge Products</h3>
+                <p className="text-sm text-muted-foreground mt-1">Select a source product to merge into a master product.</p>
+              </div>
+              <button 
+                onClick={() => setIsGlobalMergeModalOpen(false)}
+                className="text-muted-foreground hover:text-foreground transition-colors p-2"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              <div className="space-y-4">
+                <div className="p-4 bg-amber-50 dark:bg-amber-950/20 text-amber-800 dark:text-amber-400 rounded-xl text-sm border border-amber-200 dark:border-amber-900">
+                  <b>Warning:</b> The <u>Source Product</u> will be hidden and all its purchase history will be transferred to the <u>Master Product</u>. This action cannot be undone.
+                </div>
+                
+                {globalMergeSourceId && globalMergeTargetId && (
+                  <div className="text-center bg-muted/40 py-2.5 rounded-xl border border-border text-sm text-muted-foreground shadow-sm">
+                    Merging <span className="font-semibold text-foreground mx-1">{products.find(p => p.id === globalMergeSourceId)?.name}</span> into <span className="font-semibold text-foreground mx-1">{products.find(p => p.id === globalMergeTargetId)?.name}</span>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-start gap-4 p-4 bg-muted/30 rounded-xl border border-border">
+                {/* Master Product (Base) */}
+                <div className="flex-1 space-y-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                    <GitMerge size={14} className="rotate-90" /> base: Master Product
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted-foreground">
+                      <Search size={14} />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Search master..."
+                      value={globalMergeTargetSearch}
+                      onChange={(e) => setGlobalMergeTargetSearch(e.target.value)}
+                      className="w-full bg-background border border-border rounded-t-xl px-9 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    />
+                  </div>
+                  <div className="max-h-48 overflow-y-auto border border-t-0 border-border rounded-b-xl bg-card shadow-sm">
+                    {products
+                      .filter((p) => p.name.toLowerCase().includes(globalMergeTargetSearch.toLowerCase()) && p.id !== globalMergeSourceId)
+                      .map((p) => (
+                        <div
+                          key={p.id}
+                          onClick={() => setGlobalMergeTargetId(p.id)}
+                          className={cn(
+                            "px-3 py-2 text-sm cursor-pointer transition-colors border-b border-border/30 last:border-0",
+                            globalMergeTargetId === p.id ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"
+                          )}
+                        >
+                          {p.name}
+                        </div>
+                    ))}
+                    {products.filter((p) => p.name.toLowerCase().includes(globalMergeTargetSearch.toLowerCase()) && p.id !== globalMergeSourceId).length === 0 && (
+                      <div className="p-3 text-center text-xs text-muted-foreground">
+                        No products found.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Arrow */}
+                <div className="pt-8 text-muted-foreground flex-shrink-0">
+                  <ArrowLeft size={16} />
+                </div>
+
+                {/* Source Product (Compare) */}
+                <div className="flex-1 space-y-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                    compare: Source Product
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted-foreground">
+                      <Search size={14} />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Search source..."
+                      value={globalMergeSourceSearch}
+                      onChange={(e) => setGlobalMergeSourceSearch(e.target.value)}
+                      className="w-full bg-background border border-border rounded-t-xl px-9 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    />
+                  </div>
+                  <div className="max-h-48 overflow-y-auto border border-t-0 border-border rounded-b-xl bg-card shadow-sm">
+                    {products
+                      .filter((p) => p.name.toLowerCase().includes(globalMergeSourceSearch.toLowerCase()) && p.id !== globalMergeTargetId)
+                      .map((p) => (
+                        <div
+                          key={p.id}
+                          onClick={() => setGlobalMergeSourceId(p.id)}
+                          className={cn(
+                            "px-3 py-2 text-sm cursor-pointer transition-colors border-b border-border/30 last:border-0",
+                            globalMergeSourceId === p.id ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"
+                          )}
+                        >
+                          {p.name}
+                        </div>
+                    ))}
+                    {products.filter((p) => p.name.toLowerCase().includes(globalMergeSourceSearch.toLowerCase()) && p.id !== globalMergeTargetId).length === 0 && (
+                      <div className="p-3 text-center text-xs text-muted-foreground">
+                        No products found.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6 bg-muted/30 border-t border-border/50 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setIsGlobalMergeModalOpen(false)}
+                className="px-5 py-2.5 text-sm font-semibold border border-border rounded-xl text-muted-foreground hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!globalMergeSourceId || !globalMergeTargetId || loading}
+                onClick={handleGlobalMergeProduct}
+                className="px-5 py-2.5 text-sm font-semibold bg-amber-600 text-white rounded-xl hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+              >
+                {loading ? <Loader2 className="animate-spin" size={16} /> : <Merge size={16} />}
+                Merge Products
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={() => {
+          if (productDetail) {
+            handleDeleteProduct(productDetail.id);
+          }
+        }}
+        title="Delete Product"
+        message={`Are you sure you want to delete ${productDetail?.name}? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+      />
+
+      <ConfirmModal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => setIsBulkDeleteModalOpen(false)}
+        onCancel={() => setIsBulkDeleteModalOpen(false)}
+        onConfirm={handleBulkDelete}
+        title="Delete Selected Products"
+        message={`Are you sure you want to delete the ${selectedIds.length} selected products? This action cannot be undone.`}
+        confirmText="Delete All"
+        cancelText="Cancel"
+      />
     </div>
   );
 }
