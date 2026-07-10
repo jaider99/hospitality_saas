@@ -33,7 +33,7 @@ import { Btn } from '../_components/ui';
 import { getApiClient, useAuthStore } from '../../../store/auth';
 import { API_BASE_URL } from '@hospitality-saas/constants';
 import ConfirmModal from '../suppliers/_components/ConfirmModal';
-import { getMinioUrlAction } from '../../auth/actions';
+import { getMinioUrlAction, getWebSocketUrlAction } from '../../auth/actions';
 
 const formatDateSafe = (
   dateStr: string | null | undefined,
@@ -217,22 +217,40 @@ export default function DocumentsPage() {
   useEffect(() => {
     if (!restaurantId) return;
 
-    const publicApiUrl = process.env.NEXT_PUBLIC_API_URL;
     let attempt = 0;
-
     let socket: WebSocket | null = null;
     let reconnectTimeout: NodeJS.Timeout | null = null;
     let isMounted = true;
 
-    const connect = () => {
+    const connect = async () => {
       if (!isMounted) return;
 
       let wsUrl = '';
-      if (publicApiUrl) {
-        const parsedUrl = new URL(publicApiUrl);
-        const protocol = parsedUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-        wsUrl = `${protocol}//${parsedUrl.host}/api/v1/invoices/ws/${restaurantId}`;
-      } else {
+      let apiBase = '';
+      try {
+        apiBase = await getWebSocketUrlAction();
+      } catch (err) {
+        console.error('Failed to get WebSocket base URL:', err);
+      }
+
+      // If we got a valid URL from the server config and it's not a local Docker network name or localhost
+      if (
+        apiBase &&
+        !apiBase.includes('localhost') &&
+        !apiBase.includes('127.0.0.1') &&
+        !apiBase.includes('hospitality-backend') &&
+        !apiBase.includes('backend:')
+      ) {
+        try {
+          const parsedUrl = new URL(apiBase);
+          const protocol = parsedUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+          wsUrl = `${protocol}//${parsedUrl.host}/api/v1/invoices/ws/${restaurantId}`;
+        } catch (e) {
+          console.error('Invalid public API URL for WebSocket connection:', apiBase, e);
+        }
+      }
+
+      if (!wsUrl) {
         // Fallback: If running on localhost, default to backend port 8000. Otherwise use current hostname/port.
         const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
         let host = window.location.host;

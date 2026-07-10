@@ -152,11 +152,11 @@ class WebSocketConnectionManager:
 
     async def broadcast_to_restaurant(self, restaurant_id: int, message: str):
         if restaurant_id in self.active_connections:
-            for connection in self.active_connections[restaurant_id]:
+            for connection in list(self.active_connections[restaurant_id]):
                 try:
                     await connection.send_text(message)
                 except Exception:
-                    pass
+                    self.disconnect(connection, restaurant_id)
 
 
 ws_manager = WebSocketConnectionManager()

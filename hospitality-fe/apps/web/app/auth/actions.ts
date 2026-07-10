@@ -32,4 +32,8 @@ export async function getMinioUrlAction() {
   return process.env.MINIO_PUBLIC_URL || process.env.NEXT_PUBLIC_MINIO_URL || '';
 }
 
+export async function getWebSocketUrlAction() {
+  return process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PRIVATE_API_URL || '';
+}
+
 
