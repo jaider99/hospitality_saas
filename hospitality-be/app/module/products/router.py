@@ -295,13 +295,14 @@ def merge_product(
     product_id: str,
     payload: ProductMergeRequest,
     db: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Manually merge the source product into the master product (product_id).
     The source product will be archived/hidden and its aliases, stats, and suppliers transferred.
     """
     try:
-        result = service.merge_products(db, product_id, payload.source_product_id)
+        result = service.merge_products(db, product_id, payload.source_product_id, current_user.restaurant_id)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -322,7 +323,7 @@ def sync_products(payload: dict, db: Session = Depends(get_session), current_use
     { "products": { "data": [ { "id": "prod~...", ... } ] } }
     ```
     """
-    synced = service.sync_products_from_haddock(db, payload)
+    synced = service.sync_products_from_haddock(db, payload, current_user.restaurant_id)
     return {"synced": len(synced), "status": "ok"}
 
 
@@ -449,5 +450,5 @@ def sync_inventory_items(
     { "items": { "data": [ { "kind": "product", ... } ] } }
     ```
     """
-    synced = service.sync_inventory_items_from_haddock(db, inventory_id, payload)
+    synced = service.sync_inventory_items_from_haddock(db, inventory_id, payload, current_user.restaurant_id)
     return {"inventory_id": inventory_id, "synced": len(synced), "status": "ok"}

@@ -410,7 +410,7 @@ import re
 import time
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 from app.ocr.schema import Invoice
 from app.ocr.ingest import ingest, build_invoice_markdown

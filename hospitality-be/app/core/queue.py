@@ -14,9 +14,10 @@ async def enqueue_invoice_processing(invoice_id: int, object_key: str, restauran
         redis_pool = await create_pool(redis_settings)
         job_id = f"process_invoice_{invoice_id}"
         
-        # Delete any existing job and abort keys from Redis to prevent duplicate/aborted job IDs from blocking the run
+        # Delete any existing job, abort, and result keys from Redis to prevent duplicate/aborted/cached job IDs from blocking the run
         await redis_pool.delete(f"arq:job:{job_id}")
         await redis_pool.delete(f"arq:abort:{job_id}")
+        await redis_pool.delete(f"arq:result:{job_id}")
         
         # Enqueue the job. 'process_invoice_task' must match the task name registered on the worker.
         await redis_pool.enqueue_job("process_invoice_task", invoice_id, object_key, restaurant_id, lang, _job_id=job_id)

@@ -11,7 +11,7 @@ import logging
 from typing import Optional
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 logger = logging.getLogger(__name__)
 
 from openai import OpenAI

@@ -12,6 +12,7 @@ from app.module.products.model import Product, ProductAlias
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "https://openrouter.ai/api/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "openai/gpt-4o")
+LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", 1000))
 
 _client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 logger = logging.getLogger("worker")
@@ -29,15 +30,27 @@ async def match_invoice_items(
     db: AsyncSession,
     supplier_id: int,
     invoice_items: List[Dict[str, Any]],
-    invoice_id: Optional[int] = None
+    invoice_id: Optional[int] = None,
+    restaurant_id: Optional[int] = None
 ) -> List[Dict[str, Any]]:
     """
     Takes a list of invoice items: [{"name": "...", "price": ...}]
     And returns them annotated with match data.
     """
     logger.warning(f"Starting Two-Stage Matching for {len(invoice_items)} items...")
+    
+    if restaurant_id is None and invoice_id is not None:
+        from app.module.invoices.model import Invoice
+        invoice_stmt = select(Invoice).where(Invoice.id == invoice_id)
+        invoice_res = await db.execute(invoice_stmt)
+        invoice = invoice_res.scalars().first()
+        if invoice:
+            restaurant_id = invoice.restaurant_id
+
     # 1. Exact Match & Alias Match (Cross-Supplier)
     stmt = select(Product).where(Product.status == "ACTIVE")
+    if restaurant_id is not None:
+        stmt = stmt.where(Product.restaurant_id == restaurant_id)
     result = await db.execute(stmt)
     active_products = result.scalars().all()
     
@@ -126,7 +139,8 @@ async def match_invoice_items(
                 response = _client.chat.completions.create(
                     model=LLM_MODEL,
                     messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"}
+                    response_format={"type": "json_object"},
+                    max_tokens=LLM_MAX_TOKENS,
                 )
                 llm_result_text = response.choices[0].message.content
                 
@@ -164,7 +178,8 @@ async def match_invoice_items(
                         fallback_response = _client.chat.completions.create(
                             model=FALLBACK_MODEL,
                             messages=[{"role": "user", "content": repair_prompt}],
-                            response_format={"type": "json_object"}
+                            response_format={"type": "json_object"},
+                            max_tokens=LLM_MAX_TOKENS,
                         )
                         llm_result_text = fallback_response.choices[0].message.content
                         llm_result = json.loads(llm_result_text)

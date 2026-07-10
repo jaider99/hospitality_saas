@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-load_dotenv()
+load_dotenv(override=True)
 from typing import Optional, List
 
 from sqlalchemy import (
