@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+export const dynamic = 'force-dynamic';
 import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft,
@@ -173,7 +174,7 @@ export default function DocumentDetailPage() {
           setSupplierVatId(data.supplier_tax_id || data.supplier?.vat_id || '');
 
           setDocNum(data.document_number || data.invoice_number || '');
-          setDocDate(data.issue_date ? new Date(data.issue_date).toISOString().split('T')[0] : '');
+          setDocDate(data.issue_date ? (data.issue_date.includes('T') ? data.issue_date.split('T')[0] : data.issue_date.split(' ')[0]) : '');
           if (data.document_type) {
             const val = data.document_type.toLowerCase();
             if (val === 'invoice') setDocType('Invoice');
@@ -232,7 +233,7 @@ export default function DocumentDetailPage() {
             setDocNum(statusData.document_number || statusData.invoice_number || '');
             setDocDate(
               statusData.issue_date
-                ? new Date(statusData.issue_date).toISOString().split('T')[0]
+                ? (statusData.issue_date.includes('T') ? statusData.issue_date.split('T')[0] : statusData.issue_date.split(' ')[0])
                 : ''
             );
 

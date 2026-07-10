@@ -44,6 +44,28 @@ interface LayoutState {
 import { useAuthStore } from './auth';
 import { router } from 'expo-router';
 
+const formatDateSafe = (
+  dateStr: string | null | undefined,
+  options?: { month?: '2-digit' | 'short'; day?: '2-digit' | 'numeric'; year?: 'numeric' }
+): string => {
+  if (!dateStr) return '—';
+  const clean = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr.split(' ')[0];
+  const parts = clean.split('-');
+  if (parts.length !== 3) return '—';
+  const [yearStr, monthStr, dayStr] = parts;
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10) - 1; // 0-indexed month
+  const day = parseInt(dayStr, 10);
+
+  const date = new Date(Date.UTC(year, month, day));
+  return date.toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    month: options?.month || '2-digit',
+    day: options?.day || '2-digit',
+    year: options?.year || 'numeric'
+  });
+};
+
 export const useLayoutStore = create<LayoutState>((set, get) => ({
   sidebarOpen: false,
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
@@ -69,17 +91,9 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
           supplier: inv.supplier_display_name || inv.supplier?.name || 'Unknown Supplier',
           docNum: inv.document_number || inv.invoice_number || '—',
           date: inv.document_date
-            ? new Date(inv.document_date).toLocaleDateString('en-US', {
-                month: '2-digit',
-                day: '2-digit',
-                year: 'numeric'
-              })
+            ? formatDateSafe(inv.document_date)
             : inv.issue_date
-              ? new Date(inv.issue_date).toLocaleDateString('en-US', {
-                  month: '2-digit',
-                  day: '2-digit',
-                  year: 'numeric'
-                })
+              ? formatDateSafe(inv.issue_date)
               : '—',
           rawDate: inv.document_date || inv.issue_date || null,
           uploadDate: inv.created_at

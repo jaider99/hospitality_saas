@@ -42,9 +42,5 @@ COPY . .
 # Expose backend port
 EXPOSE 8000
 
-# Copy start script
-COPY start.sh .
-RUN chmod +x start.sh
-
-# Start the combined backend and worker services
-CMD ["./start.sh"]
+# Start FastAPI application using uvicorn
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -31,6 +31,28 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import ConfirmAlert from '../../components/ui/ConfirmAlert';
 
+const formatDateSafe = (
+  dateStr: string | null | undefined,
+  options?: { month?: '2-digit' | 'short'; day?: '2-digit' | 'numeric'; year?: 'numeric' }
+): string => {
+  if (!dateStr) return '—';
+  const clean = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr.split(' ')[0];
+  const parts = clean.split('-');
+  if (parts.length !== 3) return '—';
+  const [yearStr, monthStr, dayStr] = parts;
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10) - 1; // 0-indexed month
+  const day = parseInt(dayStr, 10);
+
+  const date = new Date(Date.UTC(year, month, day));
+  return date.toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    month: options?.month || '2-digit',
+    day: options?.day || '2-digit',
+    year: options?.year || 'numeric'
+  });
+};
+
 export default function DocumentDetailPage() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
@@ -422,7 +444,7 @@ export default function DocumentDetailPage() {
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Issue Date</Text>
             <Text style={styles.infoValue}>
-              {invoice.issue_date ? new Date(invoice.issue_date).toLocaleDateString('en-US') : '—'}
+              {invoice.issue_date ? formatDateSafe(invoice.issue_date) : '—'}
             </Text>
           </View>
           <View style={styles.infoRow}>
