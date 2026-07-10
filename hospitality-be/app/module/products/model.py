@@ -65,6 +65,7 @@ class Product(SQLModel, table=True):
     __tablename__ = "products"
 
     id: str = Field(primary_key=True)
+    restaurant_id: Optional[int] = Field(default=None, foreign_key="restaurant.id", index=True)
     name: str = Field(index=True)
 
     # Pricing fields
@@ -186,6 +187,7 @@ class Inventory(SQLModel, table=True):
     __tablename__ = "inventories"
 
     id: str = Field(primary_key=True)
+    restaurant_id: Optional[int] = Field(default=None, foreign_key="restaurant.id", index=True)
     name: Optional[str] = Field(default=None)
     status: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)

@@ -181,5 +181,9 @@ hospitality.db
 node_modules/
 yarn.lock
 
+# Scratch scripts
+check_st_users.py
+enqueue_*.py
+fix_products_*.py
 
 .env.production.example

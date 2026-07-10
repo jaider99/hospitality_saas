@@ -10,14 +10,15 @@ from app.module.incidents.model import OperationalIncident
 from app.core.config import PRICE_SPIKE_THRESHOLD, PRICE_SPIKE_HIGH_THRESHOLD
 from app.core.translation import translate
 
-def get_invoices(db: Session) -> List[Invoice]:
-    """Retrieves all invoices ordered by issue date descending."""
-    statement = select(Invoice).order_by(Invoice.created_at.desc())
+def get_invoices(db: Session, restaurant_id: int) -> List[Invoice]:
+    """Retrieves all invoices for a given restaurant ordered by issue date descending."""
+    statement = select(Invoice).where(Invoice.restaurant_id == restaurant_id, Invoice.deleted_at == None).order_by(Invoice.created_at.desc())
     return db.exec(statement).all()
 
-def get_invoice_details(db: Session, invoice_id: int) -> Invoice:
+def get_invoice_details(db: Session, invoice_id: int, restaurant_id: int) -> Invoice:
     """Retrieves detailed invoice object or raises 404."""
-    invoice = db.get(Invoice, invoice_id)
+    statement = select(Invoice).where(Invoice.id == invoice_id, Invoice.restaurant_id == restaurant_id, Invoice.deleted_at == None)
+    invoice = db.exec(statement).first()
     if not invoice:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
     return invoice
@@ -26,6 +27,7 @@ def process_invoice_upload(
     db: Session, 
     file_bytes: bytes, 
     mime_type: str,
+    restaurant_id: int,
     lang: str = "en"
 ) -> Dict[str, Any]:
     """
@@ -50,18 +52,19 @@ def process_invoice_upload(
     except Exception:
         issue_date = datetime.utcnow()
         
-    # 2. Find or create the Supplier
-    statement = select(Supplier).where(Supplier.name.ilike(supplier_name))
+    # 2. Find or create the Supplier for this restaurant
+    statement = select(Supplier).where(Supplier.name.ilike(supplier_name), Supplier.restaurant_id == restaurant_id)
     supplier = db.exec(statement).first()
     
     if not supplier:
-        supplier = Supplier(name=supplier_name)
+        supplier = Supplier(name=supplier_name, restaurant_id=restaurant_id)
         db.add(supplier)
         db.commit()
         db.refresh(supplier)
         
     # 3. Create the Invoice record
     invoice = Invoice(
+        restaurant_id=restaurant_id,
         invoice_number=invoice_number,
         supplier_id=supplier.id,
         issue_date=issue_date,
@@ -85,7 +88,8 @@ def process_invoice_upload(
         
         # Search for pre-existing product under this supplier
         product_query = select(SuppliedProduct).where(
-            SuppliedProduct.supplier_id == supplier.id
+            SuppliedProduct.supplier_id == supplier.id,
+            SuppliedProduct.deleted_at == None
         )
         if sku:
             product_query = product_query.where(

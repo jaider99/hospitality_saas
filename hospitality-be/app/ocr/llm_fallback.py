@@ -23,7 +23,7 @@ LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", 16384))
 MODEL_NAME = os.environ.get("LLM_MODEL", "openai/gpt-oss-120b")
 LLM_FALLBACK_MODEL = os.environ.get("LLM_FALLBACK_MODEL", "inclusionai/ring-2.6-1t")
 
-_client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+_client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=150.0)
 
 
 def _call_llm_with_fallback(messages: list, temperature: float = 0, model_name: str = MODEL_NAME, use_fallback_model: bool = False) -> any:
@@ -36,6 +36,7 @@ def _call_llm_with_fallback(messages: list, temperature: float = 0, model_name: 
                 temperature=temperature,
                 messages=messages,
                 max_tokens=LLM_MAX_TOKENS,
+                response_format={"type": "json_object"},
             )
             content = response.choices[0].message.content
             if not content or not content.strip():
@@ -52,6 +53,7 @@ def _call_llm_with_fallback(messages: list, temperature: float = 0, model_name: 
             temperature=temperature,
             messages=messages,
             max_tokens=LLM_MAX_TOKENS,
+            response_format={"type": "json_object"},
         )
         content = response.choices[0].message.content
         if not content or not content.strip():
@@ -67,6 +69,7 @@ def _call_llm_with_fallback(messages: list, temperature: float = 0, model_name: 
                 temperature=temperature,
                 messages=messages,
                 max_tokens=LLM_MAX_TOKENS,
+                response_format={"type": "json_object"},
             )
             fallback_content = fallback_response.choices[0].message.content
             if not fallback_content or not fallback_content.strip():
@@ -163,20 +166,15 @@ SYSTEM_PROMPT = (
     "  • 'TOTAL' -> `total`\n"
     "If the invoice lists multiple tax rates (e.g. 10% and 21%), extract each one as a separate object in the array.\n"
     "NEVER guess or hallucinate these values. Read them exactly as printed.\n"
-    "=== APPLE / LARGE BRAND B2C RETAIL RECEIPTS ===\n"
-    "If the receipt is issued by a large consumer-electronics or retail store such as Apple, El Corte Inglés, MediaMarkt, Samsung, or similar:\n"
-    "  • The store brand (e.g. 'Apple', 'Apple Passeig de Gràcia') IS the Supplier. Their legal entity and CIF (e.g. 'Apple Retail Spain, S.L.U.' / 'ESB65130643') are in the footer or header — extract them as supplier.name and supplier.vatID.\n"
-    "  • The CUSTOMER is the buyer whose name/NIF appear under 'Nombre:', 'Facturar a:', or 'NIF:' in a dedicated customer block (e.g. 'Rec 67 Partners SL', NIF B67019018). If only one NIF/CIF is present in the document, extract it as supplier.vatID. Do NOT leave supplier.vatID empty if a NIF/CIF exists.\n"
-    "  • 'Canon por copia privada' is a Spanish regulatory levy (Royal Decree) attached to electronic devices. It appears as a separate line item with a small price. Extract it as a real line item (not as taxableAdditionalCost) because it is already included in the printed Grand Total.\n"
-    "  • All displayed item prices include IVA (B2C receipts). You MUST back-calculate the pre-tax unit price and extract it as `grossPrice` (e.g. grossPrice = printed_price / (1 + iva_pct/100)). Do NOT extract the tax-inclusive price as grossPrice! Also calculate `base = grossPrice * qty` so the sum of bases equals the invoice subtotal.\n"
-    "  • The 'Artículo:' field on each line is the Apple part number — use it as `providerCode`.\n"
-    "=== SUPPLIER vs CUSTOMER (READ THIS FIRST) ===\n"
+    "=== SUPPLIER vs CUSTOMER & RETAIL RECEIPTS ===\n"
     "You MUST identify the Supplier (seller) and the Customer (buyer) before doing anything else.\n"
     "For receipts from large retail brands (Apple, MediaMarkt, El Corte Inglés, Samsung, etc.):\n"
     "  • The STORE BRAND (e.g. 'Apple', 'Apple Passeig de Gràcia') is the SUPPLIER. Their legal entity + CIF (e.g. 'Apple Retail Spain, S.L.U., CIF ESB65130643') appear in the receipt footer/header. Extract as Supplier Name and Supplier VAT ID/CIF.\n"
     "  • The CUSTOMER is the person/company who BOUGHT: their name and NIF appear under 'CLIENTE:', 'Client', 'Nombre:', 'Facturar a:', or 'NIF:' (e.g. 'REC 67 PARTNERS SL', NIF B67019018). Show as Customer Name. NEVER extract the customer's VAT ID as the supplier's VAT ID. The supplier's NIF is usually printed in small text in the header/footer (e.g. 'NIF B...').\n"
     "  • CREDIT CARD MERCHANT IDs: If you see numbers labeled 'COMERCIO', 'FUC', or 'Merchant ID' (e.g., '01851214754'), NEVER extract these as the Supplier VAT ID or the Document Number! These are internal credit card terminal IDs, not valid CIF/NIFs.\n"
-    "  • 'Canon por copia privada' IS a real line item (regulatory levy). Include it in the line items table.\n"
+    "  • 'Canon por copia privada' is a Spanish regulatory levy (Royal Decree) attached to electronic devices. It appears as a separate line item with a small price. Extract it as a real line item (not as taxableAdditionalCost) because it is already included in the printed Grand Total.\n"
+
+    "  • The 'Artículo:' field on each line is the Apple part number — use it as `providerCode`.\n"
     "DO NOT redact the Supplier Name, Supplier VAT ID, or Customer Name — they MUST appear explicitly in the output.\n"
     "PROVIDER CODES: Provider/Product codes are typically alphanumeric strings or integers (e.g. '08064313', '1344'). NEVER extract a decimal number with a period or comma (e.g., '1.750') as a provider code. If you see a decimal, it is likely a price or quantity.\n"
     "NEVER GROUP OR COMBINE LINE ITEMS: Even if two items appear logically related (e.g., similar or identical product names, sequential parts, or a product and its associated fee/tax), you MUST extract them as completely separate line items exactly as printed. Combining multiple rows into a single summarized product is STRICTLY FORBIDDEN. Each distinct printed row must correspond to exactly one extracted line item.\n"
@@ -207,6 +205,9 @@ SYSTEM_PROMPT = (
     "CRITICAL SEQUENTIAL MAPPING RULE: If you see N products listed sequentially, followed by N detached prices or quantities, you MUST map them strictly 1-to-1 in sequential order! (The 1st product gets the 1st price, the 2nd gets the 2nd, etc). Do NOT skip products. If the invoice says '9 ARTIC.', there MUST be exactly 9 line items extracted.\n"
     "COLUMNAR OCR RECONSTRUCTION (CRITICAL): If the OCR text lists an entire column of product names (e.g. under 'Concepto') and then later lists an entire column of quantities (e.g. 'Uds.') and prices (e.g. 'Base Ud.' or 'Precio'), you MUST reconstruct the rows by matching the Nth product with the Nth quantity and the Nth price! Do not invent or duplicate prices. Match the columns mathematically and sequentially.\n"
     "If the document contains a '--- DOCUMENT INFO COLUMN ---' separator, reconstruct the rows by matching the Nth product in the left section with the Nth price/total in the right section.\n"
+    "ORPHANED AMOUNTS & ZIG-ZAGS (CRITICAL): If you see an entire row of numbers (Quantity, Price, Base) on a line by itself, and a product name on the line ABOVE or BELOW it, you MUST pair them together! Do not leave quantities or prices as null if there are orphaned numbers nearby that mathematically match. If the OCR mixes the price of one row with the product name of the row ABOVE or BELOW it, you MUST use strict math (`Quantity * Price = Base`) to find the expected Base and assign it to the correct product! Never leave the base as 0.0 if you can mathematically find it nearby.\n"
+    "APPLE & RETAIL RECEIPTS (PRICES BEFORE PRODUCTS): For some retail receipts (especially Apple), the OCR may read the price BEFORE the product name (e.g. you see a floating price on one line, and the product name on the next line). You MUST match the floating price to the product description immediately following it!\n"
+    "LAST PRODUCT & GRAND TOTAL OVERLAP (CRITICAL): Sometimes the last product name gets pushed onto the exact same line as the GRAND TOTAL. If you see a product name and a very large amount at the end of the line, DO NOT blindly assign that amount as the product's price! Look at the line ABOVE it to see if the real quantity/price were left orphaned. The product MUST be paired with its actual orphaned price, and the large amount must be extracted as the `total`.\n"
     "TAX-INCLUSIVE PRICES: If the sum of the printed line item prices equals the GRAND TOTAL (e.g., 25.75) instead of the SUBTOTAL, then those prices INCLUDE tax. You MUST back-calculate the pre-tax `base` (e.g., base = 1.50 / 1.21) and extract the pre-tax unit price as `grossPrice`.\n"
     "ANTI-HALLUCINATION RULE: If prices are disconnected or jumbled, you MUST find the actual printed prices in the text. DO NOT guess, invent, divide, or average out prices to make the math work (e.g., hallucinating a unit price by dividing the total base by the quantity). If OCR smashed numbers together without spaces (e.g. '16,2424.35'), you MAY split them logically at the decimal point ('16.24' and '24.35'), but do not invent new digits. Extract the exact printed digits and match them logically to the Nth product.\n"
     "DECIMAL QUANTITIES & TRAILING TAX CODES: Some invoices list items in the format `[Code] [Description] [Unit] [Price/Ud] [Quantity] [Base] ...`. Pay extremely close attention to decimal quantities like `2,240` (meaning 2.24) and their corresponding unit prices (e.g. `15,830`). Do NOT mistake a trailing integer (like `1` or `5` indicating a tax or department code) at the very end of the line for the quantity. Always verify your extraction by checking that `Quantity * Price = Base`!\n"
@@ -229,10 +230,10 @@ SYSTEM_PROMPT = (
     "Similarly 'Nº Albarán: 12345' → '12345' and 'NUMERO ALV25173716' → 'ALV25173716'. "
     "If the OCR text is jumbled (e.g. rotated), the number might appear on a different line than the label. For example, if you see '4303950' and later 'FACTURA:', the document number is '4303950'. "
     "Phone numbers (e.g. 'T.916011440' or '93 319 52 06' or '933195206-93' or any 9-digit numbers starting with 9, 8, 7, 6) are NEVER the document number! "
-    "Look for labels: NUMERO, NÚMERO, FACTURA:, Nº FACTURA, Nº ALBARÁN, Document, Documento, Nº, No., Nº Factura, Nº Albarán, Invoice No. "
+    "Look for labels: NUMERO, NÚMERO, FACTURA:, Nº FACTURA, Nº ALBARÁN, Albara, Albarà, Document, Documento, Nº, No., Nº Factura, Nº Albarán, Invoice No. "
     "IMPORTANT: A 'Document' or 'Invoice' number is strictly preferred over a generic 'Reference' or 'Order' number. If both exist, ALWAYS pick the Document/Invoice number. If only an 'Order Number' or 'Pedido' is present, you MUST extract it as the `serialNumber`.\n"
-    "PREFIX STRIPPING: If the OCR smashed the label and the number together (e.g. 'No.A1baran12101542', 'Fra.1234'), you MUST strip off the label prefix ('No.A1baran', 'Fra.') and extract ONLY the actual number (e.g., '12101542', '1234') as the `serialNumber`.\n"
-    "If in doubt, prefer alphanumeric codes with a year component (e.g. 2026) or uppercase letters like 'LA/'.\n"
+    "PREFIX STRIPPING & GARBAGE REMOVAL: You MUST extract ONLY the alphanumeric document ID (e.g., '12101542', 'INV/123456'). DO NOT extract the label itself, and DO NOT extract any surrounding garbage text, table headers, employee names (e.g., 'John Doe'), or newlines. If the OCR smashed the label and the number together (e.g. 'No.A1baran12101542', 'Fra.1234'), you MUST strip off the label prefix.\n"
+    "If in doubt, prefer alphanumeric codes with a year component (e.g. 2026) or uppercase letters with slashes like 'DOC/123'.\n"
     "\n"
     "=== TOTALS & TAX BREAKDOWN ===\n"
     "Source text is markdown — tables are preserved as | col | col | rows. "
@@ -250,6 +251,7 @@ SYSTEM_PROMPT = (
     "Do NOT calculate total = subtotal + tax yourself. Do NOT subtract "
     "any discounts from the total — the printed grand total already "
     "accounts for them.\n"
+    "CRITICAL TAX RULE: If there is no explicit Tax/IVA amount printed on the document, you MUST set the `tax` field to `0.0`. NEVER duplicate the `total` or `subtotal` into the `tax` field!\n"
     "Do NOT use a subtotal as the total if there is a larger grand total.\n"
     "Do NOT use a quantity (1,00) or page number (1/1) as the total.\n"
     "\n"
@@ -308,9 +310,7 @@ SYSTEM_PROMPT = (
     "For sideways/rotated scans the OCR may jumble product rows together. Before finalising the items array, count how many DISTINCT product descriptions you can identify in the raw text. "
     "Your items array MUST contain exactly that many entries — one per product. "
     "You MAY use a <think>...</think> block before outputting JSON to plan your extraction, particularly to count the items and reconstruct sideways tables. "
-    "After your thinking block, output ONLY the raw JSON string. Do NOT output ```json ... ``` tags.\n"
-    "DO NOT output ```json ... ``` tags, just the raw JSON string.\n"
-    "Your entire response MUST be valid JSON and nothing else."
+    "After your thinking block, output ONLY the raw JSON string. Do NOT output ```json ... ``` tags. Your entire response MUST be valid JSON and nothing else.\n"
     "Cross-check: sum of all item `base` values must be within ±0.15 € of the printed subtotal. "
     "If they do not match, re-read the text to find the missing rows.\n"
     "If you see: 'PICOS DE METAL X 12 UDS' → Code: 'PIA-05321012', Qty: 1, Base: 0.0, IVA: 21.\n"

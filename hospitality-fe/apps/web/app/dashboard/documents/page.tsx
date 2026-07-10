@@ -313,6 +313,7 @@ export default function DocumentsPage() {
   const [activeRowMenu, setActiveRowMenu] = useState<number | null>(null);
 
   const handleDeleteInvoice = async (id: number) => {
+    if (!window.confirm('Are you sure you want to delete this invoice?')) return;
     try {
       const client = getApiClient();
       await client.deleteInvoice(id);
@@ -329,6 +330,7 @@ export default function DocumentsPage() {
 
   const handleBulkDelete = async () => {
     if (selectedIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedIds.length} invoice(s)?`)) return;
     try {
       const client = getApiClient();
       await client.bulkDeleteInvoices(selectedIds);

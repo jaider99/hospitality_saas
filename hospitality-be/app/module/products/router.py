@@ -32,6 +32,8 @@ from sqlmodel import Session
 from typing import List, Optional
 
 from app.db.session import get_db as get_session
+from app.module.auth.model import User
+from app.module.auth.service import get_current_user
 from app.module.products import service
 from app.module.products.schema import (
     ProductManualCreate,
@@ -63,11 +65,11 @@ router = APIRouter()
     summary="List Expense Categories",
     tags=["Products & Inventory"],
 )
-def list_categories(db: Session = Depends(get_session)):
+def list_categories(db: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """
     Return all expense categories for use in product create/edit dropdowns.
     """
-    cats = service.get_categories(db)
+    cats = service.get_categories(db, current_user.restaurant_id)
     return [
         CategoryRead(
             id=c.id, name=c.name, color=c.color, parent_id=c.parent_id
@@ -89,7 +91,7 @@ def list_categories(db: Session = Depends(get_session)):
 )
 def create_product(
     payload: ProductManualCreate,
-    db: Session = Depends(get_session),
+    db: Session = Depends(get_session), current_user: User = Depends(get_current_user),
 ):
     """
     Manually create a product.
@@ -98,7 +100,7 @@ def create_product(
     - **Basic info**: name, product_code, supplier_ids, category_id
     - **Purchases**: price, unit_of_measure, shrinkage_pct, tax_rate
     """
-    product = service.create_product_manual(db, payload)
+    product = service.create_product_manual(db, payload, current_user.restaurant_id)
     detail = service.get_product_detail(db, product.id)
     return detail
 
@@ -153,7 +155,7 @@ def list_products(
     order: str = Query(default="asc", description="asc | desc"),
     start_date: Optional[str] = Query(default=None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(default=None, description="End date (YYYY-MM-DD)"),
-    db: Session = Depends(get_session),
+    db: Session = Depends(get_session), current_user: User = Depends(get_current_user),
 ):
     """
     List all products with the same columns shown in the Haddock products table:
@@ -162,7 +164,7 @@ def list_products(
     Also returns `pending_review_count` (articles pending review badge).
     """
     items, total = service.get_products(
-        db, skip=skip, limit=limit,
+        db, restaurant_id=current_user.restaurant_id, skip=skip, limit=limit,
         archived=archived, bookmarked=bookmarked,
         category_id=category_id, supplier_id=supplier_id,
         name=name, sort_by=sort_by, order=order,
@@ -170,7 +172,7 @@ def list_products(
     )
 
     # Count pending review items for the banner
-    _, pending_count = service.get_review_queue(db, skip=0, limit=1)
+    _, pending_count = service.get_review_queue(db, current_user.restaurant_id, skip=0, limit=1)
 
     return ProductListResponse(
         items=items,
@@ -191,7 +193,7 @@ def get_review_queue(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, le=500),
     name: Optional[str] = Query(default=None, description="Search by description"),
-    db: Session = Depends(get_session),
+    db: Session = Depends(get_session), current_user: User = Depends(get_current_user),
 ):
     """
     Returns unlinked invoice lines that need review before being added to the
@@ -204,7 +206,7 @@ def get_review_queue(
       - `possibly_different` — looks similar
       - `looks_different` — name prefix matches loosely
     """
-    items, total = service.get_review_queue(db, skip=skip, limit=limit, name=name)
+    items, total = service.get_review_queue(db, current_user.restaurant_id, skip=skip, limit=limit, name=name)
     return ReviewQueueResponse(items=items, total=total, skip=skip, limit=limit)
 
 
@@ -214,7 +216,7 @@ def get_review_queue(
     summary="Get Product Detail",
     tags=["Products & Inventory"],
 )
-def get_product(product_id: str, db: Session = Depends(get_session)):
+def get_product(product_id: str, db: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """
     Full product detail view including:
     - Price stats: latest price, reference price, max/min historical prices
@@ -224,7 +226,7 @@ def get_product(product_id: str, db: Session = Depends(get_session)):
     - Category (with parent chain)
     - Linked suppliers
     """
-    detail = service.get_product_detail(db, product_id)
+    detail = service.get_product_detail(db, product_id, current_user.restaurant_id)
     if not detail:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -242,16 +244,16 @@ def get_product(product_id: str, db: Session = Depends(get_session)):
 def update_product(
     product_id: str,
     payload: ProductUpdate,
-    db: Session = Depends(get_session),
+    db: Session = Depends(get_session), current_user: User = Depends(get_current_user),
 ):
     """
     Partially update a product's editable fields:
     name, reference_price, unit_of_measure, tax_rate, category_id, config, etc.
     """
-    updated = service.update_product(db, product_id, payload)
+    updated = service.update_product(db, product_id, payload, current_user.restaurant_id)
     if not updated:
         raise HTTPException(status_code=404, detail=f"Product '{product_id}' not found.")
-    return service.get_product_detail(db, product_id)
+    return service.get_product_detail(db, product_id, current_user.restaurant_id)
 
 
 @router.patch(
@@ -259,9 +261,9 @@ def update_product(
     summary="Toggle Product Bookmark",
     tags=["Products & Inventory"],
 )
-def toggle_bookmark(product_id: str, db: Session = Depends(get_session)):
+def toggle_bookmark(product_id: str, db: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """Toggle the bookmarked (starred) flag on a product."""
-    result = service.toggle_bookmark(db, product_id)
+    result = service.toggle_bookmark(db, product_id, current_user.restaurant_id)
     if not result:
         raise HTTPException(status_code=404, detail=f"Product '{product_id}' not found.")
     return {"product_id": product_id, "bookmarked": result.bookmarked}
@@ -275,10 +277,10 @@ def toggle_bookmark(product_id: str, db: Session = Depends(get_session)):
 def archive_product(
     product_id: str,
     archived: bool = Query(default=True, description="True to archive, False to restore"),
-    db: Session = Depends(get_session),
+    db: Session = Depends(get_session), current_user: User = Depends(get_current_user),
 ):
     """Archive or restore a product from the product list."""
-    result = service.archive_product(db, product_id, archived=archived)
+    result = service.archive_product(db, product_id, current_user.restaurant_id, archived=archived)
     if not result:
         raise HTTPException(status_code=404, detail=f"Product '{product_id}' not found.")
     return {"product_id": product_id, "archived": result.archived}
@@ -313,7 +315,7 @@ def merge_product(
     summary="Sync Products from Haddock API",
     tags=["Products & Inventory"],
 )
-def sync_products(payload: dict, db: Session = Depends(get_session)):
+def sync_products(payload: dict, db: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """
     Bulk upsert products from raw Haddock /products API JSON response.
     ```json
@@ -336,7 +338,7 @@ def sync_products(payload: dict, db: Session = Depends(get_session)):
 def unify_with_product(
     line_id: int,
     payload: UnifyRequest,
-    db: Session = Depends(get_session),
+    db: Session = Depends(get_session), current_user: User = Depends(get_current_user),
 ):
     """
     Link an unreviewed invoice line to an existing product (the 'Unify' button).
@@ -346,7 +348,7 @@ def unify_with_product(
     - Updates the product's stats (quantity, total, last_price)
     """
     try:
-        result = service.unify_line_with_product(db, line_id, payload.product_id)
+        result = service.unify_line_with_product(db, line_id, payload.product_id, current_user.restaurant_id)
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -358,7 +360,7 @@ def unify_with_product(
     status_code=status.HTTP_201_CREATED,
     tags=["Products & Inventory"],
 )
-def mark_no_match(line_id: int, db: Session = Depends(get_session)):
+def mark_no_match(line_id: int, db: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     """
     Mark an unreviewed invoice line as 'No match' — creates a new product
     from this invoice line and links it immediately.
@@ -366,7 +368,7 @@ def mark_no_match(line_id: int, db: Session = Depends(get_session)):
     Maps to the 'No match' button in the review queue UI.
     """
     try:
-        result = service.mark_line_no_match(db, line_id)
+        result = service.mark_line_no_match(db, line_id, current_user.restaurant_id)
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -385,9 +387,9 @@ def mark_no_match(line_id: int, db: Session = Depends(get_session)):
 def list_inventories(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, le=200),
-    db: Session = Depends(get_session),
+    db: Session = Depends(get_session), current_user: User = Depends(get_current_user),
 ):
-    return service.get_inventories(db, skip=skip, limit=limit)
+    return service.get_inventories(db, current_user.restaurant_id, current_user.restaurant_id, skip=skip, limit=limit)
 
 
 @router.get(
@@ -396,8 +398,8 @@ def list_inventories(
     summary="Get Inventory Session",
     tags=["Products & Inventory"],
 )
-def get_inventory(inventory_id: str, db: Session = Depends(get_session)):
-    inv = service.get_inventory(db, inventory_id)
+def get_inventory(inventory_id: str, db: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    inv = service.get_inventory(db, inventory_id, current_user.restaurant_id)
     if not inv:
         raise HTTPException(status_code=404, detail=f"Inventory '{inventory_id}' not found.")
     return inv
@@ -410,8 +412,8 @@ def get_inventory(inventory_id: str, db: Session = Depends(get_session)):
     summary="Create Inventory Session",
     tags=["Products & Inventory"],
 )
-def create_inventory(payload: InventoryCreate, db: Session = Depends(get_session)):
-    return service.create_inventory(db, payload)
+def create_inventory(payload: InventoryCreate, db: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    return service.create_inventory(db, payload, current_user.restaurant_id)
 
 
 @router.get(
@@ -425,9 +427,9 @@ def list_inventory_items(
     kind: Optional[str] = Query(default=None, description="'product' or 'dish'"),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=200, le=1000),
-    db: Session = Depends(get_session),
+    db: Session = Depends(get_session), current_user: User = Depends(get_current_user),
 ):
-    items = service.get_inventory_items(db, inventory_id, kind=kind, skip=skip, limit=limit)
+    items = service.get_inventory_items(db, inventory_id, current_user.restaurant_id, current_user.restaurant_id, kind=kind, skip=skip, limit=limit)
     return InventoryItemsResponse(items=items, total=len(items))
 
 
@@ -439,7 +441,7 @@ def list_inventory_items(
 def sync_inventory_items(
     inventory_id: str,
     payload: dict,
-    db: Session = Depends(get_session),
+    db: Session = Depends(get_session), current_user: User = Depends(get_current_user),
 ):
     """
     Bulk upsert from Haddock /inventories/{id}/items JSON response.

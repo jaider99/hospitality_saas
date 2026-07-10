@@ -110,7 +110,7 @@ def bulk_delete_products(db: Session, product_ids: List[str]) -> None:
     db.commit()
 
 
-def create_product_manual(db: Session, data: "ProductManualCreate") -> Product:
+def create_product_manual(db: Session, data: "ProductManualCreate", restaurant_id: int) -> Product:
     """
     Manual product creation (from the 'Create product manually' UI form).
     Generates a local ID (prod~<uuid>) and links to suppliers/category.
@@ -185,6 +185,7 @@ def create_product_manual(db: Session, data: "ProductManualCreate") -> Product:
 
 def get_products(
     db: Session,
+    restaurant_id: int,
     skip: int = 0,
     limit: int = 100,
     archived: Optional[bool] = None,
@@ -202,7 +203,7 @@ def get_products(
     Each row includes: product, supplier name, category path, quantity,
     reference_price, last_price, total, price_difference_percentage.
     """
-    stmt = select(Product)
+    stmt = select(Product).where(Product.restaurant_id == restaurant_id)
 
     if archived is not None:
         stmt = stmt.where(Product.archived == archived)
@@ -344,7 +345,7 @@ def get_products(
 # Product CRUD - Detail
 # ---------------------------------------------------------------------------
 
-def get_product_detail(db: Session, product_id: str) -> Optional[dict]:
+def get_product_detail(db: Session, product_id: str, restaurant_id: int) -> Optional[dict]:
     """
     Returns full product detail including:
       - Basic fields
@@ -354,7 +355,7 @@ def get_product_detail(db: Session, product_id: str) -> Optional[dict]:
       - Purchase history (via alias-based invoice_lines lookup)
       - Price stats: min, max, reference, last
     """
-    product = db.get(Product, product_id)
+    product = db.exec(select(Product).where(Product.id == product_id, Product.restaurant_id == restaurant_id)).first()
     if not product:
         return None
 
@@ -497,28 +498,44 @@ def _get_purchase_history(
     aliases = db.exec(
         select(ProductAlias).where(ProductAlias.master_product_id == product_id)
     ).all()
-    valid_names = {product.name.lower()} | {a.alias_name.lower() for a in aliases}
+    for ref_row in ref_rows:
+        ref = db.get(ReferencedItem, ref_row.referenced_item_id)
+        if ref and ref.invoice_line_id:
+            line = db.get(InvoiceLine, ref.invoice_line_id)
+            if line:
+                invoice = db.get(Invoice, line.invoice_id)
+                if invoice:
+                    doc_date = invoice.document_date or (
+                        invoice.issue_date.date().isoformat() if invoice.issue_date else ""
+                    )
+                    if start_date and (not doc_date or doc_date < start_date):
+                        continue
+                    if end_date and (not doc_date or doc_date > end_date):
+                        continue
+                history.append(_format_purchase_line(line, invoice, ref))
 
-    # Query invoice_lines with matching description
-    stmt = (
-        select(InvoiceLine)
-        .join(Invoice, InvoiceLine.invoice_id == Invoice.id)
-        .where(func.lower(InvoiceLine.description).in_(valid_names))
-        .where(Invoice.status == "PROCESSED")
-        .where(Invoice.needs_review == False)
-    )
-
-    if start_date:
-        stmt = stmt.where(Invoice.document_date >= start_date)
-    if end_date:
-        stmt = stmt.where(Invoice.document_date <= end_date)
-
-    lines = db.exec(stmt).all()
-
-    history = []
-    for line in lines:
-        invoice = db.get(Invoice, line.invoice_id)
-        history.append(_format_purchase_line(line, invoice))
+    # Method 2: invoice_lines where description matches product name (fuzzy link)
+    # Only add if not already included
+    existing_line_ids = {h["line_id"] for h in history if h.get("line_id")}
+    p = db.get(Product, product_id)
+    if p:
+        name_matched = db.exec(
+            select(InvoiceLine).where(
+                InvoiceLine.description.ilike(f"%{p.name[:20]}%")
+            ).limit(50)
+        ).all()
+        for line in name_matched:
+            if line.id not in existing_line_ids:
+                invoice = db.get(Invoice, line.invoice_id)
+                if invoice:
+                    doc_date = invoice.document_date or (
+                        invoice.issue_date.date().isoformat() if invoice.issue_date else ""
+                    )
+                    if start_date and (not doc_date or doc_date < start_date):
+                        continue
+                    if end_date and (not doc_date or doc_date > end_date):
+                        continue
+                history.append(_format_purchase_line(line, invoice, None))
 
     # Sort by date descending
     history.sort(key=lambda h: h.get("document_date") or "", reverse=True)
@@ -555,9 +572,9 @@ def _format_purchase_line(line: InvoiceLine, invoice: Optional[Invoice]) -> dict
 # Product CRUD - Update
 # ---------------------------------------------------------------------------
 
-def update_product(db: Session, product_id: str, data: "ProductUpdate") -> Optional[Product]:
+def update_product(db: Session, product_id: str, data: "ProductUpdate", restaurant_id: int) -> Optional[Product]:
     """Partial update of a product's editable fields."""
-    product = db.get(Product, product_id)
+    product = db.exec(select(Product).where(Product.id == product_id, Product.restaurant_id == restaurant_id)).first()
     if not product:
         return None
 
@@ -572,8 +589,8 @@ def update_product(db: Session, product_id: str, data: "ProductUpdate") -> Optio
     return product
 
 
-def toggle_bookmark(db: Session, product_id: str) -> Optional[Product]:
-    product = db.get(Product, product_id)
+def toggle_bookmark(db: Session, product_id: str, restaurant_id: int) -> Optional[Product]:
+    product = db.exec(select(Product).where(Product.id == product_id, Product.restaurant_id == restaurant_id)).first()
     if not product:
         return None
     product.bookmarked = not product.bookmarked
@@ -584,8 +601,8 @@ def toggle_bookmark(db: Session, product_id: str) -> Optional[Product]:
     return product
 
 
-def archive_product(db: Session, product_id: str, archived: bool = True) -> Optional[Product]:
-    product = db.get(Product, product_id)
+def archive_product(db: Session, product_id: str, restaurant_id: int, archived: bool = True) -> Optional[Product]:
+    product = db.exec(select(Product).where(Product.id == product_id, Product.restaurant_id == restaurant_id)).first()
     if not product:
         return None
     product.archived = archived
@@ -692,6 +709,7 @@ def digitize_invoice_products(db: Session, invoice_id: int):
 
 def get_review_queue(
     db: Session,
+    restaurant_id: int,
     skip: int = 0,
     limit: int = 100,
     name: Optional[str] = None,
@@ -713,10 +731,13 @@ def get_review_queue(
         | {a.alias_name.lower() for a in all_aliases}
     )
 
-    # Query all unlinked invoice lines
+    # Query unlinked invoice lines (not in referenced_items)
     stmt = (
         select(InvoiceLine)
         .join(Invoice, InvoiceLine.invoice_id == Invoice.id)
+        .where(Invoice.restaurant_id == restaurant_id)
+        .where(Invoice.deleted_at == None)
+        .where(InvoiceLine.deleted_at == None)
         .where(InvoiceLine.description.isnot(None))
         .where(InvoiceLine.description != "")
         .where(Invoice.status == "PROCESSED")
@@ -782,6 +803,7 @@ def _find_similar_products(db: Session, description: str, supplier_name: str) ->
     """
     Find existing products that look similar to an unlinked invoice line.
     Returns match confidence: 'exact' | 'possibly_different' | 'looks_different'
+    Excludes products from soft-deleted SuppliedProducts.
     """
     if not description or len(description) < 3:
         return []
@@ -792,12 +814,21 @@ def _find_similar_products(db: Session, description: str, supplier_name: str) ->
         select(Product)
         .where(Product.name.ilike(f"%{prefix}%"))
         .where(Product.archived == False)
-        .limit(5)
+        .limit(10)  # fetch extra to allow filtering
     )
     products = list(db.exec(stmt).all())
 
+    # Get IDs of soft-deleted SuppliedProducts to exclude them from matches
+    from app.module.invoices.model import SuppliedProduct
+    deleted_sp_ids = set(
+        db.exec(
+            select(SuppliedProduct.id).where(SuppliedProduct.deleted_at != None)
+        ).all()
+    )
+
     results = []
     for p in products:
+        # Simple confidence scoring
         desc_lower = description.lower()
         name_lower = p.name.lower()
 
@@ -827,6 +858,7 @@ def unify_line_with_product(
     db: Session,
     invoice_line_id: int,
     product_id: str,
+    restaurant_id: int,
 ) -> dict:
     """
     Link an unreviewed invoice line to an existing product.
@@ -839,7 +871,7 @@ def unify_line_with_product(
     if not line:
         raise ValueError(f"Invoice line {invoice_line_id} not found.")
 
-    product = db.get(Product, product_id)
+    product = db.exec(select(Product).where(Product.id == product_id, Product.restaurant_id == restaurant_id)).first()
     if not product:
         raise ValueError(f"Product {product_id} not found.")
 
@@ -875,7 +907,7 @@ def unify_line_with_product(
     }
 
 
-def mark_line_no_match(db: Session, invoice_line_id: int) -> dict:
+def mark_line_no_match(db: Session, invoice_line_id: int, restaurant_id: int) -> dict:
     """
     Mark an unreviewed invoice line as 'no match' — creates a new standalone product.
     """
@@ -883,22 +915,24 @@ def mark_line_no_match(db: Session, invoice_line_id: int) -> dict:
     if not line:
         raise ValueError(f"Invoice line {invoice_line_id} not found.")
 
-    invoice = db.get(Invoice, line.invoice_id)
+    invoice = db.exec(select(Invoice).where(Invoice.id == line.invoice_id, Invoice.restaurant_id == restaurant_id)).first()
+    if not invoice: raise ValueError('Not found')
     supplier_id_local: Optional[int] = None
     if invoice and invoice.supplier_id:
         supplier_id_local = invoice.supplier_id
 
     # Create a new product from this line
     new_data = ProductManualCreate(
+        restaurant_id=restaurant_id,
         name=line.description or "Unnamed product",
         unit_of_measure=line.unit or "ud",
         price=line.unit_price or 0.0,
         supplier_ids=[supplier_id_local] if supplier_id_local else [],
     )
-    new_product = create_product_manual(db, new_data)
+    new_product = create_product_manual(db, new_data, restaurant_id)
 
     # Link the line to this new product via alias
-    return unify_line_with_product(db, invoice_line_id, new_product.id)
+    return unify_line_with_product(db, invoice_line_id, new_product.id, restaurant_id)
 
 
 def merge_products(db: Session, master_product_id: str, source_product_id: str) -> dict:
@@ -1001,7 +1035,7 @@ def upsert_product(db: Session, data: dict) -> Product:
         category_id = upsert_category_tree(db, data["category"])
 
     product_id = data["id"]
-    existing = db.get(Product, product_id)
+    existing = db.exec(select(Product).where(Product.id == product_id, Product.restaurant_id == restaurant_id)).first()
     product_fields = {
         "name": data.get("name", ""),
         "reference_price": data.get("referencePrice"),
@@ -1108,15 +1142,15 @@ def upsert_product_format(
 # Inventory CRUD
 # ---------------------------------------------------------------------------
 
-def get_inventories(db: Session, skip: int = 0, limit: int = 50) -> List[Inventory]:
+def get_inventories(db: Session, restaurant_id: int, skip: int = 0, limit: int = 50) -> List[Inventory]:
     return list(db.exec(select(Inventory).offset(skip).limit(limit)).all())
 
 
-def get_inventory(db: Session, inventory_id: str) -> Optional[Inventory]:
-    return db.get(Inventory, inventory_id)
+def get_inventory(db: Session, inventory_id: str, restaurant_id: int) -> Optional[Inventory]:
+    return db.exec(select(Inventory).where(Inventory.id == inventory_id, Inventory.restaurant_id == restaurant_id)).first()
 
 
-def create_inventory(db: Session, data: InventoryCreate) -> Inventory:
+def create_inventory(db: Session, data: InventoryCreate, restaurant_id: int) -> Inventory:
     inventory = Inventory(**data.model_dump())
     db.add(inventory)
     db.commit()
@@ -1137,10 +1171,6 @@ def get_inventory_items(
 def sync_inventory_items_from_haddock(
     db: Session, inventory_id: str, haddock_response: dict
 ) -> List[InventoryItem]:
-    """
-    Simplified Haddock inventory sync — referenced_item_id field removed.
-    Inventory items are now looked up by product_id + dish_id only.
-    """
     inventory = db.get(Inventory, inventory_id)
     if not inventory:
         db.add(Inventory(id=inventory_id))

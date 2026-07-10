@@ -16,6 +16,7 @@ class SupplierContact(SQLModel, table=True):
     is_main_contact: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    deleted_at: Optional[datetime] = Field(default=None)
 
     supplier: "Supplier" = Relationship(back_populates="contact_list")
 
@@ -23,6 +24,7 @@ class Supplier(SQLModel, table=True):
     __tablename__ = "suppliers"  # Use snake_case plural to match migrations
     
     id: Optional[int] = Field(default=None, primary_key=True)
+    restaurant_id: Optional[int] = Field(default=None, foreign_key="restaurant.id", index=True)
     supplier_code: Optional[str] = Field(default=None, index=True)
     name: str = Field(index=True)
     legal_name: Optional[str] = Field(default=None)        # legalName from OCR schema
@@ -62,6 +64,7 @@ class SuppliedProduct(SQLModel, table=True):
     category: Optional[str] = Field(default=None)  # Additional categorization
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    deleted_at: Optional[datetime] = Field(default=None)
 
     # Relationships
     supplier: Supplier = Relationship(back_populates="products")
@@ -79,6 +82,7 @@ class ProductCostHistory(SQLModel, table=True):
     product_id: int = Field(foreign_key="suppliedproduct.id", ondelete="CASCADE")
     price: float = Field(default=0.0)
     changed_at: datetime = Field(default_factory=datetime.utcnow)
+    deleted_at: Optional[datetime] = Field(default=None)
 
     # Relationships
     product: SuppliedProduct = Relationship(back_populates="cost_history")
@@ -87,6 +91,7 @@ class Invoice(SQLModel, table=True):
     __tablename__ = "invoices"  # Use exact migration name
     
     id: Optional[int] = Field(default=None, primary_key=True)
+    restaurant_id: Optional[int] = Field(default=None, foreign_key="restaurant.id", index=True)
     invoice_number: Optional[str] = Field(default=None, index=True, nullable=True)
     supplier_id: Optional[int] = Field(default=None, foreign_key="suppliers.id", ondelete="CASCADE", nullable=True)
     issue_date: Optional[datetime] = Field(default=None, nullable=True)
@@ -95,6 +100,7 @@ class Invoice(SQLModel, table=True):
     raw_text: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    deleted_at: Optional[datetime] = Field(default=None)
     is_refund: bool = Field(default=False)
     is_recurrent: bool = Field(default=False)
     is_duplicate: bool = Field(default=False)
@@ -196,6 +202,7 @@ class InvoiceLine(SQLModel, table=True):
     base: Optional[float] = Field(default=None)                # line base amount (pre-tax)
     gra: Optional[float] = Field(default=None)
     u_m: Optional[float] = Field(default=None)
+    deleted_at: Optional[datetime] = Field(default=None)
 
     # --- AI Suggested Match fields ---
     suggested_product_id: Optional[str] = Field(default=None)
@@ -220,6 +227,7 @@ class InvoiceTaxBracket(SQLModel, table=True):
     row_total: Optional[float] = Field(default=None)          # base + iva for this rate
     equivalence_surcharge_rate: Optional[float] = Field(default=None)
     equivalence_surcharge: Optional[float] = Field(default=None)
+    deleted_at: Optional[datetime] = Field(default=None)
 
     # Relationships
     invoice: Invoice = Relationship(back_populates="tax_brackets")

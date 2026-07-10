@@ -43,10 +43,10 @@ def post_recipe(
     current_user: User = Depends(get_current_user)
 ):
     """Creates a new recipe card."""
-    recipe = create_recipe(db, dto)
+    recipe = create_recipe(db, dto, current_user.restaurant_id)
     # Invalidate list cache
     del_cache("recipes_list")
-    return get_recipe_details(db, recipe.id)
+    return get_recipe_details(db, recipe.id, current_user.restaurant_id)
 
 @router.get("", response_model=List[RecipeResponse])
 def list_recipes(
@@ -55,7 +55,7 @@ def list_recipes(
     current_user: User = Depends(get_current_user)
 ):
     """Lists recipes/dishes with costing summaries."""
-    return get_recipes(db, is_preparation=preparations)
+    return get_recipes(db, current_user.restaurant_id, is_preparation=preparations)
 
 @router.get("/dishes", response_model=List[RecipeResponse])
 def list_dishes(
@@ -64,7 +64,7 @@ def list_dishes(
     current_user: User = Depends(get_current_user)
 ):
     """Haddock-style endpoint for dishes listing."""
-    return get_recipes(db, is_preparation=preparations)
+    return get_recipes(db, current_user.restaurant_id, is_preparation=preparations)
 
 @router.get("/dishes/unlinked", response_model=List[UnlinkedDishResponse])
 def list_unlinked(
@@ -72,7 +72,7 @@ def list_unlinked(
     current_user: User = Depends(get_current_user)
 ):
     """Lists POS dishes that have no ingredients linked yet."""
-    return get_unlinked_dishes(db)
+    return get_unlinked_dishes(db, current_user.restaurant_id)
 
 @router.get("/{recipe_id}/bom", response_model=BOMResponse)
 def get_bom(
@@ -81,7 +81,7 @@ def get_bom(
     current_user: User = Depends(get_current_user)
 ):
     """Gets detailed recipe costing bill of materials."""
-    return get_recipe_bom(db, recipe_id)
+    return get_recipe_bom(db, recipe_id, current_user.restaurant_id)
 
 @router.get("/dishes/{recipe_id}/bom", response_model=BOMResponse)
 def get_dish_bom(
@@ -90,7 +90,7 @@ def get_dish_bom(
     current_user: User = Depends(get_current_user)
 ):
     """Haddock-style endpoint to get dish BOM details."""
-    return get_recipe_bom(db, recipe_id)
+    return get_recipe_bom(db, recipe_id, current_user.restaurant_id)
 
 @router.get("/supplied-products", response_model=List[dict])
 def list_supplied_products(
@@ -99,7 +99,7 @@ def list_supplied_products(
     current_user: User = Depends(get_current_user)
 ):
     """Searches SuppliedProduct records to add as recipe ingredients."""
-    return search_supplied_products(db, q)
+    return search_supplied_products(db, current_user.restaurant_id, q)
 
 @router.get("/tags", response_model=List[RecipeTagResponse])
 def get_tags(
@@ -107,7 +107,7 @@ def get_tags(
     current_user: User = Depends(get_current_user)
 ):
     """Lists all custom and default recipe tags."""
-    return get_recipe_tags(db)
+    return get_recipe_tags(db, current_user.restaurant_id)
 
 @router.post("/tags", response_model=RecipeTagResponse, status_code=status.HTTP_201_CREATED)
 def post_tag(
@@ -116,7 +116,7 @@ def post_tag(
     current_user: User = Depends(get_current_user)
 ):
     """Creates a new custom recipe tag."""
-    return create_recipe_tag(db, name=dto.name, is_preparation=dto.isPreparation)
+    return create_recipe_tag(db, name=dto.name, is_preparation=dto.isPreparation, restaurant_id=current_user.restaurant_id)
 
 @router.delete("/tags/{tag_id}")
 def delete_tag(
@@ -125,7 +125,7 @@ def delete_tag(
     current_user: User = Depends(get_current_user)
 ):
     """Deletes a recipe tag."""
-    delete_recipe_tag(db, tag_id)
+    delete_recipe_tag(db, tag_id, current_user.restaurant_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @router.get("/{recipe_id}", response_model=RecipeResponse)
@@ -135,7 +135,7 @@ def get_recipe(
     current_user: User = Depends(get_current_user)
 ):
     """Gets detailed recipe costing analysis by local integer ID."""
-    return get_recipe_details(db, recipe_id)
+    return get_recipe_details(db, recipe_id, current_user.restaurant_id)
 
 @router.put("/{recipe_id}", response_model=RecipeResponse)
 def put_recipe(
@@ -145,11 +145,11 @@ def put_recipe(
     current_user: User = Depends(get_current_user)
 ):
     """Modifies recipe attributes."""
-    recipe = update_recipe(db, recipe_id, dto)
+    recipe = update_recipe(db, recipe_id, dto, current_user.restaurant_id)
     # Invalidate cache
     del_cache("recipes_list")
     del_cache(f"recipe_{recipe_id}")
-    return get_recipe_details(db, recipe.id)
+    return get_recipe_details(db, recipe.id, current_user.restaurant_id)
 
 @router.delete("/{recipe_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_recipe(
@@ -158,7 +158,7 @@ def remove_recipe(
     current_user: User = Depends(get_current_user)
 ):
     """Deletes a recipe entirely."""
-    delete_recipe(db, recipe_id)
+    delete_recipe(db, recipe_id, current_user.restaurant_id)
     # Invalidate cache
     del_cache("recipes_list")
     del_cache(f"recipe_{recipe_id}")
@@ -172,11 +172,11 @@ def post_ingredient(
     current_user: User = Depends(get_current_user)
 ):
     """Appends an ingredient portion (supplied product or sub-recipe) to recipe card."""
-    add_ingredient(db, recipe_id, dto)
+    add_ingredient(db, recipe_id, dto, current_user.restaurant_id)
     # Invalidate cache
     del_cache("recipes_list")
     del_cache(f"recipe_{recipe_id}")
-    return get_recipe_details(db, recipe_id)
+    return get_recipe_details(db, recipe_id, current_user.restaurant_id)
 
 @router.delete("/ingredients/{ingredient_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_ingredient(
@@ -185,7 +185,7 @@ def delete_ingredient(
     current_user: User = Depends(get_current_user)
 ):
     """Detaches an ingredient portion from its recipe."""
-    remove_ingredient(db, ingredient_id)
+    remove_ingredient(db, ingredient_id, current_user.restaurant_id)
     # Invalidate cache for all recipes (ingredient affects multiple recipes)
     del_cache("recipes_list")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -201,10 +201,10 @@ def generate_from_file(
     """Parses Haddock recipe PDF and imports recipes/preparations."""
     pdf_bytes = file.file.read()
     parsed_recipes = parse_recipes_from_pdf_bytes(pdf_bytes)
-    imported_recipes = import_recipes_from_parsed_data(db, parsed_recipes)
+    imported_recipes = import_recipes_from_parsed_data(db, parsed_recipes, current_user.restaurant_id)
     # Clear list cache
     del_cache("recipes_list")
-    return [get_recipe_details(db, r.id) for r in imported_recipes]
+    return [get_recipe_details(db, r.id, current_user.restaurant_id) for r in imported_recipes]
 
 
 @router.post("/{recipe_id}/image", response_model=RecipeResponse)
@@ -230,7 +230,7 @@ def upload_recipe_image(
     del_cache("recipes_list")
     del_cache(f"recipe_{recipe_id}")
     
-    recipe = update_recipe(db, recipe_id, RecipeUpdate(imageUrl=minio_url))
-    return get_recipe_details(db, recipe.id)
+    recipe = update_recipe(db, recipe_id, RecipeUpdate(imageUrl=minio_url), current_user.restaurant_id)
+    return get_recipe_details(db, recipe.id, current_user.restaurant_id)
 
 
