@@ -181,7 +181,7 @@ async def async_save_ocr_invoice(
             "line_ref": line
         })
     
-    mapped_items = await match_invoice_items(db, current_supplier_id, items_to_map, invoice_id)
+    mapped_items = await match_invoice_items(db, current_supplier_id, items_to_map, invoice_id, restaurant_id=restaurant_id)
     
     # We no longer create Product records here. 
     # Product creation is deferred to the digitization phase (needs_review = False).

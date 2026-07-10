@@ -640,8 +640,12 @@ def digitize_invoice_products(db: Session, invoice_id: int):
         return
 
     # Build the set of all linked descriptions: product names + aliases
-    all_products = list(db.exec(select(Product)).all())
-    all_aliases = list(db.exec(select(ProductAlias)).all())
+    all_products = list(db.exec(select(Product).where(Product.restaurant_id == invoice.restaurant_id)).all())
+    all_aliases = list(db.exec(
+        select(ProductAlias)
+        .join(Product)
+        .where(Product.restaurant_id == invoice.restaurant_id)
+    ).all())
 
     # Create mapping of lowercase name to global product
     linked_products = {}
@@ -677,8 +681,11 @@ def digitize_invoice_products(db: Session, invoice_id: int):
             global_product.updated_at = datetime.utcnow()
             db.add(global_product)
             
-        # 2. Fuzzy match (suggested_product_id is present)
-        elif line.suggested_product_id:
+        # 2. Fuzzy match (suggested_product_id is present and belongs to the same restaurant)
+        elif line.suggested_product_id and (
+            (suggested_prod := db.get(Product, line.suggested_product_id)) and 
+            suggested_prod.restaurant_id == invoice.restaurant_id
+        ):
             logger.info(f"Line '{line.description}' has fuzzy match (Review Queue). Skipping creation.")
             continue
             
@@ -688,6 +695,7 @@ def digitize_invoice_products(db: Session, invoice_id: int):
             logger.info(f"Creating brand new catalog product '{line.description}' ({new_prod_id}) upon digitization...")
             new_product = Product(
                 id=new_prod_id,
+                restaurant_id=invoice.restaurant_id,
                 name=line.description,
                 status="ACTIVE",
                 reference_price=line.unit_price,
@@ -731,8 +739,12 @@ def get_review_queue(
     exactly matches any product name or any ProductAlias entry.
     """
     # Build the set of all linked descriptions: product names + aliases
-    all_products = list(db.exec(select(Product)).all())
-    all_aliases = list(db.exec(select(ProductAlias)).all())
+    all_products = list(db.exec(select(Product).where(Product.restaurant_id == restaurant_id)).all())
+    all_aliases = list(db.exec(
+        select(ProductAlias)
+        .join(Product)
+        .where(Product.restaurant_id == restaurant_id)
+    ).all())
 
     linked_descriptions = (
         {p.name.lower() for p in all_products}
@@ -774,7 +786,7 @@ def get_review_queue(
         similar = []
         if line.suggested_product_id:
             suggested_prod = db.get(Product, line.suggested_product_id)
-            if suggested_prod:
+            if suggested_prod and suggested_prod.restaurant_id == restaurant_id:
                 similar.append({
                     "product_id": suggested_prod.id,
                     "product_name": suggested_prod.name,
@@ -783,8 +795,10 @@ def get_review_queue(
                     "confidence": "llm_suggested",
                     "ai_confidence_score": line.suggested_confidence
                 })
+            else:
+                similar = _find_similar_products(db, line.description or "", supplier_name, restaurant_id)
         else:
-            similar = _find_similar_products(db, line.description or "", supplier_name)
+            similar = _find_similar_products(db, line.description or "", supplier_name, restaurant_id)
 
         result.append({
             "line_id": line.id,
@@ -946,7 +960,7 @@ def mark_line_no_match(db: Session, invoice_line_id: int, restaurant_id: int) ->
     return unify_line_with_product(db, invoice_line_id, new_product.id, restaurant_id)
 
 
-def merge_products(db: Session, master_product_id: str, source_product_id: str) -> dict:
+def merge_products(db: Session, master_product_id: str, source_product_id: str, restaurant_id: int) -> dict:
     """
     Merge a source product into a master product.
     
@@ -957,7 +971,7 @@ def merge_products(db: Session, master_product_id: str, source_product_id: str) 
     5. Archive/merge the source product.
     """
     master = db.get(Product, master_product_id)
-    if not master:
+    if not master or master.restaurant_id != restaurant_id:
         raise ValueError(f"Master product {master_product_id} not found.")
     if master.deleted_at:
         raise ValueError("Cannot merge into a deleted product.")
@@ -965,7 +979,7 @@ def merge_products(db: Session, master_product_id: str, source_product_id: str) 
         raise ValueError("Cannot merge into a product that is already merged into another product.")
 
     source = db.get(Product, source_product_id)
-    if not source:
+    if not source or source.restaurant_id != restaurant_id:
         raise ValueError(f"Source product {source_product_id} not found.")
     if source.deleted_at:
         raise ValueError("Cannot merge a deleted product.")
@@ -1048,7 +1062,7 @@ def merge_products(db: Session, master_product_id: str, source_product_id: str) 
 # Haddock sync helpers (legacy — kept for backward compatibility but simplified)
 # ---------------------------------------------------------------------------
 
-def upsert_product(db: Session, data: dict) -> Product:
+def upsert_product(db: Session, data: dict, restaurant_id: int) -> Product:
     category_id: Optional[str] = None
     if data.get("category"):
         category_id = upsert_category_tree(db, data["category"])
@@ -1071,6 +1085,7 @@ def upsert_product(db: Session, data: dict) -> Product:
         "imported": data.get("imported", False),
         "config": data.get("config"),
         "category_id": category_id,
+        "restaurant_id": restaurant_id,
     }
     if existing:
         for k, v in product_fields.items():
@@ -1115,9 +1130,9 @@ def upsert_product(db: Session, data: dict) -> Product:
     return product
 
 
-def sync_products_from_haddock(db: Session, haddock_response: dict) -> List[Product]:
+def sync_products_from_haddock(db: Session, haddock_response: dict, restaurant_id: int) -> List[Product]:
     products_data = haddock_response.get("products", {}).get("data", [])
-    return [upsert_product(db, p) for p in products_data]
+    return [upsert_product(db, p, restaurant_id) for p in products_data]
 
 
 def upsert_product_format(
@@ -1188,11 +1203,16 @@ def get_inventory_items(
 
 
 def sync_inventory_items_from_haddock(
-    db: Session, inventory_id: str, haddock_response: dict
+    db: Session, inventory_id: str, haddock_response: dict, restaurant_id: int
 ) -> List[InventoryItem]:
     inventory = db.get(Inventory, inventory_id)
     if not inventory:
-        db.add(Inventory(id=inventory_id))
+        inventory = Inventory(id=inventory_id, restaurant_id=restaurant_id)
+        db.add(inventory)
+        db.flush()
+    elif not inventory.restaurant_id:
+        inventory.restaurant_id = restaurant_id
+        db.add(inventory)
         db.flush()
 
     from app.module.products.schema import HaddockInventoryItemInput
@@ -1215,7 +1235,7 @@ def sync_inventory_items_from_haddock(
 
         if item_input.kind == "product" and item_input.productID:
             if not db.get(Product, item_input.productID):
-                db.add(Product(id=item_input.productID, name=item_input.name))
+                db.add(Product(id=item_input.productID, name=item_input.name, restaurant_id=restaurant_id))
                 db.flush()
             upsert_product_format(
                 db, product_id=item_input.productID,

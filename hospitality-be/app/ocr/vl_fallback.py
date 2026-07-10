@@ -12,7 +12,7 @@ import logging
 from typing import Optional
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 logger = logging.getLogger("invoice_pipeline")
 
 from openai import OpenAI

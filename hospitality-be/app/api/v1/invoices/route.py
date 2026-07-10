@@ -401,7 +401,8 @@ async def delete_invoice_line_api(
     return None
 
 def _soft_delete_invoice_line(db, line, restaurant_id, now):
-    from sqlalchemy import select, func
+    from sqlmodel import select
+    from sqlalchemy import func
     from app.module.products.model import Product, ProductAlias
     from app.module.invoices.model import InvoiceLine, Invoice
 
