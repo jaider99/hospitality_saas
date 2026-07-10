@@ -330,7 +330,18 @@ async def delete_invoice_api(
         logger = logging.getLogger("fastapi_app")
         logger.warning(f"Failed to abort ARQ job for invoice {invoice_id}: {e}")
 
-    db.delete(inv)
+    from datetime import datetime
+    now = datetime.utcnow()
+    inv.deleted_at = now
+    
+    for line in inv.lines:
+        _soft_delete_invoice_line(db, line, current_user.restaurant_id, now)
+        
+    for tb in inv.tax_brackets:
+        tb.deleted_at = now
+        db.add(tb)
+
+    db.add(inv)
     db.commit()
     return None
 
@@ -351,9 +362,81 @@ async def delete_invoice_line_api(
     if not line_record or line_record.invoice_id != invoice_id:
         raise HTTPException(status_code=404, detail="Line not found")
     
-    db.delete(line_record)
+    from datetime import datetime
+    now = datetime.utcnow()
+    _soft_delete_invoice_line(db, line_record, current_user.restaurant_id, now)
+    
+    # Recalculate invoice totals based on remaining lines
+    remaining_lines = [l for l in inv.lines if not l.deleted_at]
+    inv.total_amount = sum(l.total_price or 0.0 for l in remaining_lines)
+    inv.base_amount = sum(l.base or 0.0 for l in remaining_lines)
+    inv.iva_amount = sum(l.iva_pct or 0.0 for l in remaining_lines)
+    
+    db.add(inv)
     db.commit()
+    
     return None
+
+def _soft_delete_invoice_line(db, line, restaurant_id, now):
+    from sqlalchemy import select, func
+    from app.module.products.model import Product, ProductAlias
+    from app.module.invoices.model import InvoiceLine, Invoice
+
+    line.deleted_at = now
+    db.add(line)
+    
+    if not line.description:
+        return
+        
+    # Find original product that this line mapped to
+    prod = db.exec(
+        select(Product).where(Product.name == line.description, Product.restaurant_id == restaurant_id)
+    ).first()
+    
+    if prod:
+        master_prod = None
+        if prod.merged_into_id:
+            master_prod = db.get(Product, prod.merged_into_id)
+        else:
+            master_prod = prod
+            
+        # Subtract totals from master_prod
+        if master_prod:
+            master_prod.quantity = max(0, (master_prod.quantity or 0) - (line.quantity or 0))
+            master_prod.total = max(0.0, (master_prod.total or 0.0) - (line.total_price or 0.0))
+            db.add(master_prod)
+
+        # Check if prod has any other active invoice lines
+        valid_names = {prod.name.lower()}
+        aliases = db.exec(select(ProductAlias).where(ProductAlias.master_product_id == prod.id)).all()
+        valid_names.update({a.alias_name.lower() for a in aliases})
+
+        other_lines = db.exec(
+            select(InvoiceLine)
+            .join(Invoice, InvoiceLine.invoice_id == Invoice.id)
+            .where(
+                func.lower(InvoiceLine.description).in_(valid_names),
+                InvoiceLine.deleted_at.is_(None),
+                Invoice.deleted_at.is_(None)
+            )
+            .limit(1)
+        ).first()
+
+        if not other_lines:
+            # Soft delete product
+            prod.deleted_at = now
+            db.add(prod)
+            
+            # Remove its alias from master product if merged
+            if prod.merged_into_id:
+                alias = db.exec(
+                    select(ProductAlias).where(
+                        ProductAlias.alias_name == prod.name.lower(),
+                        ProductAlias.master_product_id == prod.merged_into_id
+                    )
+                ).first()
+                if alias:
+                    db.delete(alias)
 
 class BulkDeletePayload(BaseModel):
     invoice_ids: List[int]

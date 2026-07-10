@@ -41,7 +41,7 @@ from app.module.categories.model import Category as AppCategory
 # ExpenseCategory helpers
 # ---------------------------------------------------------------------------
 
-def get_categories(db: Session) -> List[ExpenseCategory]:
+def get_categories(db: Session, restaurant_id: Optional[int] = None) -> List[ExpenseCategory]:
     """Return all categories (use in frontend dropdowns)."""
     return list(db.exec(select(ExpenseCategory)).all())
 
@@ -201,9 +201,12 @@ def get_products(
     """
     Returns enriched product list rows matching the product list UI.
     Each row includes: product, supplier name, category path, quantity,
-    reference_price, last_price, total, price_difference_percentage.
     """
-    stmt = select(Product).where(Product.restaurant_id == restaurant_id)
+    stmt = select(Product).where(
+        Product.restaurant_id == restaurant_id,
+        Product.deleted_at.is_(None),
+        Product.merged == False
+    )
 
     if archived is not None:
         stmt = stmt.where(Product.archived == archived)
@@ -355,7 +358,7 @@ def get_product_detail(db: Session, product_id: str, restaurant_id: int) -> Opti
       - Purchase history (via alias-based invoice_lines lookup)
       - Price stats: min, max, reference, last
     """
-    product = db.exec(select(Product).where(Product.id == product_id, Product.restaurant_id == restaurant_id)).first()
+    product = db.exec(select(Product).where(Product.id == product_id, Product.restaurant_id == restaurant_id, Product.deleted_at.is_(None))).first()
     if not product:
         return None
 
@@ -490,6 +493,7 @@ def _get_purchase_history(
     the product name OR any of its ProductAlias entries.
     This replaces the old product_references -> referenced_items -> invoice_lines chain.
     """
+    history = []
     product = db.get(Product, product_id)
     if not product:
         return []
@@ -498,44 +502,46 @@ def _get_purchase_history(
     aliases = db.exec(
         select(ProductAlias).where(ProductAlias.master_product_id == product_id)
     ).all()
-    for ref_row in ref_rows:
-        ref = db.get(ReferencedItem, ref_row.referenced_item_id)
-        if ref and ref.invoice_line_id:
-            line = db.get(InvoiceLine, ref.invoice_line_id)
-            if line:
-                invoice = db.get(Invoice, line.invoice_id)
-                if invoice:
-                    doc_date = invoice.document_date or (
-                        invoice.issue_date.date().isoformat() if invoice.issue_date else ""
-                    )
-                    if start_date and (not doc_date or doc_date < start_date):
-                        continue
-                    if end_date and (not doc_date or doc_date > end_date):
-                        continue
-                history.append(_format_purchase_line(line, invoice, ref))
+    valid_names = {product.name.lower()} | {a.alias_name.lower() for a in aliases}
+
+    # Method 1: Exact matches against valid_names
+    exact_matched = db.exec(
+        select(InvoiceLine).where(func.lower(InvoiceLine.description).in_(valid_names))
+    ).all()
+    
+    for line in exact_matched:
+        invoice = db.get(Invoice, line.invoice_id)
+        if invoice:
+            doc_date = invoice.document_date or (
+                invoice.issue_date.date().isoformat() if invoice.issue_date else ""
+            )
+            if start_date and (not doc_date or doc_date < start_date):
+                continue
+            if end_date and (not doc_date or doc_date > end_date):
+                continue
+        history.append(_format_purchase_line(line, invoice))
 
     # Method 2: invoice_lines where description matches product name (fuzzy link)
     # Only add if not already included
     existing_line_ids = {h["line_id"] for h in history if h.get("line_id")}
-    p = db.get(Product, product_id)
-    if p:
-        name_matched = db.exec(
-            select(InvoiceLine).where(
-                InvoiceLine.description.ilike(f"%{p.name[:20]}%")
-            ).limit(50)
-        ).all()
-        for line in name_matched:
-            if line.id not in existing_line_ids:
-                invoice = db.get(Invoice, line.invoice_id)
-                if invoice:
-                    doc_date = invoice.document_date or (
-                        invoice.issue_date.date().isoformat() if invoice.issue_date else ""
-                    )
-                    if start_date and (not doc_date or doc_date < start_date):
-                        continue
-                    if end_date and (not doc_date or doc_date > end_date):
-                        continue
-                history.append(_format_purchase_line(line, invoice, None))
+    name_matched = db.exec(
+        select(InvoiceLine).where(
+            InvoiceLine.description.ilike(f"%{product.name[:20]}%")
+        ).limit(50)
+    ).all()
+    
+    for line in name_matched:
+        if line.id not in existing_line_ids:
+            invoice = db.get(Invoice, line.invoice_id)
+            if invoice:
+                doc_date = invoice.document_date or (
+                    invoice.issue_date.date().isoformat() if invoice.issue_date else ""
+                )
+                if start_date and (not doc_date or doc_date < start_date):
+                    continue
+                if end_date and (not doc_date or doc_date > end_date):
+                    continue
+            history.append(_format_purchase_line(line, invoice))
 
     # Sort by date descending
     history.sort(key=lambda h: h.get("document_date") or "", reverse=True)
@@ -574,7 +580,7 @@ def _format_purchase_line(line: InvoiceLine, invoice: Optional[Invoice]) -> dict
 
 def update_product(db: Session, product_id: str, data: "ProductUpdate", restaurant_id: int) -> Optional[Product]:
     """Partial update of a product's editable fields."""
-    product = db.exec(select(Product).where(Product.id == product_id, Product.restaurant_id == restaurant_id)).first()
+    product = db.exec(select(Product).where(Product.id == product_id, Product.restaurant_id == restaurant_id, Product.deleted_at.is_(None))).first()
     if not product:
         return None
 
@@ -590,7 +596,7 @@ def update_product(db: Session, product_id: str, data: "ProductUpdate", restaura
 
 
 def toggle_bookmark(db: Session, product_id: str, restaurant_id: int) -> Optional[Product]:
-    product = db.exec(select(Product).where(Product.id == product_id, Product.restaurant_id == restaurant_id)).first()
+    product = db.exec(select(Product).where(Product.id == product_id, Product.restaurant_id == restaurant_id, Product.deleted_at.is_(None))).first()
     if not product:
         return None
     product.bookmarked = not product.bookmarked
@@ -602,7 +608,7 @@ def toggle_bookmark(db: Session, product_id: str, restaurant_id: int) -> Optiona
 
 
 def archive_product(db: Session, product_id: str, restaurant_id: int, archived: bool = True) -> Optional[Product]:
-    product = db.exec(select(Product).where(Product.id == product_id, Product.restaurant_id == restaurant_id)).first()
+    product = db.exec(select(Product).where(Product.id == product_id, Product.restaurant_id == restaurant_id, Product.deleted_at.is_(None))).first()
     if not product:
         return None
     product.archived = archived
@@ -814,6 +820,8 @@ def _find_similar_products(db: Session, description: str, supplier_name: str) ->
         select(Product)
         .where(Product.name.ilike(f"%{prefix}%"))
         .where(Product.archived == False)
+        .where(Product.deleted_at.is_(None))
+        .where(Product.merged == False)
         .limit(10)  # fetch extra to allow filtering
     )
     products = list(db.exec(stmt).all())
@@ -948,10 +956,18 @@ def merge_products(db: Session, master_product_id: str, source_product_id: str) 
     master = db.get(Product, master_product_id)
     if not master:
         raise ValueError(f"Master product {master_product_id} not found.")
+    if master.deleted_at:
+        raise ValueError("Cannot merge into a deleted product.")
+    if master.merged:
+        raise ValueError("Cannot merge into a product that is already merged into another product.")
 
     source = db.get(Product, source_product_id)
     if not source:
         raise ValueError(f"Source product {source_product_id} not found.")
+    if source.deleted_at:
+        raise ValueError("Cannot merge a deleted product.")
+    if source.merged:
+        raise ValueError("Source product is already merged into another product.")
         
     if master_product_id == source_product_id:
         raise ValueError("Cannot merge a product into itself.")
@@ -1011,7 +1027,7 @@ def merge_products(db: Session, master_product_id: str, source_product_id: str) 
 
     # 5. Hide source product
     source.merged = True
-    source.archived = True
+    source.merged_into_id = master_product_id
 
     db.add(master)
     db.add(source)

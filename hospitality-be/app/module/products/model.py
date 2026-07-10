@@ -88,7 +88,9 @@ class Product(SQLModel, table=True):
     bookmarked: bool = Field(default=False)
     archived: bool = Field(default=False)
     merged: bool = Field(default=False)
+    merged_into_id: Optional[str] = Field(default=None, index=True)
     imported: bool = Field(default=False)
+    deleted_at: Optional[datetime] = Field(default=None)
 
     config: Optional[Dict[str, Any]] = Field(
         default=None, sa_column=Column(JSON)
