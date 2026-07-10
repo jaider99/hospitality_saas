@@ -8,11 +8,11 @@ db_url = settings.DATABASE_URL
 if "?" in db_url:
     db_url = db_url.split("?")[0]
 
-engine = create_engine(db_url, echo=False)
+engine = create_engine(db_url, echo=False, pool_pre_ping=True)
 
 # Async database configuration
 async_db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
-async_engine = create_async_engine(async_db_url, echo=False)
+async_engine = create_async_engine(async_db_url, echo=False, pool_pre_ping=True)
 
 async_session_maker = sessionmaker(
     async_engine, class_=AsyncSession, expire_on_commit=True
