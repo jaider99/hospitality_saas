@@ -440,13 +440,8 @@ def _missing_required_field_names(inv: Invoice) -> list:
 
 
 def _needs_llm_fallback(inv: Invoice) -> bool:
-    if _missing_required_field_names(inv):
-        return True
-    if inv.ocr_confidence is not None and inv.ocr_confidence < OCR_CONFIDENCE_THRESHOLD:
-        return True
-    if not inv.items:
-        return True
-    return False
+    # Always use LLM to ensure GPT-OSS output is generated as requested by user
+    return True
 
 
 def _is_below_review_floor(inv: Invoice, page_result) -> bool:
@@ -868,7 +863,7 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
 
 
     if inv.supplier.name and not re.search(
-        r"\b(S\.?[LA]\.?U?|S\.?à\s*r\.?l\.?|INC\.?|CORP\.?|LTD\.?|GMBH)\b", inv.supplier.name, re.IGNORECASE
+        r"\b(S\.?[LA]\.?U?|S\.?à\s*r\.?l\.?|INC\.?|CORP\.?|LTD\.?|LIMITED|LLC|PLC|GMBH)\b", inv.supplier.name, re.IGNORECASE
     ):
         inv.review_reasons.append(f"Truncated Supplier Name: {inv.supplier.name}")
         inv.needs_review = True
@@ -905,21 +900,9 @@ def process_invoice(file_path: str, save_to_db: bool = True, base_name: str = ""
                 if restaurant_id is not None:
                     query = query.filter(DBInvoice.restaurant_id == restaurant_id)
                 
-                # To avoid strict string matching failures (e.g. 'Vendo lo que tengo s.l.' vs 'Vendo lo que tengo S.L.'),
-                # we consider it a duplicate if the invoice number matches AND (the Date matches OR the Total matches OR Supplier matches loosely).
-                conditions = []
-                if inv.date:
-                    conditions.append(DBInvoice.invoice_date == inv.date)
-                if inv.total is not None:
-                    conditions.append(DBInvoice.total_amount == inv.total)
-                if inv.supplier.name:
-                    # Match first 5 characters of supplier name to be safe against OCR noise/casing
-                    prefix = inv.supplier.name[:5]
-                    conditions.append(DBInvoice.supplier_display_name.ilike(f"%{prefix}%"))
+                # The user requested that if the document number matches, it should immediately be flagged as duplicate
+                # without requiring date/total/supplier to also match.
                 
-                if conditions:
-                    query = query.filter(or_(*conditions))
-                    
                 if invoice_id is not None:
                     query = query.filter(DBInvoice.id != invoice_id)
                 

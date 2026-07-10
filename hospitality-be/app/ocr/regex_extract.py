@@ -396,7 +396,7 @@ def extract_with_regex(raw_text: str) -> Invoice:
         if kw in text_norm:
             inv.isReconciled = val
             break
-    for kw, val in [("unpaid", "unpaid"), ("paid", "paid")]:
+    for kw, val in [("unpaid", "unpaid"), ("pagado", "paid"), ("paid", "paid")]:
         if kw in text_norm:
             inv.paidStatus = val
             break

@@ -61,7 +61,7 @@ class SupplierRecord(Base):
     vat_id = Column(String(50), unique=True, index=True)
     legal_name = Column(String(255))
     address = Column(Text)
-    contacts = Column(Integer, default=0)
+    contacts_count = Column(Integer, default=0)
     contact_name = Column(String(255))
     
     category_id = Column(String(255), index=True)
@@ -206,7 +206,7 @@ def save_invoice(inv: InvoiceDTO, session: Optional[Session] = None, invoice_id:
                 vat_id=inv.supplier.vatID,
                 legal_name=inv.supplier.legalName,
                 address=inv.supplier.address,
-                contacts=inv.supplier.contacts or 0,
+                contacts_count=inv.supplier.contacts or 0,
                 contact_info=inv.supplier.contactInfo
             )
             session.add(supplier_record)
@@ -430,7 +430,7 @@ def update_invoice(invoice_id: int, inv: InvoiceDTO, session: Optional[Session] 
                     vat_id=inv.supplier.vatID,
                     legal_name=inv.supplier.legalName,
                     address=inv.supplier.address,
-                    contacts=inv.supplier.contacts or 0,
+                    contacts_count=inv.supplier.contacts or 0,
                     contact_info=inv.supplier.contactInfo
                 )
                 session.add(supplier_record)
