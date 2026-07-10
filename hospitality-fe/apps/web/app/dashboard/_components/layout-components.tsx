@@ -4,10 +4,29 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  Zap, TrendingDown, LogOut, Menu, MessageSquare, Plus, Home,
-  BarChart2, Upload, AlertCircle, Camera, Pencil, ArrowUpRight, X,
-  Bot, Mic, Send, Volume2, Pause, ChevronDown, Building2, Check,
-  Utensils,
+  Zap,
+  TrendingDown,
+  LogOut,
+  Menu,
+  MessageSquare,
+  Plus,
+  Home,
+  BarChart2,
+  Upload,
+  AlertCircle,
+  Camera,
+  Pencil,
+  ArrowUpRight,
+  X,
+  Bot,
+  Mic,
+  Send,
+  Volume2,
+  Pause,
+  ChevronDown,
+  Building2,
+  Check,
+  Utensils
 } from 'lucide-react';
 import { useLayoutStore } from '../../../store/layout';
 import { useAuthStore } from '../../../store/auth';
@@ -17,7 +36,7 @@ import {
   getAllRestaurantsAction,
   createRestaurantAction,
   switchRestaurantAction,
-  getRestaurantAction,
+  getRestaurantAction
 } from '../settings/actions';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -35,7 +54,7 @@ interface Restaurant {
 function AddRestaurantModal({
   open,
   onClose,
-  onCreated,
+  onCreated
 }: {
   open: boolean;
   onClose: () => void;
@@ -49,24 +68,37 @@ function AddRestaurantModal({
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Reset form on open
   useEffect(() => {
-    if (open) { setName(''); setAddress(''); setPhone(''); setCurrency('EUR'); setError(null); }
+    if (open) {
+      setName('');
+      setAddress('');
+      setPhone('');
+      setCurrency('EUR');
+      setError(null);
+    }
   }, [open]);
 
   // Keyboard close
   useEffect(() => {
     if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [open, onClose]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) { setError('Restaurant name is required.'); return; }
+    if (!name.trim()) {
+      setError('Restaurant name is required.');
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
@@ -74,7 +106,7 @@ function AddRestaurantModal({
         name: name.trim(),
         address: address.trim() || undefined,
         phone: phone.trim() || undefined,
-        currency,
+        currency
       });
       onCreated(created);
       onClose();
@@ -95,10 +127,7 @@ function AddRestaurantModal({
       aria-label="Add Restaurant"
     >
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       {/* Card */}
       <div className="relative bg-card border border-border w-full max-w-md rounded-2xl shadow-2xl overflow-hidden z-10 font-sans">
@@ -110,7 +139,9 @@ function AddRestaurantModal({
             </div>
             <div>
               <h2 className="text-base font-bold text-foreground leading-tight">New Restaurant</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Add a new venue to your platform</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Add a new venue to your platform
+              </p>
             </div>
           </div>
           <button
@@ -146,7 +177,9 @@ function AddRestaurantModal({
 
           {/* Address */}
           <div className="space-y-1.5">
-            <label className="text-[11px] font-bold text-foreground/70 uppercase tracking-widest">Address</label>
+            <label className="text-[11px] font-bold text-foreground/70 uppercase tracking-widest">
+              Address
+            </label>
             <input
               value={address}
               onChange={(e) => setAddress(e.target.value)}
@@ -158,7 +191,9 @@ function AddRestaurantModal({
           {/* Phone + Currency */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-foreground/70 uppercase tracking-widest">Phone</label>
+              <label className="text-[11px] font-bold text-foreground/70 uppercase tracking-widest">
+                Phone
+              </label>
               <input
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
@@ -167,7 +202,9 @@ function AddRestaurantModal({
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-foreground/70 uppercase tracking-widest">Currency</label>
+              <label className="text-[11px] font-bold text-foreground/70 uppercase tracking-widest">
+                Currency
+              </label>
               <select
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value)}
@@ -224,8 +261,12 @@ export function UploadSheet({ open, onClose }: { open: boolean; onClose: () => v
   if (!open) return null;
   const opts = [
     { icon: Camera, label: 'Scan Invoice with Camera', sub: 'Capture a receipt or delivery note' },
-    { icon: Upload, label: 'Choose PDF / Photo from Files', sub: 'Select an existing file from your device' },
-    { icon: Pencil, label: 'Log Manual Expense', sub: 'Enter an expense or delivery note manually' },
+    {
+      icon: Upload,
+      label: 'Choose PDF / Photo from Files',
+      sub: 'Select an existing file from your device'
+    },
+    { icon: Pencil, label: 'Log Manual Expense', sub: 'Enter an expense or delivery note manually' }
   ];
   return (
     <>
@@ -235,8 +276,11 @@ export function UploadSheet({ open, onClose }: { open: boolean; onClose: () => v
         <h2 className="text-base font-semibold text-foreground mb-4">Add Document</h2>
         <div className="space-y-2.5 mb-4">
           {opts.map((o) => (
-            <button key={o.label} onClick={onClose}
-              className="w-full flex items-center gap-4 p-4 bg-muted/40 hover:bg-muted border border-border rounded-xl transition-colors text-left">
+            <button
+              key={o.label}
+              onClick={onClose}
+              className="w-full flex items-center gap-4 p-4 bg-muted/40 hover:bg-muted border border-border rounded-xl transition-colors text-left"
+            >
               <div className="w-10 h-10 bg-[#151515] rounded-xl flex items-center justify-center flex-shrink-0">
                 <o.icon size={18} className="text-white" />
               </div>
@@ -248,7 +292,12 @@ export function UploadSheet({ open, onClose }: { open: boolean; onClose: () => v
             </button>
           ))}
         </div>
-        <button onClick={onClose} className="w-full py-3 text-sm font-medium text-muted-foreground hover:bg-muted rounded-xl transition-colors border border-border">Cancel</button>
+        <button
+          onClick={onClose}
+          className="w-full py-3 text-sm font-medium text-muted-foreground hover:bg-muted rounded-xl transition-colors border border-border"
+        >
+          Cancel
+        </button>
       </div>
     </>
   );
@@ -271,11 +320,14 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
     setInput('');
     setLoading(true);
     setTimeout(() => {
-      setMsgs((p) => [...p, {
-        role: 'ai',
-        text: 'Based on your recent invoices, total beverage spend was €1,247.80 last week. The Limoncello price spike (+18%) is your primary cost pressure. Recommend reviewing the recipe margin for Limoncello Risotto — currently 38.5%, well above the 33% target.',
-        hasPlayback: true,
-      }]);
+      setMsgs((p) => [
+        ...p,
+        {
+          role: 'ai',
+          text: 'Based on your recent invoices, total beverage spend was €1,247.80 last week. The Limoncello price spike (+18%) is your primary cost pressure. Recommend reviewing the recipe margin for Limoncello Risotto — currently 38.5%, well above the 33% target.',
+          hasPlayback: true
+        }
+      ]);
       setLoading(false);
     }, 1200);
   };
@@ -290,18 +342,35 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
         i++;
         setStreamText(phrase.slice(0, i * 4));
         if (i * 4 < phrase.length) setTimeout(tick, 80);
-        else setTimeout(() => {
-          setStreamText(phrase + ' last week?');
-          setTimeout(() => { setVoice('idle'); send(phrase + ' last week?'); setStreamText(''); }, 700);
-        }, 400);
+        else
+          setTimeout(() => {
+            setStreamText(phrase + ' last week?');
+            setTimeout(() => {
+              setVoice('idle');
+              send(phrase + ' last week?');
+              setStreamText('');
+            }, 700);
+          }, 400);
       };
       tick();
     }, 2200);
   };
 
-  const stopListening = () => { setVoice('idle'); setStreamText(''); };
+  const stopListening = () => {
+    setVoice('idle');
+    setStreamText('');
+  };
 
-  const waveColors = ['#4edea3', '#1f8f5c', '#00a36b', '#4edea3', '#1f8f5c', '#4edea3', '#00a36b', '#1f8f5c'];
+  const waveColors = [
+    '#4edea3',
+    '#1f8f5c',
+    '#00a36b',
+    '#4edea3',
+    '#1f8f5c',
+    '#4edea3',
+    '#00a36b',
+    '#1f8f5c'
+  ];
   const waveDelays = [0, 0.12, 0.24, 0.08, 0.32, 0.16, 0.28, 0.04];
 
   if (!open) return null;
@@ -313,30 +382,51 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3.5 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${voice === 'listening' ? 'bg-[#b23a3a]' : 'bg-[#1f8f5c]'}`}>
+            <div
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${voice === 'listening' ? 'bg-[#b23a3a]' : 'bg-[#1f8f5c]'}`}
+            >
               <Bot size={15} className="text-white" />
             </div>
             <div>
               <p className="text-sm font-semibold text-foreground leading-none">AI Assistant</p>
-              <p className={`text-xs mt-0.5 transition-colors ${
-                voice === 'listening' ? 'text-[#b23a3a]' :
-                voice === 'streaming' ? 'text-[#b07a1a]' :
-                'text-[#1f8f5c]'
-              }`}>
-                {voice === 'listening' ? '● Listening…' : voice === 'streaming' ? '● Transcribing…' : voice === 'playback' ? '● Playing response' : 'Online · RAG-powered'}
+              <p
+                className={`text-xs mt-0.5 transition-colors ${
+                  voice === 'listening'
+                    ? 'text-[#b23a3a]'
+                    : voice === 'streaming'
+                      ? 'text-[#b07a1a]'
+                      : 'text-[#1f8f5c]'
+                }`}
+              >
+                {voice === 'listening'
+                  ? '● Listening…'
+                  : voice === 'streaming'
+                    ? '● Transcribing…'
+                    : voice === 'playback'
+                      ? '● Playing response'
+                      : 'Online · RAG-powered'}
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-muted rounded-lg transition-colors"><X size={17} className="text-muted-foreground" /></button>
+          <button onClick={onClose} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
+            <X size={17} className="text-muted-foreground" />
+          </button>
         </div>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {msgs.map((m, i) => (
-            <div key={i} className={`flex flex-col gap-1.5 ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-              <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                m.role === 'user' ? 'bg-secondary text-foreground rounded-br-sm' : 'bg-[#151515] text-white rounded-bl-sm dark:bg-[#2e2c26]'
-              }`}>
+            <div
+              key={i}
+              className={`flex flex-col gap-1.5 ${m.role === 'user' ? 'items-end' : 'items-start'}`}
+            >
+              <div
+                className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                  m.role === 'user'
+                    ? 'bg-secondary text-foreground rounded-br-sm'
+                    : 'bg-[#151515] text-white rounded-bl-sm dark:bg-[#2e2c26]'
+                }`}
+              >
                 {m.text}
               </div>
               {m.role === 'ai' && m.hasPlayback && (
@@ -345,18 +435,28 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
                     <>
                       <div className="flex items-end gap-0.5 h-4">
                         {[0, 1, 2, 3, 4].map((j) => (
-                          <div key={j} className="w-1 bg-[#1f8f5c] rounded-full origin-bottom animate-wave-bar"
-                            style={{ height: 14, animationDelay: `${j * 0.1}s` }} />
+                          <div
+                            key={j}
+                            className="w-1 bg-[#1f8f5c] rounded-full origin-bottom animate-wave-bar"
+                            style={{ height: 14, animationDelay: `${j * 0.1}s` }}
+                          />
                         ))}
                       </div>
                       <span className="text-xs text-[#1f8f5c]">Playing</span>
-                      <button onClick={() => setPlayingIdx(null)} className="w-5 h-5 bg-[#1f8f5c] rounded-full flex items-center justify-center">
+                      <button
+                        onClick={() => setPlayingIdx(null)}
+                        className="w-5 h-5 bg-[#1f8f5c] rounded-full flex items-center justify-center"
+                      >
                         <Pause size={9} className="text-white" />
                       </button>
                     </>
                   ) : (
-                    <button onClick={() => setPlayingIdx(i)} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-[#1f8f5c] transition-colors">
-                      <Volume2 size={13} /><span>Play response</span>
+                    <button
+                      onClick={() => setPlayingIdx(i)}
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-[#1f8f5c] transition-colors"
+                    >
+                      <Volume2 size={13} />
+                      <span>Play response</span>
                     </button>
                   )}
                 </div>
@@ -387,12 +487,21 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
           <div className="px-4 pt-4 pb-2 border-t border-border flex flex-col items-center gap-4 flex-shrink-0">
             <div className="flex items-center justify-center gap-1 h-10">
               {waveDelays.map((delay, i) => (
-                <div key={i} className="w-1.5 rounded-full origin-bottom animate-wave-bar"
-                  style={{ height: 32, backgroundColor: waveColors[i], animationDelay: `${delay}s` }} />
+                <div
+                  key={i}
+                  className="w-1.5 rounded-full origin-bottom animate-wave-bar"
+                  style={{
+                    height: 32,
+                    backgroundColor: waveColors[i],
+                    animationDelay: `${delay}s`
+                  }}
+                />
               ))}
             </div>
-            <button onClick={stopListening}
-              className="w-16 h-16 rounded-full bg-[#b23a3a] flex items-center justify-center shadow-xl animate-mic-glow">
+            <button
+              onClick={stopListening}
+              className="w-16 h-16 rounded-full bg-[#b23a3a] flex items-center justify-center shadow-xl animate-mic-glow"
+            >
               <X size={24} className="text-white" />
             </button>
             <p className="text-xs text-muted-foreground pb-2">Tap to stop recording</p>
@@ -404,26 +513,42 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
           <>
             <div className="px-4 pb-2 flex-shrink-0">
               <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
-                {['Last week spend?', 'Labor ratio?', 'Critical incidents?', 'Recipe margins?'].map((q) => (
-                  <button key={q} onClick={() => setInput(q)}
-                    className="text-xs bg-muted border border-border text-foreground px-3 py-1.5 rounded-full whitespace-nowrap hover:bg-[#151515] hover:text-white hover:border-transparent transition-colors dark:hover:bg-[#efede7] dark:hover:text-[#14130f]">
-                    {q}
-                  </button>
-                ))}
+                {['Last week spend?', 'Labor ratio?', 'Critical incidents?', 'Recipe margins?'].map(
+                  (q) => (
+                    <button
+                      key={q}
+                      onClick={() => setInput(q)}
+                      className="text-xs bg-muted border border-border text-foreground px-3 py-1.5 rounded-full whitespace-nowrap hover:bg-[#151515] hover:text-white hover:border-transparent transition-colors dark:hover:bg-[#efede7] dark:hover:text-[#14130f]"
+                    >
+                      {q}
+                    </button>
+                  )
+                )}
               </div>
             </div>
             <div className="p-4 border-t border-border flex-shrink-0">
               <div className="flex items-center gap-2 bg-muted rounded-xl px-3 py-2.5">
-                <button onClick={startListening}
+                <button
+                  onClick={startListening}
                   className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
-                    voice === 'streaming' ? 'bg-[#1f8f5c] text-white' : 'bg-background/80 text-muted-foreground hover:bg-[#1f8f5c] hover:text-white'
-                  }`}>
+                    voice === 'streaming'
+                      ? 'bg-[#1f8f5c] text-white'
+                      : 'bg-background/80 text-muted-foreground hover:bg-[#1f8f5c] hover:text-white'
+                  }`}
+                >
                   <Mic size={15} />
                 </button>
-                <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()}
+                <input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && send()}
                   placeholder="Ask anything about your venue…"
-                  className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground" />
-                <button onClick={() => send()} className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center flex-shrink-0 hover:opacity-90 transition-opacity">
+                  className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground"
+                />
+                <button
+                  onClick={() => send()}
+                  className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center flex-shrink-0 hover:opacity-90 transition-opacity"
+                >
                   <Send size={13} className="text-primary-foreground" />
                 </button>
               </div>
@@ -437,11 +562,7 @@ export function ChatPanel({ open, onClose }: { open: boolean; onClose: () => voi
 
 // ─── Restaurant Switcher (sidebar widget) ────────────────────────────────────
 
-function RestaurantSwitcher({
-  collapsed,
-}: {
-  collapsed: boolean;
-}) {
+function RestaurantSwitcher({ collapsed }: { collapsed: boolean }) {
   const { user, login, accessToken, apiClient } = useAuthStore();
   // Only SUPER_ADMIN can switch restaurants
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
@@ -490,12 +611,19 @@ function RestaurantSwitcher({
   };
 
   const handleSwitch = async (r: Restaurant) => {
-    if (r.id === user?.restaurant_id) { setOpen(false); return; }
+    if (r.id === user?.restaurant_id) {
+      setOpen(false);
+      return;
+    }
     setSwitching(r.id);
     try {
       await switchRestaurantAction(r.id);
       const profile = await apiClient.getMe();
-      login({ accessToken: accessToken || 'supertokens-active', refreshToken: 'supertokens-active', user: profile });
+      login({
+        accessToken: accessToken || 'supertokens-active',
+        refreshToken: 'supertokens-active',
+        user: profile
+      });
       setActiveRestaurantName(r.name);
       setOpen(false);
       window.location.reload();
@@ -542,7 +670,9 @@ function RestaurantSwitcher({
           <Utensils size={14} className="text-white" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[10px] text-white/40 font-semibold leading-none mb-0.5 uppercase tracking-widest">Active Restaurant</p>
+          <p className="text-[10px] text-white/40 font-semibold leading-none mb-0.5 uppercase tracking-widest">
+            Active Restaurant
+          </p>
           <p className="text-sm font-semibold text-white truncate leading-tight">{displayName}</p>
         </div>
         {canSwitch && (
@@ -557,7 +687,9 @@ function RestaurantSwitcher({
       {canSwitch && open && (
         <div className="absolute left-3 right-3 top-full mt-1.5 z-[100] bg-[#1c1c1e] border border-white/10 rounded-xl shadow-2xl overflow-hidden">
           <div className="px-3 py-2.5 border-b border-white/8">
-            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Your Restaurants</p>
+            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">
+              Your Restaurants
+            </p>
           </div>
 
           <div className="max-h-52 overflow-y-auto py-1">
@@ -570,15 +702,21 @@ function RestaurantSwitcher({
                   onClick={() => handleSwitch(r)}
                   disabled={isSwitching}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
-                    isActive ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/6 hover:text-white'
+                    isActive
+                      ? 'bg-white/10 text-white'
+                      : 'text-white/60 hover:bg-white/6 hover:text-white'
                   }`}
                 >
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${isActive ? 'bg-white/20' : 'bg-white/8'}`}>
+                  <div
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${isActive ? 'bg-white/20' : 'bg-white/8'}`}
+                  >
                     <Building2 size={12} className={isActive ? 'text-white' : 'text-white/40'} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{r.name}</p>
-                    {r.address && <p className="text-[10px] text-white/30 truncate mt-0.5">{r.address}</p>}
+                    {r.address && (
+                      <p className="text-[10px] text-white/30 truncate mt-0.5">{r.address}</p>
+                    )}
                   </div>
                   {isSwitching ? (
                     <div className="w-3.5 h-3.5 border border-white/30 border-t-white rounded-full animate-spin flex-shrink-0" />
@@ -597,13 +735,20 @@ function RestaurantSwitcher({
 
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 
-export function Sidebar({ logoutAction, userName }: { logoutAction: () => void; userName: string }) {
+export function Sidebar({
+  logoutAction,
+  userName
+}: {
+  logoutAction: () => void;
+  userName: string;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useAuthStore();
   const { sidebarCollapsed, setSidebarCollapsed, sidebarOpen, setSidebarOpen } = useLayoutStore();
 
-  const activeScreen = pathname === '/dashboard' ? 'dashboard' : pathname.replace('/dashboard/', '');
+  const activeScreen =
+    pathname === '/dashboard' ? 'dashboard' : pathname.replace('/dashboard/', '');
 
   const itemModuleMap: Record<string, string> = {
     dashboard: 'dashboard',
@@ -613,7 +758,7 @@ export function Sidebar({ logoutAction, userName }: { logoutAction: () => void; 
     products: 'products',
     recipes: 'recipes',
     labor: 'staff_costs',
-    settings: 'restaurant_settings',
+    settings: 'restaurant_settings'
   };
 
   const filteredNavItems = navItems.filter((item) => {
@@ -629,7 +774,10 @@ export function Sidebar({ logoutAction, userName }: { logoutAction: () => void; 
     <>
       {/* Mobile overlay */}
       {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setSidebarOpen(false)} />
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
       )}
 
       <aside
@@ -638,12 +786,16 @@ export function Sidebar({ logoutAction, userName }: { logoutAction: () => void; 
         } ${sidebarCollapsed ? 'md:w-[72px]' : 'w-[240px]'}`}
       >
         {/* ── Brand ── */}
-        <div className={`flex items-center gap-3 border-b border-white/10 flex-shrink-0 ${sidebarCollapsed ? 'px-4 py-4 justify-center' : 'px-5 py-4'}`}>
+        <div
+          className={`flex items-center gap-3 border-b border-white/10 flex-shrink-0 ${sidebarCollapsed ? 'px-4 py-4 justify-center' : 'px-5 py-4'}`}
+        >
           <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center flex-shrink-0">
             <Zap size={15} className="text-white" />
           </div>
           {!sidebarCollapsed && (
-            <span className="text-white font-semibold text-base leading-none">Hospitality Elite</span>
+            <span className="text-white font-semibold text-base leading-none">
+              Hospitality Elite
+            </span>
           )}
         </div>
 
@@ -652,14 +804,15 @@ export function Sidebar({ logoutAction, userName }: { logoutAction: () => void; 
           className="hidden md:flex absolute -right-3 top-[60px] w-6 h-6 bg-primary border border-white/20 rounded-full items-center justify-center hover:opacity-95 transition-all"
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
         >
-          <TrendingDown size={11} className={`text-white/65 transition-transform ${sidebarCollapsed ? '' : 'rotate-180'}`} />
+          <TrendingDown
+            size={11}
+            className={`text-white/65 transition-transform ${sidebarCollapsed ? '' : 'rotate-180'}`}
+          />
         </button>
 
         {/* ── Restaurant Switcher ── */}
         <div className="border-b border-white/10 flex-shrink-0">
-          <RestaurantSwitcher
-            collapsed={sidebarCollapsed}
-          />
+          <RestaurantSwitcher collapsed={sidebarCollapsed} />
         </div>
 
         {/* ── Nav ── */}
@@ -673,18 +826,20 @@ export function Sidebar({ logoutAction, userName }: { logoutAction: () => void; 
               }}
               title={sidebarCollapsed ? item.label : undefined}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left ${
-                activeScreen === item.id ? 'bg-white/15 text-white' : 'text-white/55 hover:text-white hover:bg-white/8'
+                activeScreen === item.id
+                  ? 'bg-white/15 text-white'
+                  : 'text-white/55 hover:text-white hover:bg-white/8'
               } ${sidebarCollapsed ? 'justify-center' : ''}`}
             >
               <item.icon size={17} className="flex-shrink-0" />
               {!sidebarCollapsed && (
                 <>
                   <span className="text-sm font-medium flex-1">{item.label}</span>
-                  {item.badge != null && (
+                  {/* {item.badge != null && (
                     <span className="text-[10px] bg-accent text-white px-1.5 py-0.5 rounded-full font-bold">
                       {item.badge > 9 ? '9+' : item.badge}
                     </span>
-                  )}
+                  )} */}
                 </>
               )}
             </button>
@@ -704,10 +859,16 @@ export function Sidebar({ logoutAction, userName }: { logoutAction: () => void; 
           ) : (
             <div className="flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-white/8 transition-colors group">
               <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                {userName.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                {userName
+                  .split(' ')
+                  .map((n) => n[0])
+                  .join('')
+                  .slice(0, 2)}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-white text-xs font-semibold truncate leading-tight">{userName}</div>
+                <div className="text-white text-xs font-semibold truncate leading-tight">
+                  {userName}
+                </div>
                 <div className="text-white/35 text-[10px] truncate mt-0.5 capitalize">
                   {user?.role?.replace(/_/g, ' ').toLowerCase() || 'Staff'}
                 </div>
@@ -733,15 +894,23 @@ export function TopBar() {
   const { setSidebarOpen, chatOpen, setChatOpen } = useLayoutStore();
   return (
     <div className="md:hidden flex items-center justify-between px-4 py-3 bg-card border-b border-border flex-shrink-0 font-sans">
-      <button onClick={() => setSidebarOpen(true)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
+      <button
+        onClick={() => setSidebarOpen(true)}
+        className="p-1.5 hover:bg-muted rounded-lg transition-colors"
+      >
         <Menu size={20} className="text-foreground" />
       </button>
       <div className="flex items-center gap-2">
-        <div className="w-6 h-6 bg-accent rounded-md flex items-center justify-center"><Zap size={11} className="text-white" /></div>
+        <div className="w-6 h-6 bg-accent rounded-md flex items-center justify-center">
+          <Zap size={11} className="text-white" />
+        </div>
         <span className="text-sm font-semibold text-foreground">Hospitality Elite</span>
       </div>
       <div className="flex items-center gap-1">
-        <button onClick={() => setChatOpen(!chatOpen)} className="p-1.5 hover:bg-muted rounded-lg transition-colors">
+        <button
+          onClick={() => setChatOpen(!chatOpen)}
+          className="p-1.5 hover:bg-muted rounded-lg transition-colors"
+        >
           <MessageSquare size={19} className="text-foreground" />
         </button>
       </div>
@@ -757,20 +926,21 @@ export function MobileNav() {
   const { user } = useAuthStore();
   const { fabOpen, setFabOpen } = useLayoutStore();
 
-  const activeScreen = pathname === '/dashboard' ? 'dashboard' : pathname.replace('/dashboard/', '');
+  const activeScreen =
+    pathname === '/dashboard' ? 'dashboard' : pathname.replace('/dashboard/', '');
 
   const items = [
     { id: 'dashboard', label: 'Home', icon: Home },
     { id: 'recipes', label: 'Metrics', icon: BarChart2 },
     { id: 'documents', label: 'Uploads', icon: Upload },
-    { id: 'review', label: 'Alert', icon: AlertCircle },
+    { id: 'review', label: 'Alert', icon: AlertCircle }
   ];
 
   const itemModuleMap: Record<string, string> = {
     dashboard: 'dashboard',
     recipes: 'recipes',
     documents: 'documents',
-    review: 'incidents',
+    review: 'incidents'
   };
 
   const filteredItems = items.filter((item) => {
@@ -786,14 +956,20 @@ export function MobileNav() {
   const leftItems = filteredItems.slice(0, half);
   const rightItems = filteredItems.slice(half);
 
-  const canUpload = user?.role?.toUpperCase() === 'SUPER_ADMIN' || user?.permissions?.documents?.create === true;
+  const canUpload =
+    user?.role?.toUpperCase() === 'SUPER_ADMIN' || user?.permissions?.documents?.create === true;
 
   return (
     <div className="fixed bottom-5 left-4 right-4 md:hidden z-30 font-sans">
       <div className="bg-card rounded-full shadow-xl border border-border flex items-center justify-between px-4 py-2 relative">
         {leftItems.map((item) => (
-          <button key={item.id} onClick={() => router.push(item.id === 'dashboard' ? '/dashboard' : `/dashboard/${item.id}`)}
-            className={`flex flex-col items-center gap-0.5 p-1.5 transition-colors ${activeScreen === item.id ? 'text-[#151515] dark:text-[#efede7]' : 'text-muted-foreground'}`}>
+          <button
+            key={item.id}
+            onClick={() =>
+              router.push(item.id === 'dashboard' ? '/dashboard' : `/dashboard/${item.id}`)
+            }
+            className={`flex flex-col items-center gap-0.5 p-1.5 transition-colors ${activeScreen === item.id ? 'text-[#151515] dark:text-[#efede7]' : 'text-muted-foreground'}`}
+          >
             <item.icon size={20} />
             <span className="text-[9px] font-semibold">{item.label}</span>
           </button>
@@ -801,11 +977,16 @@ export function MobileNav() {
 
         {canUpload ? (
           <div className="relative -mt-8">
-            <button onClick={() => setFabOpen(!fabOpen)}
+            <button
+              onClick={() => setFabOpen(!fabOpen)}
               className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg ring-4 ring-[#fafaf8] dark:ring-[#14130f] transition-all duration-200 ${
                 fabOpen ? 'bg-[#b23a3a] rotate-45' : 'bg-primary hover:opacity-90'
-              }`}>
-              <Plus size={24} className="text-primary-foreground transition-transform duration-200" />
+              }`}
+            >
+              <Plus
+                size={24}
+                className="text-primary-foreground transition-transform duration-200"
+              />
             </button>
           </div>
         ) : (
@@ -813,11 +994,16 @@ export function MobileNav() {
         )}
 
         {rightItems.map((item) => (
-          <button key={item.id} onClick={() => router.push(`/dashboard/${item.id}`)}
-            className={`flex flex-col items-center gap-0.5 p-1.5 transition-colors relative ${activeScreen === item.id ? 'text-[#151515] dark:text-[#efede7]' : 'text-muted-foreground'}`}>
+          <button
+            key={item.id}
+            onClick={() => router.push(`/dashboard/${item.id}`)}
+            className={`flex flex-col items-center gap-0.5 p-1.5 transition-colors relative ${activeScreen === item.id ? 'text-[#151515] dark:text-[#efede7]' : 'text-muted-foreground'}`}
+          >
             <item.icon size={20} />
             <span className="text-[9px] font-semibold">{item.label}</span>
-            {item.id === 'review' && <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-[#b23a3a] rounded-full border border-card" />}
+            {item.id === 'review' && (
+              <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-[#b23a3a] rounded-full border border-card" />
+            )}
           </button>
         ))}
       </div>
