@@ -36,6 +36,10 @@ import os
 import fitz  # PyMuPDF, for rasterizing scanned PDF pages
 import pdfplumber
 
+# Suppress harmless internal formatting warnings from pdfminer when parsing messy native PDFs
+import logging
+logging.getLogger("pdfminer").setLevel(logging.ERROR)
+
 # Tokens with a recognition score below this count toward low_conf_ratio.
 # Same value triage.py uses internally for its handwriting heuristic — kept
 # here as the single source of truth, imported by triage.py rather than
@@ -97,7 +101,7 @@ def _get_paddleocr():
                     ocr_version="PP-OCRv4",         # Latest open-source OCR models
                     use_doc_unwarping=False,
                     lang="latin",                    # 'latin' provides better support for Spanish accents, € signs, etc.
-                    text_det_limit_side_len=1536,   # replaces det_limit_side_len
+                    text_det_limit_side_len=4096,   # replaces det_limit_side_len
                     text_det_limit_type="max",       # replaces det_limit_type
                     text_det_thresh=0.2,             # replaces det_db_thresh
                     text_det_box_thresh=0.4,         # replaces det_db_box_thresh
@@ -227,8 +231,10 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
         overlap_h = min(int(h * 0.6), 2000)
         if margin_h == 0 or margin_w == 0: return ""
         crops = [
-            image[0:margin_h, 0:overlap_w].copy(),         # Top Left  ← most important (supplier header)
-            image[0:margin_h, w-overlap_w:w].copy(),       # Top Right ← important (CIF often right-aligned)
+            image[0:margin_h, 0:w].copy(),                 # Top Full (catches long lines spanning the whole top)
+            image[h-margin_h:h, 0:w].copy(),               # Bottom Full
+            image[0:margin_h, 0:overlap_w].copy(),         # Top Left
+            image[0:margin_h, w-overlap_w:w].copy(),       # Top Right
             image[h-margin_h:h, 0:overlap_w].copy(),       # Bottom Left
             image[h-margin_h:h, w-overlap_w:w].copy(),     # Bottom Right
             image[0:overlap_h, 0:margin_w].copy(),         # Left Top
@@ -272,9 +278,9 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
                     marginal_texts.append(t)
 
             # ── Pass 2: binary boost — finds tiny/faint text like CIF numbers ──
-            # Only run this expensive pass on the top 2 crops (supplier header/CIF area)
-            # Running this on all 8 crops for large invoices takes > 70 seconds.
-            if i < 2:
+            # Only run this expensive pass on the top header crops (i=0 is Top Full, i=2 is Top Left, i=3 is Top Right)
+            pass2_img = None
+            if i in (0, 2, 3):
                 # Convert to grayscale → upscale 2x → adaptive threshold → run OCR
                 try:
                     gray_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if len(crop.shape) == 3 else crop
@@ -288,6 +294,26 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
                     )
                     pass2_img = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
                     for t in _run_ocr_on_crop(pass2_img):
+                        if t and t not in seen_texts:
+                            seen_texts.add(t)
+                            marginal_texts.append(t)
+                except Exception:
+                    pass
+
+            # ── Pass 3: Sideways text (90 degree rotation) ──
+            # Receipts often have CIF/VAT printed vertically along the edge
+            # Run this on the Top and Bottom crops (i < 6 covers Full and Left/Right splits for Top/Bottom)
+            if i < 6:
+                try:
+                    img_to_rotate = pass2_img if pass2_img is not None else pass1_img
+                    rotated_cw = cv2.rotate(img_to_rotate, cv2.ROTATE_90_CLOCKWISE)
+                    for t in _run_ocr_on_crop(rotated_cw):
+                        if t and t not in seen_texts:
+                            seen_texts.add(t)
+                            marginal_texts.append(t)
+                    
+                    rotated_ccw = cv2.rotate(img_to_rotate, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                    for t in _run_ocr_on_crop(rotated_ccw):
                         if t and t not in seen_texts:
                             seen_texts.add(t)
                             marginal_texts.append(t)
@@ -492,14 +518,20 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
         avg_bottom = sum(bottom_x) / len(bottom_x) if bottom_x else (w_img / 2)
         
         import logging
-        if avg_top > avg_bottom:
-            # Top of receipt is on the right (max X). Rotate counter-clockwise to bring it to the top.
+        # Only trigger rotation direction if there is a clear separation (> 20% of width)
+        # to prevent false positives from weirdly formatted tables
+        if avg_top > avg_bottom + (w_img * 0.2):
+            # Top of receipt is clearly on the right
             logging.getLogger("invoice_pipeline").info("Detected sideways text (Clockwise). Rotating counter-clockwise to upright...")
             img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-        else:
-            # Top of receipt is on the left (min X). Rotate clockwise to bring it to the top.
+        elif avg_bottom > avg_top + (w_img * 0.2):
+            # Top of receipt is clearly on the left
             logging.getLogger("invoice_pipeline").info("Detected sideways text (Counter-clockwise). Rotating clockwise to upright...")
             img = cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+        else:
+            # Ambiguous or no clear keywords. Default to counter-clockwise as a safe guess for most phone photos
+            logging.getLogger("invoice_pipeline").info("Sideways text direction ambiguous. Defaulting to counter-clockwise...")
+            img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
         res = _do_ocr(ocr, img)
         
@@ -523,21 +555,36 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
     # Check for 180-degree upside-down orientation (Works universally for ALL invoice types)
     top_words = ["factura", "fecha", "date", "invoice", "albara", "albarán", "cliente", "client", "cif", "nif", "nombre", "s.a.", "s.l.", "tel", "tlf", "www"]
     bottom_words = ["total", "importe", "iva", "tax", "subtotal", "efectivo", "tarjeta", "cambio", "gracias", "visita"]
+    import logging
+    logger = logging.getLogger("invoice_pipeline")
+    
     top_y = []
     bottom_y = []
+    top_matched_words = []
+    bottom_matched_words = []
     for line in lines:
         text = line[1][0].lower()
         y_center = sum(pt[1] for pt in line[0]) / 4.0
-        if any(w in text for w in top_words):
+        
+        is_top = any(w in text for w in top_words)
+        is_bottom = any(w in text for w in bottom_words)
+        
+        if is_top and not is_bottom:
             top_y.append(y_center)
-        if any(w in text for w in bottom_words):
+            top_matched_words.append(text)
+        if is_bottom and not is_top:
             bottom_y.append(y_center)
+            bottom_matched_words.append(text)
             
     avg_top = sum(top_y) / len(top_y) if top_y else 0
     avg_bottom = sum(bottom_y) / len(bottom_y) if bottom_y else h_img
     
-    # If the "top" words are physically below the "bottom" words in the image, it's upside down
-    if avg_top > avg_bottom + (h_img * 0.1) and top_y and bottom_y:
+    logger.info(f"Orientation Debug -> h_img: {h_img}, avg_top: {avg_top:.1f}, avg_bottom: {avg_bottom:.1f}")
+    logger.info(f"Top matches: {top_matched_words}")
+    logger.info(f"Bottom matches: {bottom_matched_words}")
+    
+    # If the "top" words are clearly in the bottom half and "bottom" words in the top half, it's upside down
+    if avg_top > (h_img * 0.6) and avg_bottom < (h_img * 0.4) and top_y and bottom_y:
         import logging
         logging.getLogger("invoice_pipeline").info("Detected upside-down text. Inverting coordinates mathematically...")
         for line in lines:
@@ -616,8 +663,17 @@ def _run_paddle_on_image_bytes(image_bytes: bytes) -> PageResult:
             
             # If at least 40% of this item overlaps vertically with the line, it belongs here
             if overlap_height > (item_h * 0.4):
-                matched_line = line
-                break
+                # Wait, check for horizontal collision! Two words in the same column can't be on the same line.
+                horizontal_collision = False
+                for e in line:
+                    h_overlap = min(e["max_x"], item["max_x"]) - max(e["x"], item["x"])
+                    if h_overlap > (min(e["max_x"] - e["x"], item["max_x"] - item["x"]) * 0.3):
+                        horizontal_collision = True
+                        break
+                
+                if not horizontal_collision:
+                    matched_line = line
+                    break
                 
         if matched_line:
             matched_line.append(item)
@@ -687,7 +743,14 @@ def _pdf_has_text_layer(pdf_path: str, min_chars: int = 30) -> bool:
 def extract_text_pdf_native(pdf_path: str) -> PageResult:
     """Extract text from a native PDF using PyMuPDF word blocks.
     Words are sorted spatially (top-to-bottom, left-to-right) and grouped
-    into lines by Y-proximity, preserving multi-column layout cleanly."""
+    into lines by Y-proximity, preserving multi-column layout cleanly.
+
+    Two-column detection: if a visual line has a large horizontal gap between
+    the left cluster and the right cluster (>= 25% of page width), the line is
+    split and emitted as separate [LEFT COLUMN] / [RIGHT COLUMN] sections so
+    the LLM can clearly separate supplier address (left) from customer address
+    (right) without mixing them.
+    """
     tokens: List[Token] = []
     page_texts: List[str] = []
 
@@ -697,6 +760,8 @@ def extract_text_pdf_native(pdf_path: str) -> PageResult:
             words = page.get_text("words")
             if not words:
                 continue
+
+            page_w = page.rect.width or 595  # A4 fallback
 
             # Sort top→bottom, left→right
             words.sort(key=lambda w: (round(w[1], 0), w[0]))
@@ -717,16 +782,70 @@ def extract_text_pdf_native(pdf_path: str) -> PageResult:
             if cur_line:
                 lines.append(cur_line)
 
+            # ------------------------------------------------------------------
+            # Detect two-column blocks: collect consecutive lines that all have
+            # a large horizontal gap, then emit them as labelled columns.
+            # ------------------------------------------------------------------
+            COL_GAP_THRESHOLD = page_w * 0.25  # 25 % of page width
+
+            def _split_two_columns(line_words):
+                """Return (left_words, right_words) if a big gap exists, else (line_words, None)."""
+                if len(line_words) < 2:
+                    return line_words, None
+                # Find largest gap between consecutive word right-edge and next word left-edge
+                sorted_w = sorted(line_words, key=lambda w: w[0])
+                max_gap = 0.0
+                split_idx = -1
+                for i in range(len(sorted_w) - 1):
+                    gap = sorted_w[i + 1][0] - sorted_w[i][2]  # next x0 - cur x1
+                    if gap > max_gap:
+                        max_gap = gap
+                        split_idx = i + 1
+                if max_gap >= COL_GAP_THRESHOLD:
+                    return sorted_w[:split_idx], sorted_w[split_idx:]
+                return line_words, None
+
+            # Group consecutive two-column lines into a block
             page_lines: List[str] = []
-            for line in lines:
-                line.sort(key=lambda w: w[0])   # left→right
-                page_lines.append(" ".join(w[4] for w in line))
-                for w in line:
-                    tokens.append(Token(
-                        text=w[4],
-                        bbox=(w[0], w[1], w[2], w[3]),
-                        confidence=1.0,
-                    ))
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                line.sort(key=lambda w: w[0])
+                left_w, right_w = _split_two_columns(line)
+                if right_w is not None:
+                    # Start collecting a two-column block
+                    left_col_lines: List[str] = []
+                    right_col_lines: List[str] = []
+                    while i < len(lines):
+                        l = lines[i]
+                        l.sort(key=lambda w: w[0])
+                        lw, rw = _split_two_columns(l)
+                        if rw is None:
+                            break
+                        left_col_lines.append(" ".join(w[4] for w in lw))
+                        right_col_lines.append(" ".join(w[4] for w in rw))
+                        for w in lw + rw:
+                            tokens.append(Token(
+                                text=w[4],
+                                bbox=(w[0], w[1], w[2], w[3]),
+                                confidence=1.0,
+                            ))
+                        i += 1
+                    # Emit with explicit column labels
+                    page_lines.append("[LEFT COLUMN]")
+                    page_lines.extend(left_col_lines)
+                    page_lines.append("[RIGHT COLUMN]")
+                    page_lines.extend(right_col_lines)
+                    page_lines.append("[END COLUMNS]")
+                else:
+                    page_lines.append(" ".join(w[4] for w in line))
+                    for w in line:
+                        tokens.append(Token(
+                            text=w[4],
+                            bbox=(w[0], w[1], w[2], w[3]),
+                            confidence=1.0,
+                        ))
+                    i += 1
 
             page_texts.append("\n".join(page_lines))
 
