@@ -437,8 +437,21 @@ export class ApiClient {
     return res.data;
   }
 
-  async updateProduct(productId: string, data: ProductUpdatePayload): Promise<ProductDetail> {
+  async updateProduct(productId: string, data: any): Promise<ProductDetail> {
     const res = await this.instance.patch<ProductDetail>(`/products/${productId}`, data);
+    return res.data;
+  }
+
+  async deleteProduct(productId: string): Promise<void> {
+    await this.instance.delete(`/products/${productId}`);
+  }
+
+  async bulkDeleteProducts(productIds: string[]): Promise<void> {
+    await this.instance.post('/products/bulk-delete', { product_ids: productIds });
+  }
+
+  async mergeProduct(masterProductId: string, sourceProductId: string): Promise<any> {
+    const res = await this.instance.post(`/products/${masterProductId}/merge`, { source_product_id: sourceProductId });
     return res.data;
   }
 

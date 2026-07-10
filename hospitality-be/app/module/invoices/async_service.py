@@ -2,12 +2,15 @@ import logging
 import json
 import random
 import asyncio
+import uuid
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlalchemy.future import select
 
 from app.module.invoices.model import Supplier, SuppliedProduct, ProductCostHistory, Invoice, InvoiceLine, InvoiceTaxBracket
+from app.module.products.mapping_service import match_invoice_items
+from app.module.products.model import Product
 from app.module.recipes.model import Recipe, RecipeIngredient
 from app.module.incidents.model import OperationalIncident
 from app.core.config import PRICE_SPIKE_THRESHOLD, PRICE_SPIKE_HIGH_THRESHOLD
@@ -59,7 +62,6 @@ async def async_save_ocr_invoice(
             name=supplier_name or "Unknown Supplier",  # Only default to "Unknown" if creating new
             vat_id=supplier_tax_id,
             address=supplier_address,
-            contact_info=supplier_contact_info,
             legal_name=supplier_legal_name,
             contacts=supplier_contacts_count or 0,
             restaurant_id=restaurant_id,
@@ -76,8 +78,6 @@ async def async_save_ocr_invoice(
             supplier.name = supplier_name
         if supplier_address and not supplier.address:
             supplier.address = supplier_address
-        if supplier_contact_info and not supplier.contact_info:
-            supplier.contact_info = supplier_contact_info
         if supplier_legal_name and not supplier.legal_name:
             supplier.legal_name = supplier_legal_name
         if supplier_contacts_count and supplier.contacts_count < supplier_contacts_count:
@@ -171,14 +171,29 @@ async def async_save_ocr_invoice(
 
     processed_lines = []
 
-    # --- Process each line item ---
+    # --- Phase 2: AI Product Mapping for new Products Module ---
+    # Prepare items for mapping
+    items_to_map = []
     for line in getattr(ocr_invoice, 'items', []):
-        description = getattr(line, 'product', "Unknown Item")
-        quantity = getattr(line, 'quantity', 0.0)
+        items_to_map.append({
+            "name": getattr(line, 'product', "Unknown Item") or "Unknown Item",
+            "price": getattr(line, 'grossPrice', 0.0) or 0.0,
+            "line_ref": line
+        })
+    
+    mapped_items = await match_invoice_items(db, current_supplier_id, items_to_map, invoice_id)
+    
+    # We no longer create Product records here. 
+    # Product creation is deferred to the digitization phase (needs_review = False).
+
+    # --- Phase 3: Process each line item for legacy SuppliedProduct/InvoiceLine ---
+    for line in getattr(ocr_invoice, 'items', []):
+        description = getattr(line, 'product', "Unknown Item") or "Unknown Item"
+        quantity = getattr(line, 'quantity', 0.0) or 0.0
         gp = getattr(line, 'grossPrice', None)
         np = getattr(line, 'nominalPrice', None)
         unit_price = gp if gp is not None else (np if np is not None else 0.0)
-        total_price = getattr(line, 'base', 0.0)
+        total_price = getattr(line, 'base', 0.0) or 0.0
         sku = getattr(line, 'providerCode', None)
 
         # Find or create SuppliedProduct
@@ -277,7 +292,7 @@ async def async_save_ocr_invoice(
             quantity=quantity,
             unit_price=unit_price,
             total_price=total_price,
-            product_id=product.id,
+            product_id=product.id if product else None,
             # OCR-specific fields
             provider_code=sku,
             product=description,
@@ -292,17 +307,30 @@ async def async_save_ocr_invoice(
             gra=getattr(line, 'gra', None),
             u_m=getattr(line, 'u_m', None),
         )
+        
+        # Populate AI Suggested Match if available in mapped_items
+        for mapped in mapped_items:
+            if mapped["name"] == description:
+                if mapped.get("match_type") == "llm" and mapped.get("matched_product_id"):
+                    invoice_line.suggested_product_id = mapped.get("matched_product_id")
+                    invoice_line.suggested_confidence = mapped.get("confidence")
+                break
+                
         db.add(invoice_line)
         
-        current_product_id = product.id
-        current_product_sku = product.sku
-        current_product_name = product.name
+        current_product_id = product.id if product else None
+        current_product_sku = product.sku if product else None
+        current_product_name = product.name if product else None
         
         await db.commit()
         await db.refresh(invoice_line)
+        
+        invoice_line_id = invoice_line.id
+
+        # (Product quantity/total updating is deferred to the digitization phase)
 
         processed_lines.append({
-            "id": invoice_line.id,
+            "id": invoice_line_id,
             "invoice_id": current_invoice_id,
             "description": description,
             "quantity": quantity,
@@ -351,6 +379,19 @@ async def async_save_ocr_invoice(
         db.add(bracket)
     await db.commit()
 
+    # If the OCR engine was highly confident and review is not needed, digitize immediately!
+    if not current_needs_review:
+        from app.db.session import engine
+        from sqlmodel import Session
+        from app.module.products.service import digitize_invoice_products
+        import asyncio
+        
+        def _sync_digitize():
+            with Session(engine) as sync_db:
+                digitize_invoice_products(sync_db, current_invoice_id)
+        
+        await asyncio.to_thread(_sync_digitize)
+
     return {
         "invoiceId": current_invoice_id,
         "invoiceNumber": current_invoice_number,
@@ -381,7 +422,7 @@ async def async_process_invoice_upload(
     from app.module.ai.service import ai_service
 
     # 1. Ask Gemini to extract structured invoice JSON (run in threadpool to avoid blocking event loop)
-    logger.info(f"Submitting invoice file to Gemini parser for invoice ID: {invoice_id}")
+    logger.warning(f"Submitting invoice file to Gemini parser for invoice ID: {invoice_id}")
     parsed_data = await asyncio.to_thread(ai_service.parse_invoice, file_bytes, mime_type)
 
     invoice_number = parsed_data.get("invoiceNumber")

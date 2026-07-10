@@ -183,6 +183,7 @@ class ProductDetail(BaseModel):
     category_id: Optional[str] = None
     app_category_id: Optional[str] = None
     category: Optional[CategoryRead] = None
+    app_category: Optional[Dict[str, Any]] = None
     suppliers: List[Dict[str, Any]] = []
     formats: List[ProductFormatRow] = []
     price_stats: Optional[PriceStats] = None
@@ -240,6 +241,11 @@ class ReviewQueueResponse(BaseModel):
 class UnifyRequest(BaseModel):
     """Request body for POST /products/review-queue/{line_id}/unify."""
     product_id: str = Field(..., description="Existing product ID to merge this line into (prod~...)")
+
+
+class ProductMergeRequest(BaseModel):
+    """Request body for manually merging one product into another."""
+    source_product_id: str = Field(..., description="The ID of the product that will be merged into the master product and hidden.")
 
 
 # ---------------------------------------------------------------------------

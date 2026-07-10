@@ -66,22 +66,36 @@ async def on_startup():
     logger.info("Skipping SQL Database schema creation (managed by Alembic)")
     # init_db()
     # Initialize Qdrant Collection
-    logger.info("Initializing Qdrant Vector Collection...")
-    init_qdrant()
+    try:
+        logger.info("Initializing Qdrant Vector Collection...")
+        init_qdrant()
+    except Exception as e:
+        logger.error(f"Failed to initialize Qdrant: {e}")
+        
     # Initialize MinIO Bucket
-    logger.info("Initializing MinIO Bucket...")
-    init_minio()
+    try:
+        logger.info("Initializing MinIO Bucket...")
+        init_minio()
+    except Exception as e:
+        logger.error(f"Failed to initialize MinIO: {e}")
+
     # Create default roles in SuperTokens core
     await create_roles_if_not_exist()
     logger.info("Startup complete. Service is running.")
 
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from supertokens_python.exceptions import SuperTokensError
+
 # Global Exception handler for unhandled errors
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, (StarletteHTTPException, RequestValidationError, SuperTokensError)):
+        raise exc
     logger.error(f"Unhandled exception occurred on path {request.url.path}: {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"status": "error", "message": "An internal server error occurred."}
+        content={"status": "error", "message": f"An internal server error occurred: {str(exc)}"}
     )
 
 # Root status check

@@ -28,7 +28,7 @@ from app.module.payroll.model import StaffPosition, StaffRole, StaffEmployee, Mo
 from app.module.categories.model import Category
 from app.module.products.model import (
     ExpenseCategory, Product, ProductSupplier,
-    ReferencedItem, ProductReference, ProductFormat,
+    ProductAlias, ProductFormat,
     Inventory, InventoryItem,
 )
 
